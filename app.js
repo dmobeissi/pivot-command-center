@@ -3,6 +3,7 @@ const STATUSES=["To Do","In Progress","Review","Done","On Hold"];
 const PRIOS=["High","Medium","Low"];
 const LIFE=["Lead","Active","Paused","Churned","Lost","Internal"];
 const PAY=["Paid","Partial","Unpaid","Voided","Cancelled"];
+const PAYOUT_STATUS=["Pending","Paid"];
 const DIRS=["Income","Expense"];
 const EXPCATS=["Salary","Software","Advertising","Freelancer","Partner Payout","Domain / Hosting","Tax","Office","Other Expense"];
 const TEAM_ACTIVE=["Daoud","Zawar","Arafa"];const TEAM_ARCHIVED=["Amr","Maisoun","Bilal"];let TEAM=[...TEAM_ACTIVE,...TEAM_ARCHIVED];
@@ -26,7 +27,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v18 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v19 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -182,9 +183,11 @@ const sCls=s=>({"To Do":"s-todo","In Progress":"s-prog","Review":"s-review","Don
 const opts=(list,sel)=>list.map(o=>`<option${o===sel?" selected":""}>${esc(o)}</option>`).join("");
 const brandOpts=sel=>`<option value="">—</option>`+store.accounts.filter(a=>a.id===sel||(a.lifecycle!=="Churned"&&a.lifecycle!=="Lost")).map(a=>`<option value="${esc(a.id)}"${a.id===sel?" selected":""}>${esc(a.brand)}</option>`).join("");
 function activeOwners(cur){const a=[...TEAM_ACTIVE];if(cur&&!a.includes(cur))a.push(cur);return a;}
+function accountOpts(sel,excludeId){return `<option value="">— none —</option>`+[...store.accounts].filter(a=>a.id!==excludeId).sort((x,y)=>(x.brand||'').localeCompare(y.brand||'')).map(a=>`<option value="${esc(a.id)}"${a.id===sel?" selected":""}>${esc(a.brand)}</option>`).join("");}
 const CMAP={status:{"To Do":["var(--hold-soft)","var(--hold)"],"In Progress":["var(--warn-soft)","var(--warn)"],"Review":["var(--accent-soft)","var(--accent)"],"Done":["var(--good-soft)","var(--good)"],"On Hold":["var(--hold-soft)","var(--hold)"]},
   priority:{High:["var(--bad-soft)","var(--bad)"],Medium:["var(--warn-soft)","var(--warn)"],Low:["var(--good-soft)","var(--good)"]},
   pay:{Paid:["var(--good-soft)","var(--good)"],Partial:["var(--warn-soft)","var(--warn)"],Unpaid:["var(--bad-soft)","var(--bad)"],Voided:["var(--hold-soft)","var(--hold)"],Cancelled:["var(--hold-soft)","var(--hold)"]},
+  payout:{Pending:["var(--warn-soft)","var(--warn)"],Paid:["var(--good-soft)","var(--good)"]},
   life:{Active:["var(--good-soft)","var(--good)"],Lead:["var(--info-soft)","var(--info)"],Paused:["var(--warn-soft)","var(--warn)"],Churned:["var(--hold-soft)","var(--hold)"],Lost:["var(--bad-soft)","var(--bad)"],Internal:["var(--accent-soft)","var(--accent)"]}};
 function cstyle(kind,val){const c=(CMAP[kind]||{})[val];return c?`background:${c[0]};color:${c[1]}`:"";}
 function csel(kind,coll,id,field,val,list,ro){return `<select class="edit csel" data-color="${kind}" data-c="${coll}" data-id="${esc(id)}" data-f="${field}" style="${cstyle(kind,val)}" ${ro}>${opts(list,val)}</select>`;}
@@ -299,7 +302,8 @@ function renderMoneyDash(){
     const billed=Mall.filter(m=>m.dir==='Income'&&!voided(m)&&inR(m,from,to)).reduce((a,m)=>a+(+m.amt||0),0);
     const collected=Mall.filter(m=>m.dir==='Income'&&m.status==='Paid'&&paidR(m,from,to)).reduce((a,m)=>a+(+m.amt||0),0);
     const expenses=Math.abs(Mall.filter(m=>m.dir==='Expense'&&inR(m,from,to)).reduce((a,m)=>a+(+m.amt||0),0));
-    return {billed,collected,expenses,net:collected-expenses};};
+    const payouts=Math.abs(Mall.filter(m=>m.dir==='Payout'&&m.status==='Paid'&&paidR(m,from,to)).reduce((a,m)=>a+(+m.amt||0),0));
+    return {billed,collected,expenses,payouts,net:collected-expenses-payouts};};
   const cur=agg(R.from,R.to),prev=C?agg(C.from,C.to):null;
   const rate=cur.billed?Math.round(cur.collected/cur.billed*100):0;
   const prevRate=prev&&prev.billed?Math.round(prev.collected/prev.billed*100):null;
@@ -311,14 +315,20 @@ function renderMoneyDash(){
   const topCat=Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,7).map(([l,v])=>({l,v}));
   const series=moneySeries(R.from,R.to);
   const M2=moneyF();const bm={};
-  M2.forEach(m=>{const b=brandOf(m.acct);if(!b)return;if(!bm[b])bm[b]={rev:0,cost:0};if(m.dir==='Income'&&m.status==='Paid')bm[b].rev+=(+m.amt||0);else if(m.dir==='Expense')bm[b].cost+=Math.abs(+m.amt||0);});
+  M2.forEach(m=>{const b=brandOf(m.acct);if(!b)return;if(!bm[b])bm[b]={rev:0,cost:0};if(m.dir==='Income'&&m.status==='Paid')bm[b].rev+=(+m.amt||0);else if(m.dir==='Expense'||m.dir==='Payout')bm[b].cost+=Math.abs(+m.amt||0);});
+  const cashIn=store.money.filter(m=>m.dir==='Income'&&m.status==='Paid').reduce((s,m)=>s+(+m.amt||0),0);
+  const cashExp=Math.abs(store.money.filter(m=>m.dir==='Expense').reduce((s,m)=>s+(+m.amt||0),0));
+  const cashPayPaid=Math.abs(store.money.filter(m=>m.dir==='Payout'&&m.status==='Paid').reduce((s,m)=>s+(+m.amt||0),0));
+  const cashOnHand=cashIn-cashExp-cashPayPaid;
+  const payPending=Math.abs(store.money.filter(m=>m.dir==='Payout'&&m.status!=='Paid').reduce((s,m)=>s+(+m.amt||0),0));
   const marginRows=Object.entries(bm).map(([l,o])=>({l,v:o.rev-o.cost})).filter(x=>x.v!==0).sort((a,b)=>b.v-a.v).slice(0,8);
   const age={cur:0,b30:0,b60:0,b60p:0};
   M2.filter(owed).forEach(m=>{const amt=+m.amt||0;if(!m.due||m.due>=todayISO){age.cur+=amt;return;}const d=daysBetween(m.due,todayISO);if(d<=30)age.b30+=amt;else if(d<=60)age.b60+=amt;else age.b60p+=amt;});
   $('view').innerHTML=`<div class="view">
     ${rangeBar()}
     <div style="margin:-4px 0 12px;display:flex"><span style="flex:1"></span><button class="ghost" id="repBtn">Generate report</button></div>
-    <div class="kpis">${kpi("Collected","KD "+KD(cur.collected),"good",prev?delta(cur.collected,prev.collected,true):"")}${kpi("Billed","KD "+KD(cur.billed),"accent",prev?delta(cur.billed,prev.billed,true):"")}${kpi("Expenses","KD "+KD(cur.expenses),"warn",prev?delta(cur.expenses,prev.expenses,false):"")}${kpi("Net","KD "+KD(cur.net),"accent",prev?delta(cur.net,prev.net,true):"")}${kpi("Collection rate",rate+"%","good",prevRate!=null?delta(rate,prevRate,true):"")}</div>
+    <div class="kpis"><div class="kpi good" style="grid-column:span 2"><span class="lab">Cash on hand · all time</span><span class="val" style="font-size:25px">KD ${KD(cashOnHand)}</span><span class="bar"></span></div>${kpi("Payouts pending","KD "+KD(payPending),"bad")}</div>
+    <div class="kpis">${kpi("Collected","KD "+KD(cur.collected),"good",prev?delta(cur.collected,prev.collected,true):"")}${kpi("Billed","KD "+KD(cur.billed),"accent",prev?delta(cur.billed,prev.billed,true):"")}${kpi("Expenses","KD "+KD(cur.expenses),"warn",prev?delta(cur.expenses,prev.expenses,false):"")}${kpi("Payouts","KD "+KD(cur.payouts),"warn",prev?delta(cur.payouts,prev.payouts,false):"")}${kpi("Net","KD "+KD(cur.net),"accent",prev?delta(cur.net,prev.net,true):"")}${kpi("Collection rate",rate+"%","good",prevRate!=null?delta(rate,prevRate,true):"")}</div>
     <div class="panel"><h2>Billed over time</h2><div class="body">${series.length?vbars(series,'kd'):'<div class="muted">No income in range</div>'}</div></div>
     <div class="grid3">
       <div class="panel"><h2>Invoices to chase ${overdueInv?`<span class="flag-over" style="font-size:11px;font-weight:700">· ${overdueInv} overdue</span>`:""}</h2><div class="attn">${chase.length?chase.map(m=>{const od=m.due&&m.due<todayISO;return `<div class="r" data-goto="invoices" data-hl="${esc(m.id)}" style="cursor:pointer"><span class="t"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||m.id)}</button> <span class="muted">· ${esc(brandOf(m.acct))}</span></span><span class="${od?'flag-over':'flag-soon'}" style="white-space:nowrap">KD ${KD(m.amt)}${m.due?` · ${esc(m.due)}`:''}</span></div>`;}).join(""):'<div class="rowcount">All invoices settled.</div>'}</div><div class="rowcount">KD ${KD(chaseTot)} outstanding · ${unpaid.length} invoice${unpaid.length===1?'':'s'} (live, all dates)</div></div>
@@ -458,6 +468,34 @@ function renderExpenses(){
   bindSort('sortM',renderExpenses);
 }
 
+function renderPayouts(){
+  _SS=state.sortM;
+  let M=sortBy(moneyF().filter(m=>m.dir==="Payout"),state.sortM.k,state.sortM.dir);
+  const total=Math.abs(M.reduce((a,m)=>a+(+m.amt||0),0));
+  const pending=Math.abs(M.filter(m=>m.status!=="Paid").reduce((a,m)=>a+(+m.amt||0),0));
+  const head=[["id","ID"],["date","Date"],["partner","Partner"],["brand","Brand"],["desc","Description"],["amt","Amount"],["status","Status"],["due","Due"],["",""]];
+  const ro=canWrite?"":"disabled";
+  $('view').innerHTML=`<div class="view">
+    <div class="kpis">${kpi("Total payouts","KD "+KD(total),"warn")}${kpi("Pending","KD "+KD(pending),"bad")}${kpi("Paid","KD "+KD(total-pending),"good")}${kpi("Lines",M.length,"")}</div>
+    <div class="panel">
+      <div class="addbar"><button class="btn" id="pyAdd"${canWrite?"":" disabled"}>+ Add payout</button></div>
+      <div class="tablewrap"><table><thead><tr>${thhead(head)}</tr></thead>
+      <tbody>${M.map(m=>`<tr id="mrow-${esc(m.id)}">
+        <td class="id">${esc(m.id)}</td>
+        <td><input type="date" class="edit" data-c="money" data-id="${esc(m.id)}" data-f="date" value="${esc(m.date||'')}" ${ro}></td>
+        <td><input class="edit" style="width:110px" data-c="money" data-id="${esc(m.id)}" data-f="partner" value="${esc(m.partner||'')}" ${ro}></td>
+        <td><select class="edit" data-c="money" data-id="${esc(m.id)}" data-f="acct" ${ro}>${brandOpts(m.acct)}</select></td>
+        <td style="min-width:180px"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||m.id)}</button></td>
+        <td class="num neg"><input type="number" step="0.001" class="edit num" style="width:104px" data-c="money" data-id="${esc(m.id)}" data-f="amt" value="${esc(m.amt)}" ${ro}></td>
+        <td>${csel("payout","money",m.id,"status",m.status,PAYOUT_STATUS,ro)}</td>
+        <td><input type="date" class="edit" data-c="money" data-id="${esc(m.id)}" data-f="due" value="${esc(m.due||'')}" ${ro}></td>
+        <td>${canWrite?rowMenu("money",m.id):""}</td></tr>`).join("")}</tbody></table></div>
+      <div class="rowcount">${M.length} payouts</div>
+    </div></div>`;
+  if(pendingHL){const el=$('mrow-'+pendingHL);pendingHL="";if(el){el.classList.add('hlrow');el.scrollIntoView({block:'center',behavior:'smooth'});setTimeout(()=>el.classList.remove('hlrow'),3000);}}
+  $('pyAdd').onclick=openPayoutNew;
+  bindSort('sortM',renderPayouts);
+}
 function renderAccounts(){
   _SS=state.sortA;
   let rows=store.accounts.map(a=>{
@@ -465,7 +503,7 @@ function renderAccounts(){
     const coll=store.money.filter(m=>m.acct===a.id&&m.dir==="Income"&&m.status==="Paid").reduce((s,m)=>s+(+m.amt||0),0);
     const out=store.money.filter(m=>m.acct===a.id&&m.dir==="Income").reduce((s,m)=>s+(+m.amt||0),0)-coll;
     const eng=store.engagements.filter(e=>e.acct===a.id).length;
-    const cost=Math.abs(store.money.filter(m=>m.acct===a.id&&m.dir==="Expense").reduce((s,m)=>s+(+m.amt||0),0));
+    const cost=Math.abs(store.money.filter(m=>m.acct===a.id&&(m.dir==="Expense"||m.dir==="Payout")).reduce((s,m)=>s+(+m.amt||0),0));
     return Object.assign({open,coll,out,eng,cost,margin:coll-cost},a);
   }).filter(a=>!F.brand||a.brand===F.brand);
   rows=sortBy(rows,state.sortA.k,state.sortA.dir);
@@ -497,8 +535,8 @@ function render(){
   if(!booted||!ready())return;
   if(rafP)return; rafP=true;
   requestAnimationFrame(()=>{rafP=false;
-    const TITLES={tasksdash:"Tasks overview",moneydash:"Money overview",mytasks:"My Tasks",digest:"Digest",tasks:"All Tasks",recurring:"Recurring Tasks",invoices:"Invoices",expenses:"Expenses",accounts:"Accounts",activity:"Activity Log",setup:"Settings"};
-    const VIEWS={tasksdash:renderTasksDash,moneydash:renderMoneyDash,mytasks:renderMyTasks,digest:renderDigest,tasks:renderTasks,recurring:renderRecurring,invoices:renderInvoices,expenses:renderExpenses,accounts:renderAccounts,activity:renderActivity,setup:renderSetup};
+    const TITLES={tasksdash:"Tasks overview",moneydash:"Money overview",mytasks:"My Tasks",digest:"Digest",tasks:"All Tasks",recurring:"Recurring Tasks",invoices:"Invoices",expenses:"Expenses",payouts:"Payouts",accounts:"Accounts",activity:"Activity Log",setup:"Settings"};
+    const VIEWS={tasksdash:renderTasksDash,moneydash:renderMoneyDash,mytasks:renderMyTasks,digest:renderDigest,tasks:renderTasks,recurring:renderRecurring,invoices:renderInvoices,expenses:renderExpenses,payouts:renderPayouts,accounts:renderAccounts,activity:renderActivity,setup:renderSetup};
     if(!VIEWS[state.view])state.view="tasksdash";
     const noFilter=new Set(['setup','activity','recurring','digest']);
     const fc=$('filterctrls');if(fc)fc.style.display=noFilter.has(state.view)?'none':'contents';
@@ -636,6 +674,26 @@ function openExpenseNew(){
   $('mkSave').onclick=()=>{const g=f=>{const el=$('mx_'+f);return el?el.value:"";};const amt=parseFloat(g('amt'));if(isNaN(amt)){toast("Enter an amount");return;}
     create("money",nextId("money","LDG-",4),{date:g('date')||todayISO,acct:g('acct'),eng:"",dir:"Expense",cat:g('cat'),desc:g('desc'),amt:-Math.abs(amt),status:"Paid",due:"",paid:g('date')||todayISO,notes:g('notes')});close();};
 }
+function openPayoutNew(){
+  if(!canWrite){toast("Read-only access");return;}
+  $('modal').innerHTML=`<div class="sheet">
+    <div class="sheethead"><div><div class="id">New payout</div><h3>Add payout</h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
+    <div class="formgrid">
+      ${fld("Date",`<input type="date" id="mp_date" value="${todayISO}">`)}
+      ${fld("Partner / freelancer",`<input id="mp_partner" placeholder="Name">`)}
+      ${fld("Brand (optional)",`<select id="mp_acct">${brandOpts("")}</select>`)}
+      ${fld("Amount (KD)",`<input type="number" step="0.001" id="mp_amt" placeholder="0.000">`)}
+      ${fld("Status",`<select id="mp_status">${opts(PAYOUT_STATUS,"Pending")}</select>`)}
+      ${fld("Due",`<input type="date" id="mp_due">`)}
+    </div>
+    <div class="formfull">${fld("Description",`<input id="mp_desc" placeholder="What is this payout for">`)}${fld("Note (optional)",`<textarea id="mp_notes" rows="2"></textarea>`)}</div>
+    <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Add payout</button></div></div>`;
+  $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
+  $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
+  $('mkSave').onclick=()=>{const g=f=>{const el=$('mp_'+f);return el?el.value:"";};const amt=parseFloat(g('amt'));if(isNaN(amt)){toast("Enter an amount");return;}
+    const st=g('status');
+    create("money",nextId("money","LDG-",4),{date:g('date')||todayISO,acct:g('acct'),eng:"",dir:"Payout",cat:"Partner Payout",partner:g('partner'),desc:g('desc'),amt:-Math.abs(amt),status:st,due:g('due'),paid:(st==='Paid'?(g('date')||todayISO):""),notes:g('notes')});close();};
+}
 function openAccountNew(){
   if(!canWrite){toast("Read-only access");return;}
   $('modal').innerHTML=`<div class="sheet">
@@ -645,6 +703,7 @@ function openAccountNew(){
       ${fld("Type",`<input id="ma_type" placeholder="e.g. Retainer, Project">`)}
       ${fld("Country",`<input id="ma_country" placeholder="e.g. Kuwait">`)}
       ${fld("Lifecycle",`<select id="ma_lifecycle">${opts(LIFE,"Lead")}</select>`)}
+      ${fld("Parent account (optional)",`<select id="ma_parent">${accountOpts("","")}</select>`)}
     </div>
     <div class="formfull">${fld("Notes (optional)",`<textarea id="ma_notes" rows="2"></textarea>`)}</div>
     <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Add account</button></div>
@@ -652,7 +711,27 @@ function openAccountNew(){
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   $('mkSave').onclick=()=>{const g=f=>{const el=$('ma_'+f);return el?el.value:"";};const brand=g('brand').trim();if(!brand){toast("Enter a brand name");return;}
-    create("accounts",nextId("accounts","ACC-",3),{brand,type:g('type'),country:g('country'),lifecycle:g('lifecycle'),notes:g('notes'),date_added:todayISO});close();};
+    create("accounts",nextId("accounts","ACC-",3),{brand,type:g('type'),country:g('country'),lifecycle:g('lifecycle'),parent:g('parent'),notes:g('notes'),date_added:todayISO});close();};
+}
+function openAccountEdit(id){
+  const a=AMAP[id];if(!a)return;if(!canWrite){toast("Read-only access");return;}
+  $('modal').innerHTML=`<div class="sheet">
+    <div class="sheethead"><div><div class="id">${esc(a.id)}</div><h3>Edit ${esc(a.brand)}</h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
+    <div class="formgrid">
+      ${fld("Brand name",`<input id="ae_brand" value="${esc(a.brand||'')}">`)}
+      ${fld("Type",`<input id="ae_type" value="${esc(a.type||'')}">`)}
+      ${fld("Country",`<input id="ae_country" value="${esc(a.country||'')}">`)}
+      ${fld("Lifecycle",`<select id="ae_lifecycle">${opts(LIFE,a.lifecycle)}</select>`)}
+      ${fld("Parent account",`<select id="ae_parent">${accountOpts(a.parent||"",a.id)}</select>`)}
+      ${fld("Date added",`<input type="date" id="ae_date_added" value="${esc(a.date_added||'')}">`)}
+    </div>
+    <div class="formfull">${fld("Notes",`<textarea id="ae_notes" rows="2">${esc(a.notes||'')}</textarea>`)}</div>
+    <div class="sheetfoot">${canWrite?`<button class="ghost" id="mkDelete" style="color:var(--bad);border-color:var(--bad-soft)">Delete</button>`:""}<span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Save</button></div></div>`;
+  $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
+  $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
+  $('mkSave').onclick=async()=>{const g=f=>{const el=$('ae_'+f);return el?el.value:"";};
+    await write("accounts",id,{brand:g('brand'),type:g('type'),country:g('country'),lifecycle:g('lifecycle'),parent:g('parent'),date_added:g('date_added'),notes:g('notes')});close();};
+  if($('mkDelete'))$('mkDelete').onclick=()=>{close();remove("accounts",id);};
 }
 function openReport(kind){
   const R=activeRange();const lbl=`${R.from} → ${R.to==='9999-12-31'?'now':R.to}`;let title,html,csv,fname;
@@ -700,12 +779,12 @@ function openMoney(id){
   $('modal').innerHTML=`<div class="sheet">
     <div class="sheethead"><div><div class="id">${esc(m.id)}</div><h3>${esc(m.desc||(isExp?'Expense':'Invoice'))} <span class="muted" style="font-weight:500">· ${esc(brandOf(m.acct))}</span></h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
     <div class="formgrid">
-      ${fld("Type",`<select id="mm_dir" ${ro}>${opts(["Income","Expense"],m.dir||"Income")}</select>`)}
+      ${fld("Type",`<select id="mm_dir" ${ro}>${opts(["Income","Expense","Payout"],m.dir||"Income")}</select>`)}
       ${fld("Date",`<input type="date" id="mm_date" value="${esc(m.date||'')}" ${ro}>`)}
       ${fld("Brand",`<select id="mm_acct" ${ro}>${brandOpts(m.acct)}</select>`)}
-      ${fld("Category",`<input id="mm_cat" value="${esc(m.cat||'')}" ${ro}>`)}
+      ${fld(m.dir==="Payout"?"Partner":"Category",m.dir==="Payout"?`<input id="mm_partner" value="${esc(m.partner||'')}" ${ro}>`:`<input id="mm_cat" value="${esc(m.cat||'')}" ${ro}>`)}
       ${fld("Amount (KD)",`<input type="number" step="0.001" id="mm_amt" value="${esc(Math.abs(+m.amt||0))}" ${ro}>`)}
-      ${fld("Status",`<select id="mm_status" ${ro}>${opts(PAY,m.status||"Unpaid")}</select>`)}
+      ${fld("Status",`<select id="mm_status" ${ro}>${opts(m.dir==="Payout"?PAYOUT_STATUS:PAY,m.status||(m.dir==="Payout"?"Pending":"Unpaid"))}</select>`)}
       ${fld("Due",`<input type="date" id="mm_due" value="${esc(m.due||'')}" ${ro}>`)}
       ${fld("Paid on",`<input type="date" id="mm_paid" value="${esc(m.paid||'')}" ${ro}>`)}
     </div>
@@ -724,8 +803,10 @@ function openMoney(id){
   $('mkClose').onclick=$('mkCancel').onclick=close;
   $('modal').onclick=e=>{if(e.target===$('modal'))close();};
   if($('mkSave'))$('mkSave').onclick=async()=>{const g=f=>{const el=$('mm_'+f);return el?el.value:"";};
-    const dir=g('dir');const amt=Math.abs(parseFloat(g('amt'))||0)*(dir==="Expense"?-1:1);
-    await write("money",id,{dir,date:g('date'),acct:g('acct'),cat:g('cat'),amt,status:g('status'),due:g('due'),paid:g('paid'),desc:g('desc'),notes:g('notes')});logAct("edited","money",id,g('desc'));close();};
+    const dir=g('dir');const amt=Math.abs(parseFloat(g('amt'))||0)*(dir==="Income"?1:-1);
+    const patch={dir,date:g('date'),acct:g('acct'),amt,status:g('status'),due:g('due'),paid:g('paid'),desc:g('desc'),notes:g('notes')};
+    if(dir==="Payout"){patch.partner=($('mm_partner')?$('mm_partner').value:(m.partner||""));}else{patch.cat=($('mm_cat')?$('mm_cat').value:(m.cat||""));}
+    await write("money",id,patch);logAct("edited","money",id,g('desc'));close();};
   if($('mkDelete'))$('mkDelete').onclick=()=>{close();remove("money",id);};
 }
 function openBrand(acctId){
@@ -738,20 +819,26 @@ function openBrand(acctId){
   const coll=inc.filter(m=>m.status==="Paid").reduce((s,m)=>s+(+m.amt||0),0);
   const out=inc.reduce((s,m)=>s+(+m.amt||0),0)-coll;
   const exp=Math.abs(store.money.filter(m=>m.acct===acctId&&m.dir==="Expense").reduce((s,m)=>s+(+m.amt||0),0));
-  const topOpen=[...openT].sort((x,y)=>((x.due||"9999")+"").localeCompare((y.due||"9999")+"")).slice(0,8);
+  const payo=Math.abs(store.money.filter(m=>m.acct===acctId&&m.dir==="Payout").reduce((s,m)=>s+(+m.amt||0),0));
+  const parent=a.parent?AMAP[a.parent]:null;
+  const children=store.accounts.filter(x=>x.parent===acctId);
+  const chip=x=>`<button class="linkname" data-brand="${esc(x.id)}" style="font-size:12px">${esc(x.brand)}</button>`;
+  const famHtml=(parent||children.length)?`<label class="fld"><span>Family</span><div class="attn"><div class="r" style="flex-wrap:wrap;gap:8px">${parent?`<span class="muted">Parent:</span> ${chip(parent)}`:""}${children.length?`<span class="muted"${parent?' style="margin-left:10px"':''}>Brands:</span> ${children.map(chip).join(" ")}`:""}</div></div></label>`:"";
   $('modal').innerHTML=`<div class="sheet">
-    <div class="sheethead"><div><div class="id">${esc(a.id)}</div><h3>${esc(a.brand)} <span class="muted" style="font-weight:500">· ${esc(a.type||'')}${a.lifecycle?' · '+esc(a.lifecycle):''}</span></h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
+    <div class="sheethead"><div><div class="id">${esc(a.id)}</div><h3>${esc(a.brand)} <span class="muted" style="font-weight:500">· ${esc(a.type||'')}${a.lifecycle?' · '+esc(a.lifecycle):''}${parent?' · under '+esc(parent.brand):''}</span></h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
     <div class="kpis" style="margin:0 0 6px">${kpi("Collected","KD "+KD(coll),"good")}${kpi("Outstanding","KD "+KD(out),"bad")}${kpi("Open tasks",openT.length,"accent")}${kpi("Overdue",overdueT,"bad")}</div>
     <div class="formfull">
+      ${famHtml}
       <label class="fld"><span>Engagements · ${engs.length}</span><div class="attn">${engs.length?engs.map(e=>`<div class="r"><span class="t">${esc(e.name||e.service||e.id)}${e.model?` <span class="muted">· ${esc(e.model)}</span>`:''}</span><span class="muted" style="white-space:nowrap">${esc(e.status||'')}${e.team?' · '+esc(e.team):''}</span></div>`).join(""):'<div class="rowcount">No engagements recorded.</div>'}</div></label>
       <label class="fld"><span>Open tasks · soonest first</span><div class="attn">${topOpen.length?topOpen.map(t=>{const[fl,fc]=flag(t);return `<div class="r"><span class="t"><button class="linkname" data-open="${esc(t.id)}">${esc(t.name||t.id)}</button></span><span class="${fc}" style="white-space:nowrap">${esc(t.due||'—')}</span></div>`;}).join(""):'<div class="rowcount">No open tasks.</div>'}</div></label>
     </div>
-    <div class="sheetfoot"><span class="muted">Expenses booked: KD ${KD(exp)}</span><span style="flex:1"></span><button class="ghost" id="mkBrandExport">Export (client-safe)</button><button class="btn" id="mkBrandTasks">View all tasks</button><button class="ghost" id="mkCancel">Close</button></div>
+    <div class="sheetfoot"><span class="muted">Costs: KD ${KD(exp+payo)}</span><span style="flex:1"></span>${canWrite?`<button class="ghost" id="mkBrandEdit">Edit</button>`:""}<button class="ghost" id="mkBrandExport">Export</button><button class="btn" id="mkBrandTasks">View tasks</button></div>
     </div>`;
   $('modal').classList.add('show');
   const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
-  $('mkClose').onclick=$('mkCancel').onclick=close;
+  $('mkClose').onclick=close;
   $('modal').onclick=e=>{if(e.target===$('modal'))close();};
+  if($('mkBrandEdit'))$('mkBrandEdit').onclick=()=>openAccountEdit(acctId);
   if($('mkBrandExport'))$('mkBrandExport').onclick=()=>exportTasksCSV(tasks,("PIVOT tasks - "+a.brand+" "+todayISO+".csv"));
   if($('mkBrandTasks'))$('mkBrandTasks').onclick=()=>{F.brand=a.brand;if($('fBrand'))$('fBrand').value=a.brand;state.view='tasks';try{localStorage.setItem('pivot_view','tasks');}catch(_){}close();render();};
 }
@@ -858,7 +945,7 @@ $('nav').onclick=e=>{
 };
 applyGroups();
 $('addBtn').onclick=e=>{e.stopPropagation();$('addMenu').classList.toggle('show');};
-$('addMenu').onclick=e=>{const b=e.target.closest('[data-add]');if(!b)return;$('addMenu').classList.remove('show');({task:openTaskNew,account:openAccountNew,invoice:openInvoiceNew,expense:openExpenseNew,recurring:openTemplateNew}[b.dataset.add])();};
+$('addMenu').onclick=e=>{const b=e.target.closest('[data-add]');if(!b)return;$('addMenu').classList.remove('show');({task:openTaskNew,account:openAccountNew,invoice:openInvoiceNew,expense:openExpenseNew,payout:openPayoutNew,recurring:openTemplateNew}[b.dataset.add])();};
 document.addEventListener('click',e=>{if(!e.target.closest('#addMenu')&&!e.target.closest('#addBtn'))$('addMenu').classList.remove('show');});
 $('fBrand').onchange=e=>{F.brand=e.target.value;render();};
 $('fTeam').onchange=e=>{F.team=e.target.value;render();};
