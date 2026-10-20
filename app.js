@@ -39,7 +39,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v23 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v24 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -155,9 +155,11 @@ async function write(coll,id,patch){
   if(error){ toast("Save failed"); console.error(error); } else { toast("Saved"); applyLocal(coll,id,patch); }
 }
 async function create(coll,id,data){ if(!canWrite){toast("Read-only access");return;} const row=Object.assign({id},toDB(coll,data)); const {error}=await sb.from(coll).insert(row); if(error){ toast("Add failed"); console.error(error);} else { toast("Added"); logAct("added",coll,id,data.name||data.desc||""); await fetchColl(coll); render(); } }
-async function remove(coll,id){ if(!canWrite){toast("Read-only access");return;} const {error}=await sb.from(coll).delete().eq("id",id); if(error){ toast("Delete failed"); console.error(error);} else { toast("Deleted"); logAct("deleted",coll,id,""); await fetchColl(coll); render(); } }
+async function remove(coll,id){ if(!canWrite){toast("Read-only access");return;} const row=(store[coll]||[]).find(r=>r.id===id); const {error}=await sb.from(coll).delete().eq("id",id); if(error){ toast("Delete failed"); console.error(error);} else { logAct("deleted",coll,id,""); await fetchColl(coll); render(); if(row)undoToast("Deleted",coll,[row]); else toast("Deleted"); } }
+async function restoreRows(coll,rows){ if(!canWrite||!rows||!rows.length)return; const payload=rows.map(r=>toDB(coll,Object.assign({},r))); const {error}=await sb.from(coll).insert(payload); if(error){ toast("Undo failed"); console.error(error); return; } rows.forEach(r=>logAct("restored",coll,r.id,r.desc||r.name||"")); await fetchColl(coll); render(); toast(rows.length>1?("Restored "+rows.length):"Restored"); }
+function undoToast(msg,coll,rows){ const t=$('toast'); if(!t)return; t.innerHTML=`<span>${esc(msg)}</span><button id="undoBtn" class="undobtn">Undo</button>`; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>{t.classList.remove('show');t.innerHTML='';},6000); const b=$('undoBtn'); if(b)b.onclick=()=>{clearTimeout(t._t);t.classList.remove('show');t.innerHTML='';restoreRows(coll,rows);}; }
 async function createMany(coll,rows){ if(!canWrite){toast("Read-only access");return;} if(!rows.length)return; const payload=rows.map(r=>toDB(coll,r)); const {error}=await sb.from(coll).insert(payload); if(error){ toast("Add failed"); console.error(error);} else { toast("Added "+rows.length); rows.forEach(r=>logAct("added",coll,r.id,r.desc||"")); await fetchColl(coll); render(); } }
-async function removeMany(coll,ids){ if(!canWrite){toast("Read-only access");return;} if(!ids.length)return; const {error}=await sb.from(coll).delete().in("id",ids); if(error){ toast("Delete failed"); console.error(error);} else { toast("Deleted"); ids.forEach(id=>logAct("deleted",coll,id,"")); await fetchColl(coll); render(); } }
+async function removeMany(coll,ids){ if(!canWrite){toast("Read-only access");return;} if(!ids.length)return; const rows=(store[coll]||[]).filter(r=>ids.includes(r.id)); const {error}=await sb.from(coll).delete().in("id",ids); if(error){ toast("Delete failed"); console.error(error);} else { ids.forEach(id=>logAct("deleted",coll,id,"")); await fetchColl(coll); render(); undoToast("Deleted "+ids.length,coll,rows); } }
 async function updateMany(coll,ids,patch){ if(!canWrite){toast("Read-only access");return;} if(!ids.length)return; const {error}=await sb.from(coll).update(toDB(coll,patch)).in("id",ids); if(error){ toast("Save failed"); console.error(error);} else { toast("Saved"); await fetchColl(coll); render(); } }
 function nextId(coll,prefix,pad){let mx=0;store[coll].forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});return prefix+String(mx+1).padStart(pad,"0");}
 async function logAct(act,coll,id,label){ try{ await sb.from("activity").insert({who:myName,action:act,coll,doc_id:id,label:label||""}); }catch(e){} }

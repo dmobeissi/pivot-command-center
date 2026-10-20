@@ -225,3 +225,8 @@ svg:hover .pieslice{opacity:.5}
 .reportbody{display:flex;flex-direction:column;gap:12px;overflow:auto;min-height:0;flex:1}
 .sheet-report .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
 .kpi .val{white-space:nowrap}
+
+/* undo toast */
+.toast{display:flex;align-items:center;gap:14px}
+.undobtn{all:unset;cursor:pointer;font-weight:700;font-size:13px;color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:7px;padding:4px 12px}
+.undobtn:hover{background:rgba(255,255,255,.14)}
