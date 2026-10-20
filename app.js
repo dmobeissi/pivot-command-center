@@ -7,15 +7,15 @@ const PAY=["Paid","Partial","Unpaid","Voided","Cancelled"];
 const PAYOUT_STATUS=["Pending","Paid"];
 const ROLES=["Full-time","Part-time","Freelance"];
 const FREQ=["Monthly","Yearly"];
-const COLLAPSE=new Set();
+const EXPANDED=new Set(); // groups default collapsed; presence here = expanded
 function wireCollapse(prefix,keys){
   const esckey=(typeof CSS!=='undefined'&&CSS.escape)?(k=>CSS.escape(k)):(k=>k);
-  const setCls=(key,coll)=>{const el=document.querySelector(`[data-grp="${prefix}:${esckey(key)}"]`);if(el)el.classList.toggle('collapsed',coll);};
-  const toggle=key=>{const id=prefix+':'+key;if(COLLAPSE.has(id)){COLLAPSE.delete(id);setCls(key,false);}else{COLLAPSE.add(id);setCls(key,true);}};
+  const setExp=(key,exp)=>{const el=document.querySelector(`[data-grp="${prefix}:${esckey(key)}"]`);if(el)el.classList.toggle('collapsed',!exp);};
+  const toggle=key=>{const id=prefix+':'+key;if(EXPANDED.has(id)){EXPANDED.delete(id);setExp(key,false);}else{EXPANDED.add(id);setExp(key,true);}};
   document.querySelectorAll(`[data-tog]`).forEach(b=>{if(b.dataset.tog.indexOf(prefix+':')===0)b.onclick=e=>{e.stopPropagation();toggle(b.dataset.tog.slice(prefix.length+1));};});
-  const all=coll=>keys.forEach(k=>{const id=prefix+':'+k;if(coll)COLLAPSE.add(id);else COLLAPSE.delete(id);setCls(k,coll);});
-  if($(prefix+'XpAll'))$(prefix+'XpAll').onclick=()=>all(false);
-  if($(prefix+'ClAll'))$(prefix+'ClAll').onclick=()=>all(true);
+  const all=exp=>keys.forEach(k=>{const id=prefix+':'+k;if(exp)EXPANDED.add(id);else EXPANDED.delete(id);setExp(k,exp);});
+  if($(prefix+'XpAll'))$(prefix+'XpAll').onclick=()=>all(true);
+  if($(prefix+'ClAll'))$(prefix+'ClAll').onclick=()=>all(false);
 }
 const DIRS=["Income","Expense"];
 const EXPCATS=["Salary","Software","Advertising","Freelancer","Partner Payout","Domain / Hosting","Tax","Office","Other Expense"];
@@ -30,7 +30,7 @@ const F={brand:"",team:"",status:"",q:"",quick:""};
 const state={view:(()=>{try{return localStorage.getItem('pivot_view')||"dashboard"}catch(e){return"dashboard"}})(),sortT:{k:"due",dir:1},sortM:{k:"date",dir:-1},me:(()=>{try{return localStorage.getItem('pivot_me')||""}catch(e){return""}})(),
   range:(()=>{try{return JSON.parse(localStorage.getItem('pivot_range'))||{preset:'mtd',from:'',to:''}}catch(e){return{preset:'mtd',from:'',to:''}}})(),
   cmp:(()=>{try{return localStorage.getItem('pivot_cmp')||'prev_period'}catch(e){return'prev_period'}})(),
-  groups:(()=>{try{return JSON.parse(localStorage.getItem('pivot_groups'))||{tasks:true,money:true}}catch(e){return{tasks:true,money:true}}})(),
+  groups:(()=>{try{return JSON.parse(localStorage.getItem('pivot_nav2'))||{tasks:false,money:false}}catch(e){return{tasks:false,money:false}}})(),
   theme:(()=>{try{return localStorage.getItem('pivot_theme')||'system'}catch(e){return'system'}})(),
   sortA:{k:"coll",dir:-1}};
 const todayISO=new Date().toISOString().slice(0,10);
@@ -40,7 +40,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v26 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v27 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -589,7 +589,7 @@ function renderSalaries(){
   }).sort((a,b)=>(b.ym||"").localeCompare(a.ym||""));
   const ro=!canWrite;
   const monthHtml=months.length?months.map(g=>`
-    <div class="poevent${COLLAPSE.has('sal:'+g.ym)?' collapsed':''}" data-grp="sal:${esc(g.ym)}">
+    <div class="poevent${EXPANDED.has('sal:'+g.ym)?'':' collapsed'}" data-grp="sal:${esc(g.ym)}">
       <div class="pohead">
         <button class="pocaret" data-tog="sal:${esc(g.ym)}" title="Collapse">▾</button>
         <div class="poinfo" data-tog="sal:${esc(g.ym)}"><span class="pototal">KD ${KD(g.total)}</span><span class="muted"> · ${esc(monthLabel(g.ym))} · ${g.rows.length} ${g.rows.length===1?'person':'people'}</span></div>
@@ -629,7 +629,7 @@ function renderPayouts(){
   }).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   const ro=!canWrite;
   const eventHtml=events.length?events.map(g=>`
-    <div class="poevent${COLLAPSE.has('pay:'+g.batch)?' collapsed':''}" data-grp="pay:${esc(g.batch)}">
+    <div class="poevent${EXPANDED.has('pay:'+g.batch)?'':' collapsed'}" data-grp="pay:${esc(g.batch)}">
       <div class="pohead">
         <button class="pocaret" data-tog="pay:${esc(g.batch)}" title="Collapse">▾</button>
         <div class="poinfo" data-tog="pay:${esc(g.batch)}"><span class="pototal">KD ${KD(g.total)}</span><span class="muted"> · ${esc(g.date||'—')} · ${esc(g.desc)}</span></div>
@@ -767,10 +767,10 @@ function render(){
   if(!booted||!ready())return;
   if(rafP)return; rafP=true;
   requestAnimationFrame(()=>{rafP=false;
-    const TITLES={tasksdash:"Tasks overview",moneydash:"Money overview",mytasks:"My Tasks",digest:"Digest",tasks:"All Tasks",recurring:"Recurring Tasks",invoices:"Invoices",expenses:"Expenses",salaries:"Salaries",payouts:"Payouts",retainers:"Retainers",accounts:"Accounts",pipeline:"Pipeline",team:"Team",activity:"Activity Log",setup:"Settings"};
-    const VIEWS={tasksdash:renderTasksDash,moneydash:renderMoneyDash,mytasks:renderMyTasks,digest:renderDigest,tasks:renderTasks,recurring:renderRecurring,invoices:renderInvoices,expenses:renderExpenses,salaries:renderSalaries,payouts:renderPayouts,retainers:renderRetainers,accounts:renderAccounts,pipeline:renderPipeline,team:renderTeam,activity:renderActivity,setup:renderSetup};
+    const TITLES={tasksdash:"Tasks overview",moneydash:"Money overview",mytasks:"My Tasks",digest:"Digest",tasks:"All Tasks",recurring:"Recurring Tasks",invoices:"Invoices",expenses:"Expenses",salaries:"Salaries",payouts:"Payouts",retainers:"Retainers",accounts:"Accounts",pipeline:"Pipeline",activity:"Activity Log",setup:"Settings"};
+    const VIEWS={tasksdash:renderTasksDash,moneydash:renderMoneyDash,mytasks:renderMyTasks,digest:renderDigest,tasks:renderTasks,recurring:renderRecurring,invoices:renderInvoices,expenses:renderExpenses,salaries:renderSalaries,payouts:renderPayouts,retainers:renderRetainers,accounts:renderAccounts,pipeline:renderPipeline,activity:renderActivity,setup:renderSetup};
     if(!VIEWS[state.view])state.view="tasksdash";
-    const noFilter=new Set(['setup','activity','recurring','digest','retainers','pipeline','team']);
+    const noFilter=new Set(['setup','activity','recurring','digest','retainers','pipeline']);
     const fc=$('filterctrls');if(fc)fc.style.display=noFilter.has(state.view)?'none':'contents';
     $('viewtitle').textContent=TITLES[state.view];
     document.querySelectorAll('#nav button').forEach(b=>b.setAttribute('aria-current',b.dataset.view===state.view));
@@ -1193,27 +1193,31 @@ function renderRecurring(){
   if($('tplAddBtn'))$('tplAddBtn').onclick=openTemplateNew;
   if($('genMonthly'))$('genMonthly').onclick=generateMonthly;
 }
-async function renderSetup(){
-  try{const {data}=await sb.from('people').select('*');PEOPLE={};(data||[]).forEach(p=>{if(p.email)PEOPLE[p.name]=p.email;});}catch(e){}
+function renderSetup(){
   const ro=canWrite?"":"disabled";
+  const ppl=(store.people||[]).slice().sort((a,b)=>((a.active==="No")-(b.active==="No"))||(a.name||'').localeCompare(b.name||''));
+  const teamRows=ppl.length?ppl.map(p=>`<tr>
+    <td class="id">${esc(p.id)}</td>
+    <td><input class="edit" style="min-width:110px" data-c="people" data-id="${esc(p.id)}" data-f="name" value="${esc(p.name||'')}" ${ro}></td>
+    <td><input class="edit" style="width:100px" data-c="people" data-id="${esc(p.id)}" data-f="role" value="${esc(p.role||'')}" ${ro} placeholder="Role"></td>
+    <td><input class="edit" style="min-width:150px" type="email" data-c="people" data-id="${esc(p.id)}" data-f="email" value="${esc(p.email||'')}" ${ro} placeholder="name@domain.com"></td>
+    <td><select class="edit" data-c="people" data-id="${esc(p.id)}" data-f="active" ${ro}><option value="Yes"${p.active!=="No"?" selected":""}>Active</option><option value="No"${p.active==="No"?" selected":""}>Archived</option></select></td>
+    <td>${canWrite?rowMenu("people",p.id):""}</td></tr>`).join(""):'<tr><td colspan="6" class="rowcount">No team yet. Add a member, or run migration-05 to seed the current team.</td></tr>';
   $('view').innerHTML=`<div class="view">
-    <div class="panel"><h2>Team emails — for the per-person morning digest</h2><div class="body">
-      <div style="display:flex;flex-direction:column;gap:8px;max-width:520px">
-        ${TEAM.map((n,i)=>`<label class="fld" style="flex-direction:row;align-items:center;gap:10px"><span style="width:110px;flex:0 0 auto">${esc(n)}</span><input id="pe_${i}" data-name="${esc(n)}" type="email" value="${esc(PEOPLE[n]||'')}" placeholder="name@domain.com" style="flex:1" ${ro}></label>`).join("")}
-      </div>
-      <div style="margin-top:12px"><button class="btn" id="savePeople"${canWrite?"":" disabled"}>Save emails</button></div>
-      <div class="rowcount">Once filled, the morning digest can send each person only their own tasks. Until then it emails the summary to the owner.</div>
-    </div></div>
-    <div class="panel"><h2>Workspace</h2><div class="body" style="display:flex;flex-direction:column;gap:14px">
-      <div><div class="muted" style="margin-bottom:6px">Appearance</div><div class="themeseg"><button data-theme="system">System</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></div></div>
+    <div class="panel"><div class="addbar"><h2 style="flex:1;margin:0">Team</h2><button class="btn" id="tmAdd"${canWrite?"":" disabled"}>+ Add member</button></div>
+      <div class="muted" style="font-size:12px;margin:2px 0 10px">Active members show in owner, salary and payout pickers. Email feeds the per-person digest.</div>
+      <div class="tablewrap"><table><thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Email</th><th>Status</th><th></th></tr></thead><tbody>${teamRows}</tbody></table></div>
+      <div class="rowcount">${ppl.filter(p=>p.active!=="No").length} active · ${ppl.filter(p=>p.active==="No").length} archived</div>
+    </div>
+    <div class="panel"><h2>Appearance</h2><div class="body"><div class="themeseg"><button data-theme="system">System</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></div></div></div>
+    <div class="panel"><h2>About</h2><div class="body" style="display:flex;flex-direction:column;gap:10px">
       <div style="display:flex;gap:24px;flex-wrap:wrap"><div><span class="muted">Build</span> &nbsp; <b>PIVOT Command Center ${APPVER}</b></div><div><span class="muted">Status</span> &nbsp; <span id="savestate">${esc(saveStateText)}</span></div></div>
-      <div class="rowcount" style="padding-left:0">Data lives in your Supabase database. Backups export to OneDrive on a schedule.</div>
+      <div class="rowcount" style="padding-left:0">Data lives in your Supabase database. A nightly backup pushes to a private repo; a daily digest posts to Teams.</div>
     </div></div>
   </div>`;
   document.querySelectorAll('.themeseg button').forEach(b=>b.onclick=()=>setTheme(b.dataset.theme));
   applyTheme();
-  if($('savePeople'))$('savePeople').onclick=async()=>{const rows=TEAM.map((n,i)=>({name:n,email:(($('pe_'+i)&&$('pe_'+i).value.trim())||"")}));
-    try{await sb.from('people').upsert(rows,{onConflict:'name'});PEOPLE={};rows.forEach(r=>{if(r.email)PEOPLE[r.name]=r.email;});toast("Emails saved");}catch(e){toast("Save failed");}};
+  if($('tmAdd'))$('tmAdd').onclick=openMemberNew;
 }
 async function renderActivity(){
   $('view').innerHTML='<div class="view"><div class="panel"><h2>Recent activity</h2><div class="center" style="padding:30px"><div class="spin"></div></div></div></div>';
@@ -1224,7 +1228,7 @@ async function renderActivity(){
 document.addEventListener('click',e=>{const o=e.target.closest('[data-open]');if(o)openTask(o.dataset.open);});
 document.addEventListener('click',e=>{const o=e.target.closest('[data-mopen]');if(o)openMoney(o.dataset.mopen);});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('modal').classList.contains('show')){$('modal').classList.remove('show');$('modal').innerHTML='';}});
-function saveGroups(){try{localStorage.setItem('pivot_groups',JSON.stringify(state.groups));}catch(_){}}
+function saveGroups(){try{localStorage.setItem('pivot_nav2',JSON.stringify(state.groups));}catch(_){}}
 function applyGroups(){document.querySelectorAll('#nav .sub').forEach(b=>{b.style.display=(state.groups[b.dataset.group]===false)?'none':'';});document.querySelectorAll('#nav .grp').forEach(b=>{const a=b.querySelector('.arw');if(a)a.style.transform=(state.groups[b.dataset.group]===false)?'rotate(-90deg)':'none';});}
 $('nav').onclick=e=>{
   const arw=e.target.closest('.arw');
