@@ -16,24 +16,19 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Build digest.html
+      - name: Build digest card
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           APP_URL: https://dmobeissi.github.io/pivot-command-center/
-        run: |
-          echo "DIGEST_DATE=$(date -u +%Y-%m-%d)" >> "$GITHUB_ENV"
-          node scripts/digest.mjs
+        run: node scripts/digest.mjs
 
-      - name: Send digest email
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          secure: true
-          username: ${{ secrets.MAIL_USERNAME }}
-          password: ${{ secrets.MAIL_PASSWORD }}
-          from: PIVOT Command Center <${{ secrets.MAIL_USERNAME }}>
-          to: ${{ secrets.DIGEST_TO }}
-          subject: "PIVOT digest — ${{ env.DIGEST_DATE }}"
-          html_body: file://digest.html
+      - name: Post to Teams channel
+        env:
+          TEAMS_WEBHOOK: ${{ secrets.TEAMS_WEBHOOK }}
+        run: |
+          code=$(curl -sS -o resp.txt -w "%{http_code}" -X POST \
+            -H "Content-Type: application/json" \
+            --data @teams-payload.json "$TEAMS_WEBHOOK")
+          echo "HTTP $code"; cat resp.txt
+          [ "$code" -ge 200 ] && [ "$code" -lt 300 ]

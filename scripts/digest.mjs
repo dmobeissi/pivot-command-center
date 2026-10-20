@@ -92,4 +92,38 @@ html += `<div style="margin:24px 0 8px">${APP_URL ? `<a href="${APP_URL}" style=
   <div style="font-size:11px;color:#b5b7bd;margin-top:18px">Automated digest · read-only snapshot · nothing was changed.</div></div>`;
 
 writeFileSync("digest.html", html);
+
+// ---- Microsoft Teams Adaptive Card (posted via a channel webhook) ----
+const facts = [
+  { title: "Cash on hand", value: money3(cash) },
+  { title: "Outstanding", value: money3(outstanding) },
+  { title: "Collected (mo)", value: money3(collectedM) },
+  { title: "Billed (mo)", value: money3(billedM) },
+];
+const body = [
+  { type: "TextBlock", text: "PIVOT daily digest", weight: "Bolder", size: "Large", wrap: true },
+  { type: "TextBlock", text: today, isSubtle: true, spacing: "None", wrap: true },
+  { type: "FactSet", facts },
+];
+if (overdue.length) {
+  body.push({ type: "TextBlock", text: `⚠️ Overdue invoices (${overdue.length})`, weight: "Bolder", wrap: true, spacing: "Medium" });
+  body.push({ type: "TextBlock", wrap: true, text: overdue.slice(0, 10).map((m) => `- ${m.description || m.id} · ${brand(m.acct)} — **KD ${KD(m.amt)}** · ${days(m.due, today)}d`).join("\n") });
+} else {
+  body.push({ type: "TextBlock", text: "✓ No overdue invoices.", color: "Good", wrap: true, spacing: "Medium" });
+}
+if (pendSal.length || pendExp.length) {
+  const pf = [];
+  if (pendSal.length) pf.push({ title: "Salaries pending", value: `KD ${KD(pendSal.reduce((a, m) => a + abs(m.amt), 0))} · ${pendSal.length}` });
+  if (pendExp.length) pf.push({ title: "Expenses pending", value: `KD ${KD(pendExp.reduce((a, m) => a + abs(m.amt), 0))} · ${pendExp.length}` });
+  body.push({ type: "TextBlock", text: "Pending to confirm", weight: "Bolder", wrap: true, spacing: "Medium" });
+  body.push({ type: "FactSet", facts: pf });
+}
+if (dueRecurring.length) {
+  body.push({ type: "TextBlock", text: `Recurring not logged (${dueRecurring.length})`, weight: "Bolder", wrap: true, spacing: "Medium" });
+  body.push({ type: "TextBlock", wrap: true, text: dueRecurring.map((t) => `- ${t.name || t.cat} · ${t.freq || "Monthly"} — KD ${KD(t.amt)}`).join("\n") });
+}
+const adaptive = { type: "AdaptiveCard", $schema: "http://adaptivecards.io/schemas/adaptive-card.json", version: "1.4", body,
+  actions: APP_URL ? [{ type: "Action.OpenUrl", title: "Open PIVOT Command Center", url: APP_URL }] : [] };
+writeFileSync("teams-payload.json", JSON.stringify({ type: "message", attachments: [{ contentType: "application/vnd.microsoft.card.adaptive", content: adaptive }] }));
+
 console.log("Digest built:", JSON.stringify({ overdue: overdue.length, pendSal: pendSal.length, pendExp: pendExp.length, dueRecurring: dueRecurring.length, cash: Math.round(cash) }));
