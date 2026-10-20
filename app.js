@@ -41,7 +41,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v32 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v33 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -689,6 +689,33 @@ function renderAccounts(){
   bindSort('sortA',renderAccounts);
 }
 
+// ----- retainer invoicing -----
+function firstOfNextMonth(iso){return shiftMonths(iso.slice(0,7)+"-01",1);}
+function isRetainerInv(m){return m.dir==="Income"&&(m.income_type==="Retainer"||/support plan/i.test(m.desc||""));}
+function retainerInvoicesDue(){
+  const due=[]; const curFirst=todayISO.slice(0,7)+"-01";
+  store.accounts.filter(a=>Math.abs(+a.retainer_fee||0)>0).forEach(a=>{
+    const fee=Math.abs(+a.retainer_fee);
+    const rets=store.money.filter(m=>m.acct===a.id&&isRetainerInv(m));
+    let d = rets.length ? firstOfNextMonth(rets.reduce((mx,m)=>((m.date||"")>mx?(m.date||""):mx),"")) : curFirst;
+    let guard=0;
+    while(d<=curFirst && guard<60){
+      const svc=shiftMonths(d,-1).slice(0,7);
+      due.push({acct:a.id, date:d, due:d.slice(0,8)+"10", svc, fee, desc:monthLabel(svc)+" support plan"});
+      d=firstOfNextMonth(d); guard++;
+    }
+  });
+  return due;
+}
+async function generateRetainerInvoices(){
+  if(!canWrite){toast("Read-only access");return;}
+  const due=retainerInvoicesDue();
+  if(!due.length){toast("No retainer invoices due");return;}
+  let mx=0;store.money.forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});
+  let inv=0;store.money.forEach(m=>{const g=String(m.inv_no||"").match(/INV-(\d+)/);if(g)inv=Math.max(inv,+g[1]);});
+  const rows=due.map((x,i)=>({id:"LDG-"+String(mx+1+i).padStart(4,"0"),date:x.date,acct:x.acct,eng:"",dir:"Income",cat:"Client Payment",income_type:"Retainer",desc:x.desc,amt:Math.abs(x.fee),status:"Unpaid",due:x.due,paid:"",inv_no:"INV-"+String(inv+1+i).padStart(4,"0"),notes:"auto // retainer"}));
+  await createMany("money",rows);
+}
 function renderRetainers(){
   const ym=todayISO.slice(0,7);
   const fee=a=>Math.abs(+a.retainer_fee||0);
@@ -711,10 +738,14 @@ function renderRetainers(){
         <div style="display:flex;gap:20px;margin-top:10px;font-size:13px"><span>Margin this month <b class="${r.margin<0?'neg':'pos'}">KD ${KD(r.margin)}</b></span><span class="muted">Collected · KD ${KD(r.coll)}</span></div>
       </div>
     </div>`;}).join(""):'<div class="rowcount">No retainers yet. Open a brand in Accounts → Edit → set a Monthly retainer, and it appears here.</div>';
+  const dueN=retainerInvoicesDue().length;
   $('view').innerHTML=`<div class="view">
     <div class="kpis">${kpi("Monthly retainer value","KD "+KD(totFee),"accent")}${kpi("Retainers",rows.length,"")}${kpi("Delivery cost (mo)","KD "+KD(totCost),"warn")}${kpi("Blended margin (mo)","KD "+KD(totFee-totCost),(totFee-totCost)<0?"bad":"good")}</div>
-    <div class="panel"><div class="muted" style="font-size:12px;margin-bottom:12px">Burn = this month's delivery cost (expenses, freelancers, payouts tagged to the brand) against the retainer fee. Amber ≥80%, red ≥100% — you're servicing at a loss.</div>
-    <div class="poevents">${cards}</div></div></div>`;
+    <div class="panel">
+      <div class="addbar"><span class="muted" style="flex:1;font-size:12px">Burn = this month's delivery cost (expenses, freelancers, payouts on the brand) vs the fee. Amber ≥80%, red ≥100%.</span><button class="btn" id="genRetInv"${canWrite&&dueN?"":" disabled"}>Generate retainer invoices${dueN?` (${dueN})`:""}</button></div>
+      <div class="muted" style="font-size:12px;margin:0 0 12px">Invoices bill the month before on the 1st, due the 10th, as "<month> support plan". They land Unpaid until you mark them paid.</div>
+      <div class="poevents">${cards}</div></div></div>`;
+  if($('genRetInv'))$('genRetInv').onclick=generateRetainerInvoices;
 }
 
 const DEAL_STAGES=["Lead","Proposal","Contract","Signed","Lost"];
@@ -943,7 +974,7 @@ function openInvoiceNew(){
       ${fld("Amount (KD)",`<input type="number" step="0.001" id="mi_amt" placeholder="0.000">`)}
       ${fld("Status",`<select id="mi_status">${opts(PAY,"Unpaid")}</select>`)}
       ${fld("Due",`<input type="date" id="mi_due">`)}
-      ${fld("Category",`<input id="mi_cat" value="Client Payment">`)}
+      ${fld("Income type",`<select id="mi_income_type">${opts(["Project","Retainer"],"Project")}</select>`)}
     </div>
     <div class="formfull">
       ${fld("Description — what was billed",`<input id="mi_desc" placeholder="e.g. October retainer">`)}
@@ -954,7 +985,7 @@ function openInvoiceNew(){
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   $('mkSave').onclick=()=>{const g=f=>{const el=$('mi_'+f);return el?el.value:"";};const amt=parseFloat(g('amt'));if(isNaN(amt)){toast("Enter an amount");return;}
-    create("money",nextId("money","LDG-",4),{date:g('date')||todayISO,acct:g('acct'),eng:"",dir:"Income",cat:g('cat')||"Client Payment",desc:g('desc'),amt:Math.abs(amt),status:g('status'),due:g('due'),paid:"",notes:g('notes'),inv_no:nextInvNo()});close();};
+    create("money",nextId("money","LDG-",4),{date:g('date')||todayISO,acct:g('acct'),eng:"",dir:"Income",cat:"Client Payment",income_type:g('income_type')||"Project",desc:g('desc'),amt:Math.abs(amt),status:g('status'),due:g('due'),paid:"",notes:g('notes'),inv_no:nextInvNo()});close();};
 }
 function nextInvNo(){let mx=0;store.money.forEach(m=>{const g=String(m.inv_no||'').match(/INV-(\d+)/);if(g)mx=Math.max(mx,+g[1]);});return "INV-"+String(mx+1).padStart(4,"0");}
 function openExpenseNew(){
