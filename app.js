@@ -41,7 +41,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v31 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v32 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -1179,6 +1179,7 @@ function openBrand(acctId){
   const parent=a.parent?AMAP[a.parent]:null;
   const children=store.accounts.filter(x=>x.parent===acctId);
   const topOpen=[...openT].sort((x,y)=>((x.due||"9999")+"").localeCompare((y.due||"9999")+"")).slice(0,8);
+  const recentInv=[...inc].sort((x,y)=>((y.date||"")+"").localeCompare((x.date||""))).slice(0,6);
   const chip=x=>`<button class="linkname" data-brand="${esc(x.id)}" style="font-size:12px">${esc(x.brand)}</button>`;
   const famHtml=(parent||children.length)?`<label class="fld"><span>Family</span><div class="attn"><div class="r" style="flex-wrap:wrap;gap:8px">${parent?`<span class="muted">Parent:</span> ${chip(parent)}`:""}${children.length?`<span class="muted"${parent?' style="margin-left:10px"':''}>Brands:</span> ${children.map(chip).join(" ")}`:""}</div></div></label>`:"";
   $('modal').innerHTML=`<div class="sheet">
@@ -1187,9 +1188,10 @@ function openBrand(acctId){
     <div class="formfull">
       ${famHtml}
       <label class="fld"><span>Engagements · ${engs.length}</span><div class="attn">${engs.length?engs.map(e=>`<div class="r"><span class="t">${esc(e.name||e.service||e.id)}${e.model?` <span class="muted">· ${esc(e.model)}</span>`:''}</span><span class="muted" style="white-space:nowrap">${esc(e.status||'')}${e.team?' · '+esc(e.team):''}</span></div>`).join(""):'<div class="rowcount">No engagements recorded.</div>'}</div></label>
-      <label class="fld"><span>Open tasks · soonest first</span><div class="attn">${topOpen.length?topOpen.map(t=>{const[fl,fc]=flag(t);return `<div class="r"><span class="t"><button class="linkname" data-open="${esc(t.id)}">${esc(t.name||t.id)}</button></span><span class="${fc}" style="white-space:nowrap">${esc(t.due||'—')}</span></div>`;}).join(""):'<div class="rowcount">No open tasks.</div>'}</div></label>
+      <label class="fld"><span style="display:flex;align-items:center;gap:8px"><span style="flex:1">Open tasks · ${openT.length}</span>${tasks.length?`<button class="linkmini" id="vaTasks">View all →</button>`:''}</span><div class="attn">${topOpen.length?topOpen.map(t=>{const[fl,fc]=flag(t);return `<div class="r"><span class="t"><button class="linkname" data-open="${esc(t.id)}">${esc(t.name||t.id)}</button></span><span class="${fc}" style="white-space:nowrap">${esc(t.due||'—')}</span></div>`;}).join(""):'<div class="rowcount">No open tasks.</div>'}</div></label>
+      <label class="fld"><span style="display:flex;align-items:center;gap:8px"><span style="flex:1">Invoices · ${inc.length}</span>${inc.length?`<button class="linkmini" id="vaInv">View all →</button>`:''}</span><div class="attn">${recentInv.length?recentInv.map(m=>`<div class="r"><span class="t"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.inv_no||m.id)}</button> <span class="muted">· ${esc(m.desc||m.date||'')}</span></span><span style="display:flex;gap:8px;align-items:center;white-space:nowrap"><span class="num">KD ${KD(m.amt)}</span><span class="dchip ${m.status==='Paid'?'dchip-good':(owed(m)?'dchip-warn':'')}">${esc(m.status||'')}</span></span></div>`).join(""):'<div class="rowcount">No invoices.</div>'}</div></label>
     </div>
-    <div class="sheetfoot"><span class="muted">Costs: KD ${KD(exp+payo)}</span><span style="flex:1"></span>${canWrite?`<button class="ghost" id="mkBrandEdit">Edit</button>`:""}<button class="ghost" id="mkBrandExport">Export</button><button class="btn" id="mkBrandTasks">View tasks</button></div>
+    <div class="sheetfoot"><span class="muted">Costs: KD ${KD(exp+payo)}</span><span style="flex:1"></span>${canWrite?`<button class="ghost" id="mkBrandEdit">Edit</button>`:""}<button class="ghost" id="mkBrandExport">Export tasks</button></div>
     </div>`;
   $('modal').classList.add('show');
   const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
@@ -1197,7 +1199,9 @@ function openBrand(acctId){
   $('modal').onclick=e=>{if(e.target===$('modal'))close();};
   if($('mkBrandEdit'))$('mkBrandEdit').onclick=()=>openAccountEdit(acctId);
   if($('mkBrandExport'))$('mkBrandExport').onclick=()=>exportTasksCSV(tasks,("PIVOT tasks - "+a.brand+" "+todayISO+".csv"));
-  if($('mkBrandTasks'))$('mkBrandTasks').onclick=()=>{F.brand=a.brand;if($('fBrand'))$('fBrand').value=a.brand;state.view='tasks';try{localStorage.setItem('pivot_view','tasks');}catch(_){}close();render();};
+  const goBrand=view=>{F.brand=a.brand;if($('fBrand'))$('fBrand').value=a.brand;state.view=view;try{localStorage.setItem('pivot_view',view);}catch(_){}close();render();};
+  if($('vaTasks'))$('vaTasks').onclick=()=>{state.sortT={k:'logged',dir:-1};goBrand('tasks');};
+  if($('vaInv'))$('vaInv').onclick=()=>{state.sortM={k:'date',dir:-1};goBrand('invoices');};
 }
 function renderDigest(){
   const open=store.tasks.filter(t=>t.status!=="Done");

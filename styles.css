@@ -261,3 +261,7 @@ svg:hover .pieslice{opacity:.5}
 
 /* value label above vertical bars */
 .barval{font-size:9px;font-weight:700;color:var(--ink);font-family:var(--mono);line-height:1;white-space:nowrap}
+
+/* small inline "view all" link */
+.linkmini{all:unset;cursor:pointer;color:var(--accent);font-size:12px;font-weight:600}
+.linkmini:hover{text-decoration:underline}
