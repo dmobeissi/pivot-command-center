@@ -1,0 +1,39 @@
+name: PIVOT daily digest
+
+# 07:00 Kuwait (04:00 UTC), Sunday–Thursday. Plus manual trigger.
+on:
+  schedule:
+    - cron: "0 4 * * 0-4"
+  workflow_dispatch: {}
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build digest.html
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          APP_URL: https://dmobeissi.github.io/pivot-command-center/
+        run: |
+          echo "DIGEST_DATE=$(date -u +%Y-%m-%d)" >> "$GITHUB_ENV"
+          node scripts/digest.mjs
+
+      - name: Send digest email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          from: PIVOT Command Center <${{ secrets.MAIL_USERNAME }}>
+          to: ${{ secrets.DIGEST_TO }}
+          subject: "PIVOT digest — ${{ env.DIGEST_DATE }}"
+          html_body: file://digest.html
