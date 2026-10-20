@@ -55,6 +55,10 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font
 .filters{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto;align-items:center}
 select,input[type=search],input[type=text],input[type=date],input[type=number]{font-family:var(--font);font-size:13px;color:var(--ink);
   background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:7px 10px;min-width:0}
+select{appearance:none;-webkit-appearance:none;padding-right:30px;cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238A8D94' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 11px center}
+.csel{padding-right:28px !important;background-position:right 10px center}
 input[type=search]{min-width:150px}
 .theme{all:unset;cursor:pointer;border:1px solid var(--line);border-radius:9px;padding:7px 9px;color:var(--muted);font-size:13px}
 .main{padding:18px max(16px,env(safe-area-inset-right,0px)) 48px max(16px,env(safe-area-inset-left,0px));min-width:0}
@@ -162,6 +166,11 @@ svg{display:block;max-width:100%}
 .csel{border:1px solid transparent !important;border-radius:999px;padding:4px 12px;font-weight:600;font-size:11px;cursor:pointer}
 .drill{cursor:pointer}.drill:hover{filter:brightness(1.06)}
 .legend .drill{padding:1px 4px;border-radius:6px}.legend .drill:hover{background:var(--surface-2)}
+.pieslice{cursor:pointer;transition:opacity .12s ease,transform .12s ease;transform-box:fill-box;transform-origin:center}
+svg:hover .pieslice{opacity:.5}
+.pieslice:hover{opacity:1;transform:scale(1.05)}
+#tip{position:fixed;z-index:70;background:var(--ink);color:var(--bg);font-size:12px;font-weight:600;padding:5px 9px;border-radius:7px;pointer-events:none;opacity:0;transition:opacity .1s;white-space:nowrap;box-shadow:var(--shadow)}
+#tip.show{opacity:1}
 @media(max-width:1000px){.grid3,.grid2{grid-template-columns:1fr}}
 @media(max-width:720px){
   .app{flex-direction:column}

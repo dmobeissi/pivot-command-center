@@ -17,7 +17,8 @@ const state={view:(()=>{try{return localStorage.getItem('pivot_view')||"dashboar
   range:(()=>{try{return JSON.parse(localStorage.getItem('pivot_range'))||{preset:'mtd',from:'',to:''}}catch(e){return{preset:'mtd',from:'',to:''}}})(),
   cmp:(()=>{try{return localStorage.getItem('pivot_cmp')||'prev_period'}catch(e){return'prev_period'}})(),
   groups:(()=>{try{return JSON.parse(localStorage.getItem('pivot_groups'))||{tasks:true,money:true}}catch(e){return{tasks:true,money:true}}})(),
-  theme:(()=>{try{return localStorage.getItem('pivot_theme')||'system'}catch(e){return'system'}})()};
+  theme:(()=>{try{return localStorage.getItem('pivot_theme')||'system'}catch(e){return'system'}})(),
+  sortA:{k:"coll",dir:-1}};
 const todayISO=new Date().toISOString().slice(0,10);
 
 const $=id=>document.getElementById(id);
@@ -25,7 +26,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v16 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v17 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -107,6 +108,8 @@ document.addEventListener('click',e=>{const d=e.target.closest('[data-menu]');
     return;}
   if(!e.target.closest('.rowmenu'))closeRowMenu();});
 window.addEventListener('scroll',()=>closeRowMenu(),true);
+const _tip=document.createElement('div');_tip.id='tip';document.body.appendChild(_tip);
+document.addEventListener('mousemove',e=>{const b=e.target.closest('[data-tip]');if(b){_tip.textContent=b.getAttribute('data-tip');_tip.classList.add('show');_tip.style.left=Math.min(window.innerWidth-160,e.clientX+12)+'px';_tip.style.top=(e.clientY-14)+'px';}else _tip.classList.remove('show');});
 
 function fromDB(coll,r){ if(coll==='money'){const o=Object.assign({},r);o.desc=r.description;o.date=r.txn_date;return o;} if(coll==='templates'){const o=Object.assign({},r);o.dueDay=r.due_day;o.active=r.active?"Yes":"No";return o;} return r; }
 function toDB(coll,obj){ const o=Object.assign({},obj);
@@ -177,7 +180,8 @@ const owed=m=>m.dir==="Income"&&m.status!=="Paid"&&m.status!=="Voided"&&m.status
 const voided=m=>m.status==="Voided"||m.status==="Cancelled";
 const sCls=s=>({"To Do":"s-todo","In Progress":"s-prog","Review":"s-review","Done":"s-done","On Hold":"s-hold"}[s]||"s-todo");
 const opts=(list,sel)=>list.map(o=>`<option${o===sel?" selected":""}>${esc(o)}</option>`).join("");
-const brandOpts=sel=>`<option value="">—</option>`+store.accounts.map(a=>`<option value="${esc(a.id)}"${a.id===sel?" selected":""}>${esc(a.brand)}</option>`).join("");
+const brandOpts=sel=>`<option value="">—</option>`+store.accounts.filter(a=>a.id===sel||(a.lifecycle!=="Churned"&&a.lifecycle!=="Lost")).map(a=>`<option value="${esc(a.id)}"${a.id===sel?" selected":""}>${esc(a.brand)}</option>`).join("");
+function activeOwners(cur){const a=[...TEAM_ACTIVE];if(cur&&!a.includes(cur))a.push(cur);return a;}
 const CMAP={status:{"To Do":["var(--hold-soft)","var(--hold)"],"In Progress":["var(--warn-soft)","var(--warn)"],"Review":["var(--accent-soft)","var(--accent)"],"Done":["var(--good-soft)","var(--good)"],"On Hold":["var(--hold-soft)","var(--hold)"]},
   priority:{High:["var(--bad-soft)","var(--bad)"],Medium:["var(--warn-soft)","var(--warn)"],Low:["var(--good-soft)","var(--good)"]},
   pay:{Paid:["var(--good-soft)","var(--good)"],Partial:["var(--warn-soft)","var(--warn)"],Unpaid:["var(--bad-soft)","var(--bad)"],Voided:["var(--hold-soft)","var(--hold)"],Cancelled:["var(--hold-soft)","var(--hold)"]},
@@ -188,7 +192,7 @@ function csel(kind,coll,id,field,val,list,ro){return `<select class="edit csel" 
 function donut(parts,size=150){const tot=parts.reduce((a,p)=>a+p.v,0)||1,R=size/2,r=R*0.62;let a0=-Math.PI/2,paths="";
   parts.forEach(p=>{const fr=p.v/tot,a1=a0+fr*2*Math.PI,x0=R+R*Math.cos(a0),y0=R+R*Math.sin(a0),x1=R+R*Math.cos(a1),y1=R+R*Math.sin(a1),
    xi1=R+r*Math.cos(a1),yi1=R+r*Math.sin(a1),xi0=R+r*Math.cos(a0),yi0=R+r*Math.sin(a0),big=fr>0.5?1:0;
-   if(p.v>0)paths+=`<path d="M${x0} ${y0} A${R} ${R} 0 ${big} 1 ${x1} ${y1} L${xi1} ${yi1} A${r} ${r} 0 ${big} 0 ${xi0} ${yi0} Z" fill="${p.c}"/>`;a0=a1;});
+   if(p.v>0)paths+=`<path class="pieslice" ${p.k?`data-drill="status" data-val="${esc(p.k)}" data-tip="${esc(p.k)}: ${p.v}"`:""} d="M${x0} ${y0} A${R} ${R} 0 ${big} 1 ${x1} ${y1} L${xi1} ${yi1} A${r} ${r} 0 ${big} 0 ${xi0} ${yi0} Z" fill="${p.c}"/>`;a0=a1;});
   return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">${paths}<text x="${R}" y="${R-2}" text-anchor="middle" font-size="22" font-weight="700" fill="var(--ink)" font-family="var(--mono)">${tot}</text><text x="${R}" y="${R+16}" text-anchor="middle" font-size="11" fill="var(--muted)">tasks</text></svg>`;}
 function hbars(items,unit,drill){const max=Math.max(1,...items.map(i=>i.v));return `<div style="display:flex;flex-direction:column;gap:8px">`+
   items.map(i=>`<div ${drill?`class="drill" data-drill="${drill}" data-val="${esc(i.l)}"`:""} style="display:grid;grid-template-columns:92px 1fr auto;gap:8px;align-items:center${drill?';cursor:pointer':''}">
@@ -197,7 +201,7 @@ function hbars(items,unit,drill){const max=Math.max(1,...items.map(i=>i.v));retu
    <span class="num">${unit==='kd'?KD(i.v):i.v}</span></div>`).join("")+`</div>`;}
 const kpi=(l,v,c,dh)=>`<div class="kpi ${c||''}"><span class="lab">${l}</span><span class="val">${v}${dh||''}</span><span class="bar"></span></div>`;
 function vbars(items,unit){const max=Math.max(1,...items.map(i=>i.v));return `<div style="display:flex;align-items:flex-end;gap:3px;height:128px;padding-top:8px">`+
-  items.map(i=>`<div title="${esc(i.l)}: ${unit==='kd'?'KD '+KD(i.v):i.v}" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px;min-width:0">
+  items.map(i=>`<div data-tip="${esc(i.l)}: ${unit==='kd'?'KD '+KD(i.v):i.v}" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px;min-width:0;cursor:default">
    <div style="width:100%;max-width:34px;background:var(--accent);border-radius:4px 4px 0 0;height:${Math.max(2,Math.round(i.v/max*100))}px"></div>
    <span class="muted" style="font-size:9px;white-space:nowrap;overflow:hidden;max-width:100%">${esc(i.s||i.l)}</span></div>`).join("")+`</div>`;}
 function isoAdd(iso,days){const d=new Date(iso+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10);}
@@ -278,7 +282,7 @@ function renderTasksDash(){
     <div class="kpis">${kpi("Open tasks",open,"accent")}${kpi("Overdue",overdue,"bad")}${kpi("High open",high,"warn")}${kpi("Done",done,"good")}${kpi("Active brands",store.accounts.filter(a=>a.lifecycle==="Active").length,"")}${kpi("Engagements",store.engagements.length,"")}</div>
     <div class="grid3">
       <div class="panel"><h2>Needs attention — soonest due</h2><div class="attn">${attn.length?attn.map(t=>{const[fl,fc]=flag(t);return `<div class="r"><span class="t"><button class="linkname" data-open="${esc(t.id)}">${esc(t.name||t.id)}</button> <span class="muted">· ${esc(brandOf(t.acct))}</span></span><span class="${fc}">${esc(t.due||'')}</span></div>`;}).join(""):'<div class="rowcount">Nothing due.</div>'}</div></div>
-      <div class="panel"><h2>Tasks by status</h2><div class="body" style="display:flex;justify-content:center">${donut(sParts.map(p=>({v:p.v,c:p.c})))}</div><div class="legend">${sParts.map(p=>`<span class="drill" data-drill="status" data-val="${esc(p.name)}"><span class="sw" style="background:${p.c}"></span>${p.name} ${p.v}</span>`).join("")}</div></div>
+      <div class="panel"><h2>Tasks by status</h2><div class="body" style="display:flex;justify-content:center">${donut(sParts.map(p=>({v:p.v,c:p.c,k:p.name})))}</div><div class="legend">${sParts.map(p=>`<span class="drill" data-drill="status" data-val="${esc(p.name)}"><span class="sw" style="background:${p.c}"></span>${p.name} ${p.v}</span>`).join("")}</div></div>
       <div class="panel"><h2>Open tasks by owner</h2><div class="body">${ownerItems.length?hbars(ownerItems,null,'team'):'<div class="muted">No open tasks</div>'}</div></div>
     </div>
     <div class="panel"><h2>Busiest brands (open work)</h2><div class="body">${topBrand.length?hbars(topBrand,null,'brand'):'<div class="muted">—</div>'}</div></div>
@@ -321,8 +325,11 @@ function renderMoneyDash(){
 }
 
 function sortBy(arr,k,dir){return [...arr].sort((a,b)=>{let x=a[k],y=b[k];if(k==='amt'){x=+a.amt||0;y=+b.amt||0;}x=x==null?"":x;y=y==null?"":y;return x>y?dir:x<y?-dir:0;});}
+let _SS=null;
+function thhead(head){return head.map(h=>h[0]?`<th data-k="${h[0]}">${h[1]}${_SS&&_SS.k===h[0]?(_SS.dir>0?" \u25B2":" \u25BC"):""}</th>`:"<th></th>").join("");}
 
 function renderTasks(){
+  _SS=state.sortT;
   let T=sortBy(applyQuick(tasksF()),state.sortT.k,state.sortT.dir);
   const cap=T.length>350?350:T.length;
   const chips=[["","All"],["open","Open"],["overdue","Overdue"],["week","Due this week"],["unassigned","Unassigned"],["high","High priority"],["done","Done"]];
@@ -336,12 +343,12 @@ function renderTasks(){
         <button class="ghost" id="tExport" title="Download a client-safe CSV of the tasks shown (no internal notes)">Export (client-safe)</button>
       </div>
       <div class="chips">${chips.map(c=>`<button class="chip${F.quick===c[0]?' on':''}" data-quick="${c[0]}">${c[1]}</button>`).join("")}</div>
-      <div class="tablewrap"><table><thead><tr>${head.map(h=>h[0]?`<th data-k="${h[0]}">${h[1]}</th>`:"<th></th>").join("")}</tr></thead>
+      <div class="tablewrap"><table><thead><tr>${thhead(head)}</tr></thead>
       <tbody>${T.slice(0,cap).map(t=>{const[fl,fc]=flag(t);const ro=canWrite?"":"disabled";return `<tr>
         <td class="id">${esc(t.id)}</td>
         <td><select class="edit" data-c="tasks" data-id="${esc(t.id)}" data-f="acct" ${ro}>${brandOpts(t.acct)}</select></td>
         <td class="editname">${t.output?`<span title="Output filled in" style="color:var(--good);margin-right:4px">●</span>`:""}<button class="linkname" data-open="${esc(t.id)}">${esc(t.name||t.id)}</button>${t.tags?`<div class="tagrow">${String(t.tags).split(",").map(x=>x.trim()).filter(Boolean).map(x=>`<span class="tag">${esc(x)}</span>`).join("")}</div>`:""}</td>
-        <td><select class="edit" data-c="tasks" data-id="${esc(t.id)}" data-f="owner" ${ro}><option value="">—</option>${opts(TEAM,t.owner)}</select></td>
+        <td><select class="edit" data-c="tasks" data-id="${esc(t.id)}" data-f="owner" ${ro}><option value="">—</option>${opts(activeOwners(t.owner),t.owner)}</select></td>
         <td>${csel("priority","tasks",t.id,"priority",t.priority,PRIOS,ro)}</td>
         <td><input type="date" class="edit" data-c="tasks" data-id="${esc(t.id)}" data-f="due" value="${esc(t.due||'')}" ${ro}></td>
         <td>${csel("status","tasks",t.id,"status",t.status,STATUSES,ro)}</td>
@@ -369,7 +376,7 @@ function renderMyTasks(){
      ${csel("status","tasks",t.id,"status",t.status,STATUSES,ro)}</span></div>`).join(""):'<div class="rowcount">Nothing here.</div>'}</div></div>`;
   $('view').innerHTML=`<div class="view">
     <div class="panel"><div class="addbar"><span class="muted">Show tasks for</span>
-      <select id="meSel"><option value="">— pick your name —</option>${opts(TEAM,me)}</select></div></div>
+      <select id="meSel"><option value="">— pick your name —</option>${opts(activeOwners(me),me)}</select></div></div>
     ${me?`<div class="kpis">${kpi("Open",open.length,"accent")}${kpi("Overdue",overdue.length,"bad")}${kpi("Due this week",week.length,"warn")}${kpi("Done",mine.length-open.length,"good")}</div>
       ${card("Overdue",overdue,"flag-over")}${card("This week",week,"flag-soon")}${card("Later / no date",later,"flag-ok")}`
       :'<div class="center"><h2>Pick your name</h2><p>Choose who you are above to see your next tasks, sorted by due date.</p></div>'}
@@ -378,6 +385,7 @@ function renderMyTasks(){
 }
 
 function renderInvoices(){
+  _SS=state.sortM;
   let M=sortBy(moneyF().filter(m=>m.dir==="Income"),state.sortM.k,state.sortM.dir);
   const collected=M.filter(m=>m.status==="Paid").reduce((a,m)=>a+(+m.amt||0),0);
   const billed=M.filter(m=>!voided(m)).reduce((a,m)=>a+(+m.amt||0),0);
@@ -388,7 +396,7 @@ function renderInvoices(){
     <div class="kpis">${kpi("Billed","KD "+KD(billed),"accent")}${kpi("Collected","KD "+KD(collected),"good")}${kpi("Outstanding","KD "+KD(billed-collected),"bad")}${kpi("Overdue","KD "+KD(overdue),"warn")}</div>
     <div class="panel">
       <div class="addbar"><button class="btn" id="niAdd"${canWrite?"":" disabled"}>+ Add invoice</button></div>
-      <div class="tablewrap"><table><thead><tr>${head.map(h=>h[0]?`<th data-k="${h[0]}">${h[1]}</th>`:"<th></th>").join("")}</tr></thead>
+      <div class="tablewrap"><table><thead><tr>${thhead(head)}</tr></thead>
       <tbody>${M.map(m=>{const od=owed(m)&&m.due&&m.due<todayISO;return `<tr id="mrow-${esc(m.id)}">
         <td class="id">${esc(m.id)}</td>
         <td><input type="date" class="edit" data-c="money" data-id="${esc(m.id)}" data-f="date" value="${esc(m.date||'')}" ${ro}></td>
@@ -406,6 +414,7 @@ function renderInvoices(){
 }
 
 function renderExpenses(){
+  _SS=state.sortM;
   let M=sortBy(moneyF().filter(m=>m.dir==="Expense"),state.sortM.k,state.sortM.dir);
   const total=Math.abs(M.reduce((a,m)=>a+(+m.amt||0),0));
   const cats={};M.forEach(m=>{const k=m.cat||"Other";cats[k]=(cats[k]||0)+Math.abs(+m.amt||0);});
@@ -419,7 +428,7 @@ function renderExpenses(){
       <div class="panel"><h2>Add expense</h2><div class="body"><button class="btn" id="neAdd"${canWrite?"":" disabled"}>+ Add expense</button></div></div>
     </div>
     <div class="panel">
-      <div class="tablewrap"><table><thead><tr>${head.map(h=>h[0]?`<th data-k="${h[0]}">${h[1]}</th>`:"<th></th>").join("")}</tr></thead>
+      <div class="tablewrap"><table><thead><tr>${thhead(head)}</tr></thead>
       <tbody>${M.map(m=>`<tr id="mrow-${esc(m.id)}">
         <td class="id">${esc(m.id)}</td>
         <td><input type="date" class="edit" data-c="money" data-id="${esc(m.id)}" data-f="date" value="${esc(m.date||'')}" ${ro}></td>
@@ -436,25 +445,33 @@ function renderExpenses(){
 }
 
 function renderAccounts(){
-  const rows=store.accounts.map(a=>{
+  _SS=state.sortA;
+  let rows=store.accounts.map(a=>{
     const open=store.tasks.filter(t=>t.acct===a.id&&t.status!=="Done").length;
     const coll=store.money.filter(m=>m.acct===a.id&&m.dir==="Income"&&m.status==="Paid").reduce((s,m)=>s+(+m.amt||0),0);
     const out=store.money.filter(m=>m.acct===a.id&&m.dir==="Income").reduce((s,m)=>s+(+m.amt||0),0)-coll;
     const eng=store.engagements.filter(e=>e.acct===a.id).length;
     return Object.assign({open,coll,out,eng},a);
-  }).filter(a=>!F.brand||a.brand===F.brand).sort((x,y)=>y.coll-x.coll);
+  }).filter(a=>!F.brand||a.brand===F.brand);
+  rows=sortBy(rows,state.sortA.k,state.sortA.dir);
   const ro=canWrite?"":"disabled";
+  const head=[["id","ID"],["brand","Brand"],["country","Country"],["type","Type"],["lifecycle","Lifecycle"],["eng","Engagements"],["open","Open"],["coll","Collected"],["out","Outstanding"],["date_added","Added"]];
   $('view').innerHTML=`<div class="view"><div class="panel">
     <div class="addbar"><button class="btn" id="acAdd"${canWrite?"":" disabled"}>+ Add account</button><span class="muted" style="font-size:12px">Click a brand to open its profile.</span></div>
     <div class="tablewrap"><table>
-    <thead><tr><th>ID</th><th>Brand</th><th>Type</th><th>Lifecycle</th><th>Engagements</th><th>Open tasks</th><th>Collected</th><th>Outstanding</th></tr></thead>
+    <thead><tr>${thhead(head)}</tr></thead>
     <tbody>${rows.map(a=>`<tr>
-      <td class="id">${esc(a.id)}</td><td class="brandcell"><button class="linkname" data-brand="${esc(a.id)}">${esc(a.brand)}</button></td><td class="muted">${esc(a.type||'')}</td>
+      <td class="id">${esc(a.id)}</td>
+      <td class="brandcell"><button class="linkname" data-brand="${esc(a.id)}">${esc(a.brand)}</button></td>
+      <td><input class="edit" style="width:104px" data-c="accounts" data-id="${esc(a.id)}" data-f="country" value="${esc(a.country||'')}" ${ro}></td>
+      <td class="muted">${esc(a.type||'')}</td>
       <td>${csel("life","accounts",a.id,"lifecycle",a.lifecycle,LIFE,ro)}</td>
       <td class="num">${a.eng}</td><td class="num">${a.open}</td>
-      <td class="num pos">${KD(a.coll)}</td><td class="num ${a.out>0?'neg':''}">${KD(a.out)}</td></tr>`).join("")}</tbody></table></div>
+      <td class="num pos">${KD(a.coll)}</td><td class="num ${a.out>0?'neg':''}">${KD(a.out)}</td>
+      <td class="muted">${esc(a.date_added||'')}</td></tr>`).join("")}</tbody></table></div>
     <div class="rowcount">${rows.length} accounts</div></div></div>`;
   if($('acAdd'))$('acAdd').onclick=openAccountNew;
+  bindSort('sortA',renderAccounts);
 }
 
 function bindSort(key,rerender){document.querySelectorAll('thead th[data-k]').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(!k)return;const s=state[key];s.dir=(s.k===k)?-s.dir:1;s.k=k;rerender();});}
@@ -483,7 +500,7 @@ function openTask(id){
     <div class="formgrid">
       ${fld("Task name",`<input id="mk_name" value="${esc(t.name||'')}" ${ro}>`)}
       ${fld("Brand",`<select id="mk_acct" ${ro}>${brandOpts(t.acct)}</select>`)}
-      ${fld("Owner",`<select id="mk_owner" ${ro}><option value="">—</option>${opts(TEAM,t.owner)}</select>`)}
+      ${fld("Owner",`<select id="mk_owner" ${ro}><option value="">—</option>${opts(activeOwners(t.owner),t.owner)}</select>`)}
       ${fld("Priority",`<select id="mk_priority" ${ro}>${opts(PRIOS,t.priority)}</select>`)}
       ${fld("Status",`<select id="mk_status" ${ro}>${opts(STATUSES,t.status)}</select>`)}
       ${fld("Requested by",`<select id="mk_reqby" ${ro}>${opts(["PIVOT","Client"],t.reqby)}</select>`)}
@@ -508,7 +525,8 @@ function openTask(id){
   $('mkClose').onclick=$('mkCancel').onclick=close;
   $('modal').onclick=e=>{if(e.target===$('modal'))close();};
   if($('mkSave'))$('mkSave').onclick=async()=>{const g=f=>{const el=$('mk_'+f);return el?el.value:"";};
-    await write("tasks",id,{name:g('name'),acct:g('acct'),owner:g('owner'),priority:g('priority'),status:g('status'),reqby:g('reqby'),logged:g('logged'),due:g('due'),done:g('done'),details:g('details'),output:g('output'),notes:g('notes'),tags:g('tags')});logAct("edited","tasks",id,g('name'));close();};
+    const st=g('status');let dn=g('done');if(st==='Done'&&!dn)dn=todayISO;
+    await write("tasks",id,{name:g('name'),acct:g('acct'),owner:g('owner'),priority:g('priority'),status:st,reqby:g('reqby'),logged:g('logged'),due:g('due'),done:dn,details:g('details'),output:g('output'),notes:g('notes'),tags:g('tags')});logAct("edited","tasks",id,g('name'));close();};
   if($('mkDelete'))$('mkDelete').onclick=()=>{close();remove("tasks",id);};
 }
 function openTaskNew(){
@@ -518,7 +536,7 @@ function openTaskNew(){
     <div class="formgrid">
       ${fld("Task name",`<input id="mk_name" placeholder="What needs doing">`)}
       ${fld("Brand",`<select id="mk_acct">${brandOpts("")}</select>`)}
-      ${fld("Owner",`<select id="mk_owner"><option value="">—</option>${opts(TEAM)}</select>`)}
+      ${fld("Owner",`<select id="mk_owner"><option value="">—</option>${opts(TEAM_ACTIVE)}</select>`)}
       ${fld("Priority",`<select id="mk_priority">${opts(PRIOS,"Medium")}</select>`)}
       ${fld("Status",`<select id="mk_status">${opts(STATUSES,"To Do")}</select>`)}
       ${fld("Requested by",`<select id="mk_reqby">${opts(["PIVOT","Client"],"PIVOT")}</select>`)}
@@ -533,7 +551,8 @@ function openTaskNew(){
   const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   $('mkSave').onclick=()=>{const g=f=>{const el=$('mk_'+f);return el?el.value:"";};const name=g('name').trim();if(!name){toast("Enter a task name");return;}
-    create("tasks",nextId("tasks","TSK-",4),{acct:g('acct'),eng:"",name,details:g('details'),owner:g('owner'),priority:g('priority'),reqby:g('reqby'),logged:g('logged'),due:g('due'),done:"",status:g('status'),output:"",notes:"",tags:g('tags')});close();};
+    const st=g('status');const dn=st==='Done'?todayISO:"";
+    create("tasks",nextId("tasks","TSK-",4),{acct:g('acct'),eng:"",name,details:g('details'),owner:g('owner'),priority:g('priority'),reqby:g('reqby'),logged:g('logged')||todayISO,due:g('due'),done:dn,status:st,output:"",notes:"",tags:g('tags')});close();};
 }
 function openTemplateNew(){
   if(!canWrite){toast("Read-only access");return;}
@@ -542,7 +561,7 @@ function openTemplateNew(){
     <div class="formgrid">
       ${fld("Task name",`<input id="tp_name" placeholder="Repeats every month">`)}
       ${fld("Brand",`<select id="tp_acct">${brandOpts("")}</select>`)}
-      ${fld("Owner",`<select id="tp_owner"><option value="">—</option>${opts(TEAM)}</select>`)}
+      ${fld("Owner",`<select id="tp_owner"><option value="">—</option>${opts(TEAM_ACTIVE)}</select>`)}
       ${fld("Priority",`<select id="tp_priority">${opts(PRIOS,"Medium")}</select>`)}
       ${fld("Due day of month (1-28)",`<input type="number" min="1" max="28" id="tp_dueDay" value="1">`)}
       ${fld("Active",`<select id="tp_active">${opts(["Yes","No"],"Yes")}</select>`)}
@@ -608,6 +627,7 @@ function openAccountNew(){
     <div class="formgrid">
       ${fld("Brand name",`<input id="ma_brand" placeholder="Client / brand">`)}
       ${fld("Type",`<input id="ma_type" placeholder="e.g. Retainer, Project">`)}
+      ${fld("Country",`<input id="ma_country" placeholder="e.g. Kuwait">`)}
       ${fld("Lifecycle",`<select id="ma_lifecycle">${opts(LIFE,"Lead")}</select>`)}
     </div>
     <div class="formfull">${fld("Notes (optional)",`<textarea id="ma_notes" rows="2"></textarea>`)}</div>
@@ -616,7 +636,7 @@ function openAccountNew(){
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   $('mkSave').onclick=()=>{const g=f=>{const el=$('ma_'+f);return el?el.value:"";};const brand=g('brand').trim();if(!brand){toast("Enter a brand name");return;}
-    create("accounts",nextId("accounts","ACC-",3),{brand,type:g('type'),lifecycle:g('lifecycle'),notes:g('notes')});close();};
+    create("accounts",nextId("accounts","ACC-",3),{brand,type:g('type'),country:g('country'),lifecycle:g('lifecycle'),notes:g('notes'),date_added:todayISO});close();};
 }
 function openReport(kind){
   const R=activeRange();const lbl=`${R.from} → ${R.to==='9999-12-31'?'now':R.to}`;let title,html,csv,fname;
@@ -763,7 +783,7 @@ function renderRecurring(){
     <td class="id">${esc(t.id)}</td>
     <td><select class="edit" data-c="templates" data-id="${esc(t.id)}" data-f="acct" ${ro}>${brandOpts(t.acct)}</select></td>
     <td><input class="edit" style="min-width:150px" data-c="templates" data-id="${esc(t.id)}" data-f="name" value="${esc(t.name||'')}" ${ro}></td>
-    <td><select class="edit" data-c="templates" data-id="${esc(t.id)}" data-f="owner" ${ro}><option value="">—</option>${opts(TEAM,t.owner)}</select></td>
+    <td><select class="edit" data-c="templates" data-id="${esc(t.id)}" data-f="owner" ${ro}><option value="">—</option>${opts(activeOwners(t.owner),t.owner)}</select></td>
     <td><select class="edit" data-c="templates" data-id="${esc(t.id)}" data-f="priority" ${ro}>${opts(PRIOS,t.priority||"Medium")}</select></td>
     <td><input type="number" min="1" max="28" class="edit num" style="width:70px" data-c="templates" data-id="${esc(t.id)}" data-f="dueDay" value="${esc(t.dueDay||'')}" ${ro}></td>
     <td><select class="edit" data-c="templates" data-id="${esc(t.id)}" data-f="active" ${ro}>${opts(["Yes","No"],t.active||"Yes")}</select></td>
@@ -832,7 +852,10 @@ $('fSearch').oninput=e=>{F.q=e.target.value.toLowerCase().trim();render();};
 document.addEventListener('keydown',e=>{if(e.key==='/'&&!/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName||'')&&!$('modal').classList.contains('show')){e.preventDefault();const s=$('fSearch');if(s)s.focus();}});
 document.addEventListener('change',e=>{const el=e.target;if(el.classList&&el.classList.contains('edit')&&el.dataset.c){
   if(el.dataset.color)el.setAttribute('style',cstyle(el.dataset.color,el.value));
-  let v=el.value;if(el.dataset.f==='amt')v=parseFloat(v)||0;write(el.dataset.c,el.dataset.id,{[el.dataset.f]:v});
+  let v=el.value;if(el.dataset.f==='amt')v=parseFloat(v)||0;
+  const patch={[el.dataset.f]:v};
+  if(el.dataset.c==='tasks'&&el.dataset.f==='status'&&v==='Done'){const t=store.tasks.find(x=>x.id===el.dataset.id);if(t&&!t.done)patch.done=todayISO;}
+  write(el.dataset.c,el.dataset.id,patch);
   logAct(el.dataset.f==='status'?("set status → "+el.value):("edited "+el.dataset.f),el.dataset.c,el.dataset.id,"");}});
 document.addEventListener('click',e=>{const d=e.target.closest('[data-drill]');if(d){const k=d.dataset.drill,v=d.dataset.val;
   if(k==='status'){F.status=v;if($('fStatus'))$('fStatus').value=v;}
