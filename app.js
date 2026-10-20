@@ -2,6 +2,7 @@
 const STATUSES=["To Do","In Progress","Review","Done","On Hold"];
 const PRIOS=["High","Medium","Low"];
 const LIFE=["Lead","Active","Paused","Churned","Lost","Internal"];
+const STAGES=["Lead","Proposal","Won","Lost"];
 const PAY=["Paid","Partial","Unpaid","Voided","Cancelled"];
 const PAYOUT_STATUS=["Pending","Paid"];
 const ROLES=["Full-time","Part-time","Freelance"];
@@ -20,11 +21,11 @@ const DIRS=["Income","Expense"];
 const EXPCATS=["Salary","Software","Advertising","Freelancer","Partner Payout","Domain / Hosting","Tax","Office","Other Expense"];
 const TEAM_ACTIVE=["Daoud","Zawar","Arafa"];const TEAM_ARCHIVED=["Amr","Maisoun","Bilal"];let TEAM=[...TEAM_ACTIVE,...TEAM_ARCHIVED];
 const COLLS=["accounts","engagements","tasks","money"];
-const store={accounts:[],engagements:[],tasks:[],money:[],templates:[]};
-const loaded={accounts:false,engagements:false,tasks:false,money:false,templates:false};
+const store={accounts:[],engagements:[],tasks:[],money:[],templates:[],people:[]};
+const loaded={accounts:false,engagements:false,tasks:false,money:false,templates:false,people:false};
 let AMAP={}, canWrite=false, booted=false, myName="Someone", PEOPLE={};
 let sb=null, session=null;
-const ALLCOLLS=["accounts","engagements","tasks","money","templates"];
+const ALLCOLLS=["accounts","engagements","tasks","money","templates","people"];
 const F={brand:"",team:"",status:"",q:"",quick:""};
 const state={view:(()=>{try{return localStorage.getItem('pivot_view')||"dashboard"}catch(e){return"dashboard"}})(),sortT:{k:"due",dir:1},sortM:{k:"date",dir:-1},me:(()=>{try{return localStorage.getItem('pivot_me')||""}catch(e){return""}})(),
   range:(()=>{try{return JSON.parse(localStorage.getItem('pivot_range'))||{preset:'mtd',from:'',to:''}}catch(e){return{preset:'mtd',from:'',to:''}}})(),
@@ -39,7 +40,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v24 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v25 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -124,15 +125,16 @@ window.addEventListener('scroll',()=>closeRowMenu(),true);
 const _tip=document.createElement('div');_tip.id='tip';document.body.appendChild(_tip);
 document.addEventListener('mousemove',e=>{const b=e.target.closest('[data-tip]');if(b){_tip.textContent=b.getAttribute('data-tip');_tip.classList.add('show');_tip.style.left=Math.min(window.innerWidth-160,e.clientX+12)+'px';_tip.style.top=(e.clientY-14)+'px';}else _tip.classList.remove('show');});
 
-function fromDB(coll,r){ if(coll==='money'){const o=Object.assign({},r);o.desc=r.description;o.date=r.txn_date;return o;} if(coll==='templates'){const o=Object.assign({},r);o.dueDay=r.due_day;o.active=r.active?"Yes":"No";return o;} return r; }
+function fromDB(coll,r){ if(coll==='money'){const o=Object.assign({},r);o.desc=r.description;o.date=r.txn_date;return o;} if(coll==='templates'){const o=Object.assign({},r);o.dueDay=r.due_day;o.active=r.active?"Yes":"No";return o;} if(coll==='people'){const o=Object.assign({},r);o.active=(r.active===false?"No":"Yes");return o;} return r; }
 function toDB(coll,obj){ const o=Object.assign({},obj);
   if(coll==='money'){ if('desc' in o){o.description=o.desc;delete o.desc;} if('date' in o){o.txn_date=o.date||null;delete o.date;} ['due','paid','txn_date'].forEach(k=>{if(o[k]==='')o[k]=null;}); }
   if(coll==='tasks'){ ['logged','due','done'].forEach(k=>{if(o[k]==='')o[k]=null;}); }
   if(coll==='templates'){ if('dueDay' in o){o.due_day=parseInt(o.dueDay)||1;delete o.dueDay;} if('active' in o){o.active=(o.active!=="No"&&o.active!==false);} }
+  if(coll==='people'){ if('active' in o){o.active=(o.active!=="No"&&o.active!==false);} }
   return o; }
 async function fetchColl(coll){
   const {data,error}=await sb.from(coll).select('*');
-  if(error){ toast("Load error: "+coll); console.error(coll,error); return; }
+  if(error){ if(coll==='people'){store.people=[];loaded.people=true;return;} toast("Load error: "+coll); console.error(coll,error); return; }
   store[coll]=data.map(r=>fromDB(coll,r));
   if(coll==='accounts'){ AMAP={}; store.accounts.forEach(a=>AMAP[a.id]=a); rebuildBrandFilter(); }
   if(coll==='tasks'){ const s=new Set(store.tasks.map(x=>x.owner).filter(Boolean)); if(s.size){TEAM=[...new Set([...TEAM,...s])];rebuildTeamFilter();} }
@@ -199,7 +201,8 @@ const voided=m=>m.status==="Voided"||m.status==="Cancelled";
 const sCls=s=>({"To Do":"s-todo","In Progress":"s-prog","Review":"s-review","Done":"s-done","On Hold":"s-hold"}[s]||"s-todo");
 const opts=(list,sel)=>list.map(o=>`<option${o===sel?" selected":""}>${esc(o)}</option>`).join("");
 const brandOpts=sel=>`<option value="">—</option>`+store.accounts.filter(a=>a.id===sel||(a.lifecycle!=="Churned"&&a.lifecycle!=="Lost")).map(a=>`<option value="${esc(a.id)}"${a.id===sel?" selected":""}>${esc(a.brand)}</option>`).join("");
-function activeOwners(cur){const a=[...TEAM_ACTIVE];if(cur&&!a.includes(cur))a.push(cur);return a;}
+function teamActive(){const p=(store.people||[]).filter(x=>x.active!=="No"&&x.active!==false);return p.length?p.map(x=>x.name):[...TEAM_ACTIVE];}
+function activeOwners(cur){const a=[...teamActive()];if(cur&&!a.includes(cur))a.push(cur);return a;}
 function accountOpts(sel,excludeId){return `<option value="">— none —</option>`+[...store.accounts].filter(a=>a.id!==excludeId).sort((x,y)=>(x.brand||'').localeCompare(y.brand||'')).map(a=>`<option value="${esc(a.id)}"${a.id===sel?" selected":""}>${esc(a.brand)}</option>`).join("");}
 const CMAP={status:{"To Do":["var(--hold-soft)","var(--hold)"],"In Progress":["var(--warn-soft)","var(--warn)"],"Review":["var(--accent-soft)","var(--accent)"],"Done":["var(--good-soft)","var(--good)"],"On Hold":["var(--hold-soft)","var(--hold)"]},
   priority:{High:["var(--bad-soft)","var(--bad)"],Medium:["var(--warn-soft)","var(--warn)"],Low:["var(--good-soft)","var(--good)"]},
@@ -433,7 +436,7 @@ function renderInvoices(){
   const collected=M.filter(m=>m.status==="Paid").reduce((a,m)=>a+(+m.amt||0),0);
   const billed=M.filter(m=>!voided(m)).reduce((a,m)=>a+(+m.amt||0),0);
   const overdue=M.filter(m=>owed(m)&&m.due&&m.due<todayISO).reduce((a,m)=>a+(+m.amt||0),0);
-  const head=[["id","ID"],["date","Date"],["brand","Brand"],["desc","Description"],["amt","Amount"],["status","Status"],["due","Due"],["",""]];
+  const head=[["inv_no","Invoice #"],["date","Date"],["brand","Brand"],["desc","Description"],["amt","Amount"],["status","Status"],["due","Due"],["",""]];
   const ro=canWrite?"":"disabled";
   $('view').innerHTML=`<div class="view">
     <div class="kpis">${kpi("Billed","KD "+KD(billed),"accent")}${kpi("Collected","KD "+KD(collected),"good")}${kpi("Outstanding","KD "+KD(billed-collected),"bad")}${kpi("Overdue","KD "+KD(overdue),"warn")}</div>
@@ -441,7 +444,7 @@ function renderInvoices(){
       <div class="addbar"><button class="btn" id="niAdd"${canWrite?"":" disabled"}>+ Add invoice</button></div>
       <div class="tablewrap"><table><thead><tr>${thhead(head)}</tr></thead>
       <tbody>${M.map(m=>{const od=owed(m)&&m.due&&m.due<todayISO;return `<tr id="mrow-${esc(m.id)}">
-        <td class="id">${esc(m.id)}</td>
+        <td class="id">${esc(m.inv_no||m.id)}</td>
         <td><input type="date" class="edit" data-c="money" data-id="${esc(m.id)}" data-f="date" value="${esc(m.date||'')}" ${ro}></td>
         <td><select class="edit" data-c="money" data-id="${esc(m.id)}" data-f="acct" ${ro}>${brandOpts(m.acct)}</select></td>
         <td style="min-width:200px"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||m.id)}</button>${m.notes?`<div class="tagrow"><span class="tag" style="color:var(--hold);background:var(--hold-soft)">note</span></div>`:""}</td>
@@ -677,6 +680,80 @@ function renderAccounts(){
   bindSort('sortA',renderAccounts);
 }
 
+function renderRetainers(){
+  const ym=todayISO.slice(0,7);
+  const fee=a=>Math.abs(+a.retainer_fee||0);
+  const rets=store.accounts.filter(a=>fee(a)>0);
+  const monthCost=id=>Math.abs(store.money.filter(m=>m.acct===id&&(m.dir==="Expense"||m.dir==="Salary"||m.dir==="Payout")&&(m.date||"").slice(0,7)===ym).reduce((s,m)=>s+(+m.amt||0),0));
+  const monthColl=id=>store.money.filter(m=>m.acct===id&&m.dir==="Income"&&m.status==="Paid"&&(m.paid||m.date||"").slice(0,7)===ym).reduce((s,m)=>s+(+m.amt||0),0);
+  const billedThis=id=>store.money.some(m=>m.acct===id&&m.dir==="Income"&&!voided(m)&&(m.date||"").slice(0,7)===ym);
+  const rows=rets.map(a=>{const f=fee(a),c=monthCost(a.id);return {a,f,c,coll:monthColl(a.id),burn:f?Math.round(c/f*100):0,margin:f-c,billed:billedThis(a.id)};}).sort((x,y)=>y.f-x.f);
+  const totFee=rows.reduce((s,r)=>s+r.f,0),totCost=rows.reduce((s,r)=>s+r.c,0);
+  const bar=(pct,color)=>`<div class="burnwrap"><div class="burnbar" style="width:${Math.min(100,Math.max(2,pct))}%;background:${color}"></div></div>`;
+  const cards=rows.length?rows.map(r=>{const col=r.burn>=100?'var(--bad)':(r.burn>=80?'var(--warn)':'var(--good)');return `
+    <div class="poevent">
+      <div class="pohead">
+        <div class="poinfo"><button class="linkname" data-brand="${esc(r.a.id)}" style="font-weight:700;font-size:15px">${esc(r.a.brand)}</button><span class="muted"> · KD ${KD(r.f)}/mo</span></div>
+        <div class="poact"><span class="pill ${r.billed?'pill-good':'pill-bad'}">${r.billed?'invoiced this month':'not invoiced'}</span></div>
+      </div>
+      <div style="padding:10px 14px 14px">
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:5px"><span>Delivery cost this month · KD ${KD(r.c)}</span><span style="color:${col};font-weight:700">${r.burn}% of fee</span></div>
+        ${bar(r.burn,col)}
+        <div style="display:flex;gap:20px;margin-top:10px;font-size:13px"><span>Margin this month <b class="${r.margin<0?'neg':'pos'}">KD ${KD(r.margin)}</b></span><span class="muted">Collected · KD ${KD(r.coll)}</span></div>
+      </div>
+    </div>`;}).join(""):'<div class="rowcount">No retainers yet. Open a brand in Accounts → Edit → set a Monthly retainer, and it appears here.</div>';
+  $('view').innerHTML=`<div class="view">
+    <div class="kpis">${kpi("Monthly retainer value","KD "+KD(totFee),"accent")}${kpi("Retainers",rows.length,"")}${kpi("Delivery cost (mo)","KD "+KD(totCost),"warn")}${kpi("Blended margin (mo)","KD "+KD(totFee-totCost),(totFee-totCost)<0?"bad":"good")}</div>
+    <div class="panel"><div class="muted" style="font-size:12px;margin-bottom:12px">Burn = this month's delivery cost (expenses, freelancers, payouts tagged to the brand) against the retainer fee. Amber ≥80%, red ≥100% — you're servicing at a loss.</div>
+    <div class="poevents">${cards}</div></div></div>`;
+}
+
+function renderPipeline(){
+  const inPipe=store.accounts.filter(a=>a.stage&&STAGES.includes(a.stage));
+  const val=a=>Math.abs(+a.deal_value||0);
+  const byStage=s=>inPipe.filter(a=>a.stage===s).sort((a,b)=>val(b)-val(a));
+  const openVal=inPipe.filter(a=>a.stage==="Lead"||a.stage==="Proposal").reduce((s,a)=>s+val(a),0);
+  const won=byStage("Won").length,lost=byStage("Lost").length;
+  const winRate=(won+lost)?Math.round(won/(won+lost)*100):0;
+  const wonVal=byStage("Won").reduce((s,a)=>s+val(a),0);
+  const col=s=>{const items=byStage(s);const tot=items.reduce((x,a)=>x+val(a),0);return `
+    <div class="pipecol"><div class="pipehead"><span>${s}</span><span class="muted">${items.length} · KD ${KD(tot)}</span></div>
+    <div class="pipebody">${items.length?items.map(a=>`<div class="pipecard"><button class="linkname" data-brand="${esc(a.id)}">${esc(a.brand)}</button><div class="pipeval">KD ${KD(val(a))}</div><select class="edit stagesel" data-c="accounts" data-id="${esc(a.id)}" data-f="stage">${opts(STAGES,a.stage)}</select></div>`).join(""):'<div class="pipeempty">—</div>'}</div></div>`;};
+  $('view').innerHTML=`<div class="view">
+    <div class="kpis">${kpi("Open pipeline","KD "+KD(openVal),"accent")}${kpi("Open deals",byStage("Lead").length+byStage("Proposal").length,"")}${kpi("Won value","KD "+KD(wonVal),"good")}${kpi("Win rate",winRate+"%",(won+lost)?"good":"")}</div>
+    <div class="pipegrid">${STAGES.map(col).join("")}</div>
+    <div class="addbar" style="margin-top:12px"><button class="ghost" id="pipeAdd"${canWrite?"":" disabled"}>+ Add lead</button><span class="muted" style="font-size:12px">Add a brand with a stage + deal value, or set the stage on any account.</span></div></div>`;
+  if($('pipeAdd'))$('pipeAdd').onclick=openAccountNew;
+}
+
+function renderTeam(){
+  const ppl=(store.people||[]).slice().sort((a,b)=>((a.active==="No")-(b.active==="No"))||(a.name||'').localeCompare(b.name||''));
+  const ro=canWrite?"":"disabled";
+  const row=p=>`<tr>
+    <td class="id">${esc(p.id)}</td>
+    <td><input class="edit" style="min-width:140px" data-c="people" data-id="${esc(p.id)}" data-f="name" value="${esc(p.name||'')}" ${ro}></td>
+    <td><input class="edit" style="width:120px" data-c="people" data-id="${esc(p.id)}" data-f="role" value="${esc(p.role||'')}" ${ro} placeholder="e.g. Partner"></td>
+    <td><select class="edit" data-c="people" data-id="${esc(p.id)}" data-f="active" ${ro}><option value="Yes"${p.active!=="No"?" selected":""}>Active</option><option value="No"${p.active==="No"?" selected":""}>Archived</option></select></td>
+    <td>${canWrite?rowMenu("people",p.id):""}</td></tr>`;
+  $('view').innerHTML=`<div class="view"><div class="panel">
+    <div class="addbar"><button class="btn" id="tmAdd"${canWrite?"":" disabled"}>+ Add member</button><span class="muted" style="font-size:12px">Active members appear in owner, salary and payout pickers. Archived (Churned) ones don't.</span></div>
+    <div class="tablewrap"><table><thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Status</th><th></th></tr></thead>
+    <tbody>${ppl.length?ppl.map(row).join(""):'<tr><td colspan="5" class="rowcount">No team members yet — add one, or run migration-05 to seed the current team.</td></tr>'}</tbody></table></div>
+    <div class="rowcount">${ppl.filter(p=>p.active!=="No").length} active · ${ppl.filter(p=>p.active==="No").length} archived</div>
+  </div></div>`;
+  if($('tmAdd'))$('tmAdd').onclick=openMemberNew;
+}
+function openMemberNew(){
+  if(!canWrite){toast("Read-only access");return;}
+  $('modal').innerHTML=`<div class="sheet"><div class="sheethead"><div><div class="id">New member</div><h3>Add team member</h3></div><button class="del" id="mkClose">✕</button></div>
+    <div class="formgrid">${fld("Name",`<input id="tm_name" placeholder="Name">`)}${fld("Role",`<input id="tm_role" placeholder="e.g. Partner, Staff, Freelance">`)}${fld("Status",`<select id="tm_active">${opts(["Active","Churned"],"Active")}</select>`)}</div>
+    <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Add</button></div></div>`;
+  $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
+  $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
+  $('mkSave').onclick=()=>{const name=$('tm_name').value.trim();if(!name){toast("Enter a name");return;}
+    create("people",nextId("people","PPL-",3),{name,role:$('tm_role').value,active:($('tm_active').value!=="Churned")});close();};
+}
+
 function bindSort(key,rerender){document.querySelectorAll('thead th[data-k]').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(!k)return;const s=state[key];s.dir=(s.k===k)?-s.dir:1;s.k=k;rerender();});}
 
 let rafP=false;
@@ -684,10 +761,10 @@ function render(){
   if(!booted||!ready())return;
   if(rafP)return; rafP=true;
   requestAnimationFrame(()=>{rafP=false;
-    const TITLES={tasksdash:"Tasks overview",moneydash:"Money overview",mytasks:"My Tasks",digest:"Digest",tasks:"All Tasks",recurring:"Recurring Tasks",invoices:"Invoices",expenses:"Expenses",salaries:"Salaries",payouts:"Payouts",accounts:"Accounts",activity:"Activity Log",setup:"Settings"};
-    const VIEWS={tasksdash:renderTasksDash,moneydash:renderMoneyDash,mytasks:renderMyTasks,digest:renderDigest,tasks:renderTasks,recurring:renderRecurring,invoices:renderInvoices,expenses:renderExpenses,salaries:renderSalaries,payouts:renderPayouts,accounts:renderAccounts,activity:renderActivity,setup:renderSetup};
+    const TITLES={tasksdash:"Tasks overview",moneydash:"Money overview",mytasks:"My Tasks",digest:"Digest",tasks:"All Tasks",recurring:"Recurring Tasks",invoices:"Invoices",expenses:"Expenses",salaries:"Salaries",payouts:"Payouts",retainers:"Retainers",accounts:"Accounts",pipeline:"Pipeline",team:"Team",activity:"Activity Log",setup:"Settings"};
+    const VIEWS={tasksdash:renderTasksDash,moneydash:renderMoneyDash,mytasks:renderMyTasks,digest:renderDigest,tasks:renderTasks,recurring:renderRecurring,invoices:renderInvoices,expenses:renderExpenses,salaries:renderSalaries,payouts:renderPayouts,retainers:renderRetainers,accounts:renderAccounts,pipeline:renderPipeline,team:renderTeam,activity:renderActivity,setup:renderSetup};
     if(!VIEWS[state.view])state.view="tasksdash";
-    const noFilter=new Set(['setup','activity','recurring','digest']);
+    const noFilter=new Set(['setup','activity','recurring','digest','retainers','pipeline','team']);
     const fc=$('filterctrls');if(fc)fc.style.display=noFilter.has(state.view)?'none':'contents';
     $('viewtitle').textContent=TITLES[state.view];
     document.querySelectorAll('#nav button').forEach(b=>b.setAttribute('aria-current',b.dataset.view===state.view));
@@ -739,7 +816,7 @@ function openTaskNew(){
     <div class="formgrid">
       ${fld("Task name",`<input id="mk_name" placeholder="What needs doing">`)}
       ${fld("Brand",`<select id="mk_acct">${brandOpts("")}</select>`)}
-      ${fld("Owner",`<select id="mk_owner"><option value="">—</option>${opts(TEAM_ACTIVE)}</select>`)}
+      ${fld("Owner",`<select id="mk_owner"><option value="">—</option>${opts(teamActive())}</select>`)}
       ${fld("Priority",`<select id="mk_priority">${opts(PRIOS,"Medium")}</select>`)}
       ${fld("Status",`<select id="mk_status">${opts(STATUSES,"To Do")}</select>`)}
       ${fld("Requested by",`<select id="mk_reqby">${opts(["PIVOT","Client"],"PIVOT")}</select>`)}
@@ -764,7 +841,7 @@ function openTemplateNew(){
     <div class="formgrid">
       ${fld("Task name",`<input id="tp_name" placeholder="Repeats every month">`)}
       ${fld("Brand",`<select id="tp_acct">${brandOpts("")}</select>`)}
-      ${fld("Owner",`<select id="tp_owner"><option value="">—</option>${opts(TEAM_ACTIVE)}</select>`)}
+      ${fld("Owner",`<select id="tp_owner"><option value="">—</option>${opts(teamActive())}</select>`)}
       ${fld("Priority",`<select id="tp_priority">${opts(PRIOS,"Medium")}</select>`)}
       ${fld("Due day of month (1-28)",`<input type="number" min="1" max="28" id="tp_dueDay" value="1">`)}
       ${fld("Active",`<select id="tp_active">${opts(["Yes","No"],"Yes")}</select>`)}
@@ -800,8 +877,9 @@ function openInvoiceNew(){
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   $('mkSave').onclick=()=>{const g=f=>{const el=$('mi_'+f);return el?el.value:"";};const amt=parseFloat(g('amt'));if(isNaN(amt)){toast("Enter an amount");return;}
-    create("money",nextId("money","LDG-",4),{date:g('date')||todayISO,acct:g('acct'),eng:"",dir:"Income",cat:g('cat')||"Client Payment",desc:g('desc'),amt:Math.abs(amt),status:g('status'),due:g('due'),paid:"",notes:g('notes')});close();};
+    create("money",nextId("money","LDG-",4),{date:g('date')||todayISO,acct:g('acct'),eng:"",dir:"Income",cat:g('cat')||"Client Payment",desc:g('desc'),amt:Math.abs(amt),status:g('status'),due:g('due'),paid:"",notes:g('notes'),inv_no:nextInvNo()});close();};
 }
+function nextInvNo(){let mx=0;store.money.forEach(m=>{const g=String(m.inv_no||'').match(/INV-(\d+)/);if(g)mx=Math.max(mx,+g[1]);});return "INV-"+String(mx+1).padStart(4,"0");}
 function openExpenseNew(){
   if(!canWrite){toast("Read-only access");return;}
   $('modal').innerHTML=`<div class="sheet">
@@ -863,7 +941,7 @@ function openSalaryNew(){
 }
 function openPayoutNew(){
   if(!canWrite){toast("Read-only access");return;}
-  const partnerBoxes=TEAM_ACTIVE.map(n=>`<label class="pchk"><input type="checkbox" class="mp_partner" value="${esc(n)}" checked> ${esc(n)}</label>`).join("");
+  const partnerBoxes=teamActive().map(n=>`<label class="pchk"><input type="checkbox" class="mp_partner" value="${esc(n)}" checked> ${esc(n)}</label>`).join("");
   $('modal').innerHTML=`<div class="sheet">
     <div class="sheethead"><div><div class="id">New payout</div><h3>Add payout <span class="muted" style="font-weight:500">· PIVOT profit split, divided equally</span></h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
     <div class="formgrid">
@@ -901,6 +979,9 @@ function openAccountNew(){
       ${fld("Country",`<input id="ma_country" placeholder="e.g. Kuwait">`)}
       ${fld("Lifecycle",`<select id="ma_lifecycle">${opts(LIFE,"Lead")}</select>`)}
       ${fld("Parent account (optional)",`<select id="ma_parent">${accountOpts("","")}</select>`)}
+      ${fld("Monthly retainer (KD, optional)",`<input type="number" step="0.001" id="ma_retainer_fee" placeholder="0 = not a retainer">`)}
+      ${fld("Pipeline stage (optional)",`<select id="ma_stage"><option value="">— not in pipeline —</option>${opts(STAGES,"")}</select>`)}
+      ${fld("Deal value (KD, optional)",`<input type="number" step="0.001" id="ma_deal_value" placeholder="0.000">`)}
     </div>
     <div class="formfull">${fld("Notes (optional)",`<textarea id="ma_notes" rows="2"></textarea>`)}</div>
     <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Add account</button></div>
@@ -908,7 +989,7 @@ function openAccountNew(){
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   $('mkSave').onclick=()=>{const g=f=>{const el=$('ma_'+f);return el?el.value:"";};const brand=g('brand').trim();if(!brand){toast("Enter a brand name");return;}
-    create("accounts",nextId("accounts","ACC-",3),{brand,type:g('type'),country:g('country'),lifecycle:g('lifecycle'),parent:g('parent'),notes:g('notes'),date_added:todayISO});close();};
+    create("accounts",nextId("accounts","ACC-",3),{brand,type:g('type'),country:g('country'),lifecycle:g('lifecycle'),parent:g('parent'),notes:g('notes'),date_added:todayISO,retainer_fee:Math.abs(parseFloat(g('retainer_fee'))||0),stage:g('stage'),deal_value:Math.abs(parseFloat(g('deal_value'))||0)});close();};
 }
 function openAccountEdit(id){
   const a=AMAP[id];if(!a)return;if(!canWrite){toast("Read-only access");return;}
@@ -921,13 +1002,16 @@ function openAccountEdit(id){
       ${fld("Lifecycle",`<select id="ae_lifecycle">${opts(LIFE,a.lifecycle)}</select>`)}
       ${fld("Parent account",`<select id="ae_parent">${accountOpts(a.parent||"",a.id)}</select>`)}
       ${fld("Date added",`<input type="date" id="ae_date_added" value="${esc(a.date_added||'')}">`)}
+      ${fld("Monthly retainer (KD)",`<input type="number" step="0.001" id="ae_retainer_fee" value="${a.retainer_fee!=null?esc(Math.abs(+a.retainer_fee)):''}" placeholder="0 = not a retainer">`)}
+      ${fld("Pipeline stage",`<select id="ae_stage"><option value="">— not in pipeline —</option>${opts(STAGES,a.stage||"")}</select>`)}
+      ${fld("Deal value (KD)",`<input type="number" step="0.001" id="ae_deal_value" value="${a.deal_value!=null?esc(Math.abs(+a.deal_value)):''}" placeholder="0.000">`)}
     </div>
     <div class="formfull">${fld("Notes",`<textarea id="ae_notes" rows="2">${esc(a.notes||'')}</textarea>`)}</div>
     <div class="sheetfoot">${canWrite?`<button class="ghost" id="mkDelete" style="color:var(--bad);border-color:var(--bad-soft)">Delete</button>`:""}<span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Save</button></div></div>`;
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   $('mkSave').onclick=async()=>{const g=f=>{const el=$('ae_'+f);return el?el.value:"";};
-    await write("accounts",id,{brand:g('brand'),type:g('type'),country:g('country'),lifecycle:g('lifecycle'),parent:g('parent'),date_added:g('date_added'),notes:g('notes')});close();};
+    await write("accounts",id,{brand:g('brand'),type:g('type'),country:g('country'),lifecycle:g('lifecycle'),parent:g('parent'),date_added:g('date_added'),notes:g('notes'),retainer_fee:Math.abs(parseFloat(g('retainer_fee'))||0),stage:g('stage'),deal_value:Math.abs(parseFloat(g('deal_value'))||0)});close();};
   if($('mkDelete'))$('mkDelete').onclick=()=>{close();remove("accounts",id);};
 }
 function openReport(kind){

@@ -230,3 +230,18 @@ svg:hover .pieslice{opacity:.5}
 .toast{display:flex;align-items:center;gap:14px}
 .undobtn{all:unset;cursor:pointer;font-weight:700;font-size:13px;color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:7px;padding:4px 12px}
 .undobtn:hover{background:rgba(255,255,255,.14)}
+
+/* retainer burn bars */
+.burnwrap{height:8px;border-radius:5px;background:var(--surface-2);border:1px solid var(--line);overflow:hidden}
+.burnbar{height:100%;border-radius:5px;transition:width .2s ease}
+
+/* pipeline board */
+.pipegrid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.pipecol{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;min-height:120px}
+.pipehead{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line);font-weight:700;font-size:13px}
+.pipebody{display:flex;flex-direction:column;gap:8px;padding:10px}
+.pipecard{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px}
+.pipeval{font-family:var(--mono);font-size:13px;font-weight:600}
+.pipeempty{color:var(--muted);text-align:center;padding:14px;font-size:13px}
+.stagesel{font-size:11px !important}
+@media(max-width:860px){.pipegrid{grid-template-columns:1fr 1fr}}
