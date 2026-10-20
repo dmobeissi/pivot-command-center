@@ -16,7 +16,8 @@ const F={brand:"",team:"",status:"",q:"",quick:""};
 const state={view:(()=>{try{return localStorage.getItem('pivot_view')||"dashboard"}catch(e){return"dashboard"}})(),sortT:{k:"due",dir:1},sortM:{k:"date",dir:-1},me:(()=>{try{return localStorage.getItem('pivot_me')||""}catch(e){return""}})(),
   range:(()=>{try{return JSON.parse(localStorage.getItem('pivot_range'))||{preset:'mtd',from:'',to:''}}catch(e){return{preset:'mtd',from:'',to:''}}})(),
   cmp:(()=>{try{return localStorage.getItem('pivot_cmp')||'prev_period'}catch(e){return'prev_period'}})(),
-  groups:(()=>{try{return JSON.parse(localStorage.getItem('pivot_groups'))||{tasks:true,money:true}}catch(e){return{tasks:true,money:true}}})()};
+  groups:(()=>{try{return JSON.parse(localStorage.getItem('pivot_groups'))||{tasks:true,money:true}}catch(e){return{tasks:true,money:true}}})(),
+  theme:(()=>{try{return localStorage.getItem('pivot_theme')||'system'}catch(e){return'system'}})()};
 const todayISO=new Date().toISOString().slice(0,10);
 
 const $=id=>document.getElementById(id);
@@ -24,7 +25,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v15 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v16 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -59,10 +60,53 @@ async function startApp(){
   myName=nameFromEmail(session.user.email); canWrite=true;
   setSave('live · '+(session.user.email||''));
   $('loginwrap').classList.remove('show'); $('loginwrap').innerHTML='';
+  renderUserChip();
   booted=true;
   await loadAll();
 }
+function renderUserChip(){
+  const nu=$('navuser'); if(!nu)return;
+  const initials=((myName||'U').trim()[0]||'U').toUpperCase();
+  nu.innerHTML=`<div class="ua">${esc(initials)}</div><div class="un" title="${esc(session.user.email||'')}">${esc(myName)}</div><button class="udots" id="uDots" title="Account">⋯</button>
+    <div class="usermenu" id="uMenu"><button id="uPass">Change password</button><button class="danger" id="uOut">Sign out</button></div>`;
+  $('uDots').onclick=e=>{e.stopPropagation();$('uMenu').classList.toggle('show');};
+  $('uOut').onclick=signOut;
+  $('uPass').onclick=openChangePassword;
+}
+document.addEventListener('click',e=>{ if($('uMenu')&&!e.target.closest('#navuser'))$('uMenu').classList.remove('show'); });
+function openChangePassword(){
+  if($('uMenu'))$('uMenu').classList.remove('show');
+  $('modal').innerHTML=`<div class="sheet" style="max-width:420px">
+    <div class="sheethead"><div><div class="id">${esc(session.user.email||'')}</div><h3>Change password</h3></div><button class="del" id="mkClose">✕</button></div>
+    <div class="formfull">${fld("New password",`<input type="password" id="cp_pass" autocomplete="new-password">`)}${fld("Confirm password",`<input type="password" id="cp_pass2" autocomplete="new-password">`)}<div id="cp_err" class="muted" style="color:var(--bad);min-height:16px"></div></div>
+    <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Update</button></div></div>`;
+  $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
+  $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
+  $('mkSave').onclick=async()=>{const p=$('cp_pass').value,p2=$('cp_pass2').value;
+    if((p||'').length<6){$('cp_err').textContent='At least 6 characters';return;} if(p!==p2){$('cp_err').textContent='Passwords do not match';return;}
+    const {error}=await sb.auth.updateUser({password:p}); if(error){$('cp_err').textContent=error.message;return;} toast('Password updated'); close();};
+}
+function applyTheme(){const m=state.theme||'system';const root=document.documentElement;
+  if(m==='system')root.removeAttribute('data-theme'); else root.setAttribute('data-theme',m);
+  document.querySelectorAll('.themeseg button').forEach(b=>b.classList.toggle('on',b.dataset.theme===m));}
+function setTheme(m){state.theme=m;try{localStorage.setItem('pivot_theme',m);}catch(_){}applyTheme();}
 async function signOut(){ try{ await sb.auth.signOut(); }catch(e){} location.reload(); }
+let rowMenuEl=null;
+function rowMenu(coll,id){return `<button class="dots" data-menu="${esc(coll)}:${esc(id)}" title="Actions">⋯</button>`;}
+function closeRowMenu(){if(rowMenuEl){rowMenuEl.remove();rowMenuEl=null;}}
+document.addEventListener('click',e=>{const d=e.target.closest('[data-menu]');
+  if(d){e.stopPropagation();closeRowMenu();const parts=d.dataset.menu.split(':');const coll=parts[0],id=parts.slice(1).join(':');const r=d.getBoundingClientRect();
+    rowMenuEl=document.createElement('div');rowMenuEl.className='rowmenu';
+    const canOpen=(coll==='tasks'||coll==='money');
+    rowMenuEl.innerHTML=`${canOpen?'<button data-mi="open">Open</button>':''}<button data-mi="del" class="danger">Delete</button>`;
+    document.body.appendChild(rowMenuEl);
+    const w=160,left=Math.min(window.innerWidth-w-8,Math.max(8,r.right-w));
+    rowMenuEl.style.top=(r.bottom+4)+'px';rowMenuEl.style.left=left+'px';
+    rowMenuEl.onclick=ev=>{const b=ev.target.closest('[data-mi]');if(!b)return;const mi=b.dataset.mi;closeRowMenu();
+      if(mi==='del')remove(coll,id);else if(mi==='open'){if(coll==='tasks')openTask(id);else if(coll==='money')openMoney(id);}};
+    return;}
+  if(!e.target.closest('.rowmenu'))closeRowMenu();});
+window.addEventListener('scroll',()=>closeRowMenu(),true);
 
 function fromDB(coll,r){ if(coll==='money'){const o=Object.assign({},r);o.desc=r.description;o.date=r.txn_date;return o;} if(coll==='templates'){const o=Object.assign({},r);o.dueDay=r.due_day;o.active=r.active?"Yes":"No";return o;} return r; }
 function toDB(coll,obj){ const o=Object.assign({},obj);
@@ -134,7 +178,7 @@ const voided=m=>m.status==="Voided"||m.status==="Cancelled";
 const sCls=s=>({"To Do":"s-todo","In Progress":"s-prog","Review":"s-review","Done":"s-done","On Hold":"s-hold"}[s]||"s-todo");
 const opts=(list,sel)=>list.map(o=>`<option${o===sel?" selected":""}>${esc(o)}</option>`).join("");
 const brandOpts=sel=>`<option value="">—</option>`+store.accounts.map(a=>`<option value="${esc(a.id)}"${a.id===sel?" selected":""}>${esc(a.brand)}</option>`).join("");
-const CMAP={status:{"To Do":["var(--hold-soft)","var(--hold)"],"In Progress":["var(--info-soft)","var(--info)"],"Review":["var(--accent-soft)","var(--accent)"],"Done":["var(--good-soft)","var(--good)"],"On Hold":["var(--warn-soft)","var(--warn)"]},
+const CMAP={status:{"To Do":["var(--hold-soft)","var(--hold)"],"In Progress":["var(--warn-soft)","var(--warn)"],"Review":["var(--accent-soft)","var(--accent)"],"Done":["var(--good-soft)","var(--good)"],"On Hold":["var(--hold-soft)","var(--hold)"]},
   priority:{High:["var(--bad-soft)","var(--bad)"],Medium:["var(--warn-soft)","var(--warn)"],Low:["var(--good-soft)","var(--good)"]},
   pay:{Paid:["var(--good-soft)","var(--good)"],Partial:["var(--warn-soft)","var(--warn)"],Unpaid:["var(--bad-soft)","var(--bad)"],Voided:["var(--hold-soft)","var(--hold)"],Cancelled:["var(--hold-soft)","var(--hold)"]},
   life:{Active:["var(--good-soft)","var(--good)"],Lead:["var(--info-soft)","var(--info)"],Paused:["var(--warn-soft)","var(--warn)"],Churned:["var(--hold-soft)","var(--hold)"],Lost:["var(--bad-soft)","var(--bad)"],Internal:["var(--accent-soft)","var(--accent)"]}};
@@ -217,7 +261,7 @@ function renderTasksDash(){
   const open=T.filter(t=>t.status!=="Done").length,done=T.filter(t=>t.status==="Done").length;
   const overdue=T.filter(t=>t.status!=="Done"&&t.due&&t.due<todayISO).length;
   const high=T.filter(t=>t.status!=="Done"&&t.priority==="High").length;
-  const scol={"To Do":"#8893a5","In Progress":"var(--info)","Review":"var(--accent)","Done":"var(--good)","On Hold":"var(--warn)"};
+  const scol={"To Do":"#9aa0aa","In Progress":"var(--warn)","Review":"#4b5563","Done":"var(--good)","On Hold":"#c2c6cc"};
   const sParts=STATUSES.map(s=>({name:s,v:T.filter(t=>t.status===s).length,c:scol[s]}));
   const ownerItems=TEAM.map(tm=>({l:tm,v:T.filter(t=>t.status!=="Done"&&t.owner===tm).length})).filter(i=>i.v).sort((a,b)=>b.v-a.v);
   const byBrand={};T.forEach(t=>{if(t.status!=="Done"){const b=brandOf(t.acct);byBrand[b]=(byBrand[b]||0)+1;}});
@@ -302,7 +346,7 @@ function renderTasks(){
         <td><input type="date" class="edit" data-c="tasks" data-id="${esc(t.id)}" data-f="due" value="${esc(t.due||'')}" ${ro}></td>
         <td>${csel("status","tasks",t.id,"status",t.status,STATUSES,ro)}</td>
         <td class="${fc}">${fl}</td>
-        <td>${canWrite?`<button class="del" data-del="tasks" data-id="${esc(t.id)}" title="Delete">✕</button>`:""}</td></tr>`;}).join("")}</tbody></table></div>
+        <td>${canWrite?rowMenu("tasks",t.id):""}</td></tr>`;}).join("")}</tbody></table></div>
       <div class="rowcount">${T.length>cap?`Showing first ${cap} of ${T.length}. Narrow with filters.`:`${T.length} tasks`}</div>
     </div></div>`;
   $('ntAdd').onclick=openTaskNew;
@@ -353,7 +397,7 @@ function renderInvoices(){
         <td class="num pos"><input type="number" step="0.001" class="edit num" style="width:104px" data-c="money" data-id="${esc(m.id)}" data-f="amt" value="${esc(m.amt)}" ${ro}></td>
         <td>${csel("pay","money",m.id,"status",m.status,PAY,ro)}</td>
         <td class="${od?'flag-over':''}"><input type="date" class="edit" data-c="money" data-id="${esc(m.id)}" data-f="due" value="${esc(m.due||'')}" ${ro}></td>
-        <td>${canWrite?`<button class="del" data-del="money" data-id="${esc(m.id)}" title="Delete">✕</button>`:""}</td></tr>`;}).join("")}</tbody></table></div>
+        <td>${canWrite?rowMenu("money",m.id):""}</td></tr>`;}).join("")}</tbody></table></div>
       <div class="rowcount">${M.length} invoices</div>
     </div></div>`;
   if(pendingHL){const el=$('mrow-'+pendingHL);pendingHL="";if(el){el.classList.add('hlrow');el.scrollIntoView({block:'center',behavior:'smooth'});setTimeout(()=>el.classList.remove('hlrow'),3000);}}
@@ -383,7 +427,7 @@ function renderExpenses(){
         <td><select class="edit" data-c="money" data-id="${esc(m.id)}" data-f="cat" ${ro}>${opts(EXPCATS.includes(m.cat)?EXPCATS:[m.cat].concat(EXPCATS),m.cat)}</select></td>
         <td style="min-width:200px"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||m.id)}</button></td>
         <td class="num neg"><input type="number" step="0.001" class="edit num" style="width:104px" data-c="money" data-id="${esc(m.id)}" data-f="amt" value="${esc(m.amt)}" ${ro}></td>
-        <td>${canWrite?`<button class="del" data-del="money" data-id="${esc(m.id)}" title="Delete">✕</button>`:""}</td></tr>`).join("")}</tbody></table></div>
+        <td>${canWrite?rowMenu("money",m.id):""}</td></tr>`).join("")}</tbody></table></div>
       <div class="rowcount">${M.length} expenses</div>
     </div></div>`;
   if(pendingHL){const el=$('mrow-'+pendingHL);pendingHL="";if(el){el.classList.add('hlrow');el.scrollIntoView({block:'center',behavior:'smooth'});setTimeout(()=>el.classList.remove('hlrow'),3000);}}
@@ -723,7 +767,7 @@ function renderRecurring(){
     <td><select class="edit" data-c="templates" data-id="${esc(t.id)}" data-f="priority" ${ro}>${opts(PRIOS,t.priority||"Medium")}</select></td>
     <td><input type="number" min="1" max="28" class="edit num" style="width:70px" data-c="templates" data-id="${esc(t.id)}" data-f="dueDay" value="${esc(t.dueDay||'')}" ${ro}></td>
     <td><select class="edit" data-c="templates" data-id="${esc(t.id)}" data-f="active" ${ro}>${opts(["Yes","No"],t.active||"Yes")}</select></td>
-    <td>${canWrite?`<button class="del" data-del="templates" data-id="${esc(t.id)}" title="Delete">✕</button>`:""}</td></tr>`).join(""):`<tr><td colspan="8" class="rowcount">No recurring tasks yet. Click "Add recurring task".</td></tr>`;
+    <td>${canWrite?rowMenu("templates",t.id):""}</td></tr>`).join(""):`<tr><td colspan="8" class="rowcount">No recurring tasks yet. Click "Add recurring task".</td></tr>`;
   $('view').innerHTML=`<div class="view"><div class="panel">
       <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap">
         <h2 style="margin:0;border:0;padding:0">Recurring tasks</h2><span style="flex:1"></span>
@@ -747,14 +791,14 @@ async function renderSetup(){
       <div style="margin-top:12px"><button class="btn" id="savePeople"${canWrite?"":" disabled"}>Save emails</button></div>
       <div class="rowcount">Once filled, the morning digest can send each person only their own tasks. Until then it emails the summary to the owner.</div>
     </div></div>
-    <div class="panel"><h2>Workspace</h2><div class="body" style="display:flex;flex-direction:column;gap:6px">
-      <div><span class="muted">Build</span> &nbsp; <b>PIVOT Command Center ${APPVER}</b></div>
-      <div><span class="muted">Status</span> &nbsp; <span id="savestate">${esc(saveStateText)}</span></div>
+    <div class="panel"><h2>Workspace</h2><div class="body" style="display:flex;flex-direction:column;gap:14px">
+      <div><div class="muted" style="margin-bottom:6px">Appearance</div><div class="themeseg"><button data-theme="system">System</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></div></div>
+      <div style="display:flex;gap:24px;flex-wrap:wrap"><div><span class="muted">Build</span> &nbsp; <b>PIVOT Command Center ${APPVER}</b></div><div><span class="muted">Status</span> &nbsp; <span id="savestate">${esc(saveStateText)}</span></div></div>
       <div class="rowcount" style="padding-left:0">Data lives in your Supabase database. Backups export to OneDrive on a schedule.</div>
-      <div style="margin-top:12px"><button class="ghost" id="signout">Sign out</button></div>
     </div></div>
   </div>`;
-  if($('signout'))$('signout').onclick=signOut;
+  document.querySelectorAll('.themeseg button').forEach(b=>b.onclick=()=>setTheme(b.dataset.theme));
+  applyTheme();
   if($('savePeople'))$('savePeople').onclick=async()=>{const rows=TEAM.map((n,i)=>({name:n,email:(($('pe_'+i)&&$('pe_'+i).value.trim())||"")}));
     try{await sb.from('people').upsert(rows,{onConflict:'name'});PEOPLE={};rows.forEach(r=>{if(r.email)PEOPLE[r.name]=r.email;});toast("Emails saved");}catch(e){toast("Save failed");}};
 }
@@ -768,7 +812,7 @@ document.addEventListener('click',e=>{const o=e.target.closest('[data-open]');if
 document.addEventListener('click',e=>{const o=e.target.closest('[data-mopen]');if(o)openMoney(o.dataset.mopen);});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('modal').classList.contains('show')){$('modal').classList.remove('show');$('modal').innerHTML='';}});
 function saveGroups(){try{localStorage.setItem('pivot_groups',JSON.stringify(state.groups));}catch(_){}}
-function applyGroups(){document.querySelectorAll('#nav .sub').forEach(b=>{b.style.display=(state.groups[b.dataset.group]===false)?'none':'';});document.querySelectorAll('#nav .grp').forEach(b=>{const a=b.querySelector('.arw');if(a)a.textContent=(state.groups[b.dataset.group]===false)?'▸':'▾';});}
+function applyGroups(){document.querySelectorAll('#nav .sub').forEach(b=>{b.style.display=(state.groups[b.dataset.group]===false)?'none':'';});document.querySelectorAll('#nav .grp').forEach(b=>{const a=b.querySelector('.arw');if(a)a.style.transform=(state.groups[b.dataset.group]===false)?'rotate(-90deg)':'none';});}
 $('nav').onclick=e=>{
   const arw=e.target.closest('.arw');
   if(arw){const b=arw.closest('.grp');const g=b.dataset.group;state.groups[g]=!(state.groups[g]!==false);saveGroups();applyGroups();return;}
@@ -799,5 +843,5 @@ document.addEventListener('click',e=>{const d=e.target.closest('[data-del]');if(
 document.addEventListener('click',e=>{const g=e.target.closest('[data-goto]');if(g){if(g.dataset.hl)pendingHL=g.dataset.hl;state.view=g.dataset.goto;try{localStorage.setItem('pivot_view',state.view);}catch(_){}render();}});
 document.addEventListener('click',e=>{const b=e.target.closest('[data-brand]');if(b)openBrand(b.dataset.brand);});
 document.addEventListener('click',e=>{const c=e.target.closest('[data-quick]');if(c){F.quick=c.dataset.quick;render();}});
-const root=document.documentElement;
-$('theme').onclick=()=>{const cur=root.getAttribute('data-theme');const dark=cur?cur==='dark':matchMedia('(prefers-color-scheme:dark)').matches;root.setAttribute('data-theme',dark?'light':'dark');};
+$('theme').onclick=()=>{const order=['system','light','dark'];setTheme(order[(order.indexOf(state.theme||'system')+1)%3]);};
+applyTheme();
