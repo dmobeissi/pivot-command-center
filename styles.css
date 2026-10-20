@@ -202,3 +202,10 @@ svg:hover .pieslice{opacity:.5}
 .pchks{display:flex;flex-wrap:wrap;gap:10px}
 .pchk{display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:7px 11px;border:1px solid var(--line);border-radius:9px;background:var(--surface-2);cursor:pointer;user-select:none}
 .pchk input{accent-color:var(--accent)}
+
+/* salary month add-rows + person role tag */
+.slrow{display:grid;grid-template-columns:1fr 120px 100px 32px;gap:8px;margin-bottom:8px}
+.slrow input,.slrow select{font-family:var(--font);font-size:13px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--ink)}
+.slrow .slx{padding:6px 8px}
+.porperson{display:flex;align-items:center;gap:8px;min-width:0}
+.rtag{font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--hold);background:var(--hold-soft);padding:2px 7px;border-radius:999px}

@@ -477,33 +477,45 @@ function renderExpenses(){
   bindSort('sortM',renderExpenses);
 }
 
+function monthLabel(ym){const MM=["January","February","March","April","May","June","July","August","September","October","November","December"];const p=(ym||"").split("-");return p.length>=2?MM[(+p[1]||1)-1]+" "+p[0]:(ym||"—");}
 function renderSalaries(){
-  _SS=state.sortM;
-  let M=sortBy(moneyF().filter(m=>m.dir==="Salary"),state.sortM.k,state.sortM.dir);
+  const M=moneyF().filter(m=>m.dir==="Salary");
   const total=Math.abs(M.reduce((a,m)=>a+(+m.amt||0),0));
   const pending=Math.abs(M.filter(m=>m.status!=="Paid").reduce((a,m)=>a+(+m.amt||0),0));
-  const head=[["id","ID"],["date","Date"],["partner","Person"],["role","Role"],["brand","Brand"],["desc","Description"],["amt","Amount"],["status","Status"],["",""]];
-  const ro=canWrite?"":"disabled";
+  // group into monthly payroll runs by the month of the date
+  const groups={};
+  M.forEach(m=>{const ym=(m.date||"").slice(0,7)||"—";if(!groups[ym])groups[ym]={ym,rows:[]};groups[ym].rows.push(m);});
+  const months=Object.values(groups).map(g=>{
+    g.total=Math.abs(g.rows.reduce((a,m)=>a+(+m.amt||0),0));
+    g.status=g.rows.every(m=>m.status==="Paid")?"Paid":"Pending";
+    g.ids=g.rows.map(m=>m.id);
+    g.rows.sort((a,b)=>(a.role==="Freelance"?1:0)-(b.role==="Freelance"?1:0)||(a.partner||"").localeCompare(b.partner||""));
+    return g;
+  }).sort((a,b)=>(b.ym||"").localeCompare(a.ym||""));
+  const ro=!canWrite;
+  const monthHtml=months.length?months.map(g=>`
+    <div class="poevent" data-ym="${esc(g.ym)}">
+      <div class="pohead">
+        <div class="poinfo"><span class="pototal">KD ${KD(g.total)}</span><span class="muted"> · ${esc(monthLabel(g.ym))} · ${g.rows.length} ${g.rows.length===1?'person':'people'}</span></div>
+        <div class="poact">
+          <span class="pill ${g.status==='Paid'?'pill-good':'pill-bad'}">${g.status==='Paid'?'Sent':'Pending'}</span>
+          ${ro?"":`<button class="ghost sltoggle" data-ym="${esc(g.ym)}" data-to="${g.status==='Paid'?'Pending':'Paid'}">Mark ${g.status==='Paid'?'pending':'sent'}</button>`}
+          ${ro?"":`<button class="ghost sldel" data-ym="${esc(g.ym)}" title="Delete this month">✕</button>`}
+        </div>
+      </div>
+      <div class="porows">
+        ${g.rows.map(m=>`<div class="por"><span class="porperson"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.partner||m.desc||'—')}</button>${m.role?`<span class="rtag">${esc(m.role)}</span>`:""}</span><span class="num neg">KD ${KD(Math.abs(+m.amt||0))}</span></div>`).join("")}
+      </div>
+    </div>`).join(""):'<div class="rowcount">No salaries yet.</div>';
   $('view').innerHTML=`<div class="view">
-    <div class="kpis">${kpi("Total salaries","KD "+KD(total),"warn")}${kpi("Pending","KD "+KD(pending),"bad")}${kpi("Paid","KD "+KD(total-pending),"good")}${kpi("Lines",M.length,"")}</div>
+    <div class="kpis">${kpi("Total salaries","KD "+KD(total),"warn")}${kpi("Pending","KD "+KD(pending),"bad")}${kpi("Paid","KD "+KD(total-pending),"good")}${kpi("Months",months.length,"")}</div>
     <div class="panel">
-      <div class="addbar"><button class="btn" id="slAdd"${canWrite?"":" disabled"}>+ Add salary</button></div>
-      <div class="tablewrap"><table><thead><tr>${thhead(head)}</tr></thead>
-      <tbody>${M.map(m=>`<tr id="mrow-${esc(m.id)}">
-        <td class="id">${esc(m.id)}</td>
-        <td><input type="date" class="edit" data-c="money" data-id="${esc(m.id)}" data-f="date" value="${esc(m.date||'')}" ${ro}></td>
-        <td><input class="edit" style="width:100px" data-c="money" data-id="${esc(m.id)}" data-f="partner" value="${esc(m.partner||'')}" ${ro}></td>
-        <td><select class="edit" data-c="money" data-id="${esc(m.id)}" data-f="role" ${ro}><option value="">—</option>${opts(ROLES,m.role)}</select></td>
-        <td><select class="edit" data-c="money" data-id="${esc(m.id)}" data-f="acct" ${ro}>${brandOpts(m.acct)}</select></td>
-        <td style="min-width:160px"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||m.id)}</button></td>
-        <td class="num neg"><input type="number" step="0.001" class="edit num" style="width:104px" data-c="money" data-id="${esc(m.id)}" data-f="amt" value="${esc(m.amt)}" ${ro}></td>
-        <td>${csel("payout","money",m.id,"status",m.status,PAYOUT_STATUS,ro)}</td>
-        <td>${canWrite?rowMenu("money",m.id):""}</td></tr>`).join("")}</tbody></table></div>
-      <div class="rowcount">${M.length} salary lines</div>
+      <div class="addbar"><span class="muted" style="flex:1">Salaries are grouped by month. Each month lists the people paid, full-time, part-time or freelance.</span><button class="btn" id="slAdd"${canWrite?"":" disabled"}>+ Add month</button></div>
+      <div class="poevents">${monthHtml}</div>
     </div></div>`;
-  if(pendingHL){const el=$('mrow-'+pendingHL);pendingHL="";if(el){el.classList.add('hlrow');el.scrollIntoView({block:'center',behavior:'smooth'});setTimeout(()=>el.classList.remove('hlrow'),3000);}}
-  $('slAdd').onclick=openSalaryNew;
-  bindSort('sortM',renderSalaries);
+  if($('slAdd'))$('slAdd').onclick=openSalaryNew;
+  document.querySelectorAll('.sltoggle').forEach(b=>b.onclick=()=>{const g=months.find(e=>e.ym===b.dataset.ym);if(!g)return;const to=b.dataset.to;updateMany("money",g.ids,{status:to,paid:(to==='Paid'?(g.rows[0].date||todayISO):"")});});
+  document.querySelectorAll('.sldel').forEach(b=>b.onclick=()=>{const g=months.find(e=>e.ym===b.dataset.ym);if(!g)return;removeMany("money",g.ids);});
 }
 function renderPayouts(){
   const M=moneyF().filter(m=>m.dir==="Payout");
@@ -723,25 +735,41 @@ function openExpenseNew(){
     const st=g('status')||"Paid";
     create("money",nextId("money","LDG-",4),{date:g('date')||todayISO,acct:g('acct'),eng:"",dir:"Expense",cat:g('cat'),desc:g('desc'),amt:-Math.abs(amt),status:st,due:"",paid:(st==='Paid'?(g('date')||todayISO):""),notes:g('notes')});close();};
 }
+const SALARY_DEFAULTS=[{person:"Daoud",role:"Full-time",amt:500},{person:"Arafa",role:"Full-time",amt:500},{person:"Zawar",role:"Part-time",amt:100}];
+function endOfMonthISO(){const d=new Date();const e=new Date(d.getFullYear(),d.getMonth()+1,0);return e.toISOString().slice(0,10);}
+function salRowHtml(r){r=r||{person:"",role:"",amt:""};return `<div class="slrow">
+  <input class="sl_p" placeholder="Name" value="${esc(r.person||'')}">
+  <select class="sl_r"><option value="">role</option>${opts(ROLES,r.role||"")}</select>
+  <input class="sl_a" type="number" step="0.001" placeholder="KD" value="${r.amt!==''&&r.amt!=null?esc(r.amt):''}">
+  <button class="ghost slx" title="Remove">✕</button></div>`;}
 function openSalaryNew(){
   if(!canWrite){toast("Read-only access");return;}
   $('modal').innerHTML=`<div class="sheet">
-    <div class="sheethead"><div><div class="id">New salary</div><h3>Add salary</h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
+    <div class="sheethead"><div><div class="id">Monthly salaries</div><h3>Add month's salaries</h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
     <div class="formgrid">
-      ${fld("Date",`<input type="date" id="sl_date" value="${todayISO}">`)}
-      ${fld("Person",`<input id="sl_partner" placeholder="Name">`)}
-      ${fld("Role",`<select id="sl_role">${opts(ROLES,"Full-time")}</select>`)}
-      ${fld("Brand (optional)",`<select id="sl_acct">${brandOpts("")}</select>`)}
-      ${fld("Amount (KD)",`<input type="number" step="0.001" id="sl_amt" placeholder="0.000">`)}
-      ${fld("Status",`<select id="sl_status">${opts(PAYOUT_STATUS,"Pending")}</select>`)}
+      ${fld("Month (pay date)",`<input type="date" id="sl_date" value="${endOfMonthISO()}">`)}
+      ${fld("Status",`<select id="sl_status">${opts(PAYOUT_STATUS,"Paid")}</select>`)}
     </div>
-    <div class="formfull">${fld("Description — e.g. October salary",`<input id="sl_desc">`)}${fld("Note (optional)",`<textarea id="sl_notes" rows="2"></textarea>`)}</div>
-    <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Add salary</button></div></div>`;
+    <div class="formfull">
+      ${fld("People paid this month",`<div id="sl_rows">${SALARY_DEFAULTS.map(salRowHtml).join("")}</div><button class="ghost" id="sl_addrow" style="margin-top:8px">+ Add person</button>`)}
+      <div class="muted" id="sl_preview" style="margin:8px 0 0;font-size:12px"></div>
+      ${fld("Note (optional)",`<textarea id="sl_notes" rows="2"></textarea>`)}
+    </div>
+    <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Add month</button></div></div>`;
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
-  $('mkSave').onclick=()=>{const g=f=>{const el=$('sl_'+f);return el?el.value:"";};const amt=parseFloat(g('amt'));if(isNaN(amt)){toast("Enter an amount");return;}
-    const st=g('status');
-    create("money",nextId("money","LDG-",4),{date:g('date')||todayISO,acct:g('acct'),eng:"",dir:"Salary",cat:"Salary",partner:g('partner'),role:g('role'),desc:g('desc'),amt:-Math.abs(amt),status:st,due:"",paid:(st==='Paid'?(g('date')||todayISO):""),notes:g('notes')});close();};
+  const preview=()=>{let t=0;document.querySelectorAll('.sl_a').forEach(a=>t+=Math.abs(parseFloat(a.value)||0));$('sl_preview').textContent="Month total · KD "+KD(t);};
+  const wireRows=()=>{document.querySelectorAll('.slx').forEach(b=>b.onclick=()=>{if(document.querySelectorAll('.slrow').length>1)b.closest('.slrow').remove();preview();});document.querySelectorAll('.sl_a').forEach(a=>a.oninput=preview);preview();};
+  wireRows();
+  $('sl_addrow').onclick=()=>{$('sl_rows').insertAdjacentHTML('beforeend',salRowHtml());wireRows();};
+  $('mkSave').onclick=()=>{const date=$('sl_date').value||endOfMonthISO();const st=$('sl_status').value;const notes=$('sl_notes').value;const paid=(st==='Paid'?date:"");
+    const ml=monthLabel(date.slice(0,7));
+    const rowsEl=Array.from(document.querySelectorAll('.slrow'));
+    const entries=rowsEl.map(r=>({person:r.querySelector('.sl_p').value.trim(),role:r.querySelector('.sl_r').value,amt:parseFloat(r.querySelector('.sl_a').value)})).filter(e=>e.person&&!isNaN(e.amt)&&e.amt>0);
+    if(!entries.length){toast("Add at least one person with an amount");return;}
+    let mx=0;store.money.forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});
+    const rows=entries.map((e,i)=>({id:"LDG-"+String(mx+1+i).padStart(4,"0"),date,acct:"",eng:"",dir:"Salary",cat:(e.role==="Freelance"?"Freelancer":"Salary"),partner:e.person,role:e.role,desc:`${e.person} ${ml} salary`,amt:-Math.abs(e.amt),status:st,due:"",paid,notes}));
+    createMany("money",rows);close();};
 }
 function openPayoutNew(){
   if(!canWrite){toast("Read-only access");return;}
