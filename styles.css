@@ -290,3 +290,15 @@ svg:hover .pieslice{opacity:.5}
 .kpiclick{cursor:pointer}
 .kpiclick .kpi{transition:border-color .12s,transform .12s}
 .kpiclick:hover .kpi{border-color:var(--accent)}
+
+/* --- robust anti-bleed (content must never escape its container) --- */
+.sheet{overflow-x:hidden;overflow-y:auto}
+.sheet-report{overflow:hidden}              /* report keeps pinned header/footer */
+.sheet>*{min-width:0;max-width:100%}
+.attn .t{display:block;flex:1 1 auto;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.attn .t *{white-space:nowrap}
+.panel,.view,.work,.main{min-width:0}
+.tablewrap{max-width:100%}
+.poinfo{overflow:hidden;text-overflow:ellipsis}
+.poinfo .linkname{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pipecard .linkname{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
