@@ -176,9 +176,26 @@ svg:hover .pieslice{opacity:.5}
 @media(max-width:1000px){.grid3,.grid2{grid-template-columns:1fr}}
 @media(max-width:720px){
   .app{flex-direction:column}
-  .rail{flex:none;height:auto;position:static;flex-direction:row;align-items:center;overflow-x:auto;padding:8px}
-  .brand{padding:6px 10px}.railfoot{display:none}
-  .nav{flex-direction:row;margin-top:0}.nav button{padding:8px 11px;white-space:nowrap}
+  .rail{flex:none;height:auto;position:static;flex-direction:row;align-items:center;overflow-x:auto;padding:8px;gap:2px;-webkit-overflow-scrolling:touch}
+  .brand{padding:6px 10px;flex:0 0 auto}.railfoot{display:none}
+  .nav{flex-direction:row;margin-top:0;gap:2px}
+  .nav button{padding:8px 11px;white-space:nowrap;margin-top:0 !important}
+  /* on a phone the horizontal nav shows every item, groups don't collapse */
+  .nav .sub{display:inline-flex !important;padding-left:11px}
+  .nav .grp .arw{display:none}
+  .navfoot{display:contents}
+  .navuser{flex:0 0 auto;margin-left:4px}
+  .topbar h1{width:100%}
+  .filters{margin-left:0;width:100%}
+  .filters select,.filters input[type=search]{flex:1;min-width:120px}
+  .sheet{padding:16px}
+  .slrow{grid-template-columns:1fr 92px 72px 30px}
+}
+@media(max-width:560px){
+  .pipegrid{grid-template-columns:1fr}
+  .kpis{gap:10px}
+  .main{padding:14px 12px 40px}
+  .rangebar select,.rangebar input{flex:1}
 }
 
 /* --- login gate --- */
