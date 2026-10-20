@@ -4,8 +4,10 @@
 -- take a fixed monthly salary AND split profits yearly, so the historical
 -- monthly partner payments are salaries, not profit splits.
 
--- 1. add the role column (Full-time / Part-time / Freelance)
+-- 1a. add the role column salaries use (Full-time / Part-time / Freelance)
 alter table money add column if not exists role text;
+-- 1b. add the batch column payouts use to group one profit-split event
+alter table money add column if not exists batch text;
 
 -- 2. reclassify every people-payment row -> Salary
 --    (old Partner Payout = monthly partner salary, Freelancer, old Salary).

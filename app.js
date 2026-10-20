@@ -145,6 +145,9 @@ async function write(coll,id,patch){
 }
 async function create(coll,id,data){ if(!canWrite){toast("Read-only access");return;} const row=Object.assign({id},toDB(coll,data)); const {error}=await sb.from(coll).insert(row); if(error){ toast("Add failed"); console.error(error);} else { toast("Added"); logAct("added",coll,id,data.name||data.desc||""); await fetchColl(coll); render(); } }
 async function remove(coll,id){ if(!canWrite){toast("Read-only access");return;} const {error}=await sb.from(coll).delete().eq("id",id); if(error){ toast("Delete failed"); console.error(error);} else { toast("Deleted"); logAct("deleted",coll,id,""); await fetchColl(coll); render(); } }
+async function createMany(coll,rows){ if(!canWrite){toast("Read-only access");return;} if(!rows.length)return; const payload=rows.map(r=>toDB(coll,r)); const {error}=await sb.from(coll).insert(payload); if(error){ toast("Add failed"); console.error(error);} else { toast("Added "+rows.length); rows.forEach(r=>logAct("added",coll,r.id,r.desc||"")); await fetchColl(coll); render(); } }
+async function removeMany(coll,ids){ if(!canWrite){toast("Read-only access");return;} if(!ids.length)return; const {error}=await sb.from(coll).delete().in("id",ids); if(error){ toast("Delete failed"); console.error(error);} else { toast("Deleted"); ids.forEach(id=>logAct("deleted",coll,id,"")); await fetchColl(coll); render(); } }
+async function updateMany(coll,ids,patch){ if(!canWrite){toast("Read-only access");return;} if(!ids.length)return; const {error}=await sb.from(coll).update(toDB(coll,patch)).in("id",ids); if(error){ toast("Save failed"); console.error(error);} else { toast("Saved"); await fetchColl(coll); render(); } }
 function nextId(coll,prefix,pad){let mx=0;store[coll].forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});return prefix+String(mx+1).padStart(pad,"0");}
 async function logAct(act,coll,id,label){ try{ await sb.from("activity").insert({who:myName,action:act,coll,doc_id:id,label:label||""}); }catch(e){} }
 function dl(name,text){const blob=new Blob(["﻿"+text],{type:'text/csv;charset=utf-8'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},120);}
@@ -319,7 +322,7 @@ function renderMoneyDash(){
   const M2=moneyF();const bm={};
   M2.forEach(m=>{const b=brandOf(m.acct);if(!b)return;if(!bm[b])bm[b]={rev:0,cost:0};if(m.dir==='Income'&&m.status==='Paid')bm[b].rev+=(+m.amt||0);else if(m.dir==='Expense'||m.dir==='Payout'||m.dir==='Salary')bm[b].cost+=Math.abs(+m.amt||0);});
   const cashIn=store.money.filter(m=>m.dir==='Income'&&m.status==='Paid').reduce((s,m)=>s+(+m.amt||0),0);
-  const cashExp=Math.abs(store.money.filter(m=>m.dir==='Expense').reduce((s,m)=>s+(+m.amt||0),0));
+  const cashExp=Math.abs(store.money.filter(m=>m.dir==='Expense'&&m.status==='Paid').reduce((s,m)=>s+(+m.amt||0),0));
   const cashPayPaid=Math.abs(store.money.filter(m=>m.dir==='Payout'&&m.status==='Paid').reduce((s,m)=>s+(+m.amt||0),0));
   const cashSalPaid=Math.abs(store.money.filter(m=>m.dir==='Salary'&&m.status==='Paid').reduce((s,m)=>s+(+m.amt||0),0));
   const cashOnHand=cashIn-cashExp-cashPayPaid-cashSalPaid;
@@ -443,13 +446,15 @@ function renderInvoices(){
 function renderExpenses(){
   _SS=state.sortM;
   let M=sortBy(moneyF().filter(m=>m.dir==="Expense"),state.sortM.k,state.sortM.dir);
-  const total=Math.abs(M.reduce((a,m)=>a+(+m.amt||0),0));
-  const cats={};M.forEach(m=>{const k=m.cat||"Other";cats[k]=(cats[k]||0)+Math.abs(+m.amt||0);});
+  const total=Math.abs(M.filter(m=>!voided(m)).reduce((a,m)=>a+(+m.amt||0),0));
+  const paid=Math.abs(M.filter(m=>m.status==="Paid").reduce((a,m)=>a+(+m.amt||0),0));
+  const pending=Math.abs(M.filter(m=>owed(m)).reduce((a,m)=>a+(+m.amt||0),0));
+  const cats={};M.filter(m=>!voided(m)).forEach(m=>{const k=m.cat||"Other";cats[k]=(cats[k]||0)+Math.abs(+m.amt||0);});
   const top=Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([l,v])=>({l,v}));
-  const head=[["id","ID"],["date","Date"],["brand","Brand"],["cat","Category"],["desc","Description"],["amt","Amount"],["",""]];
+  const head=[["id","ID"],["date","Date"],["brand","Brand"],["cat","Category"],["desc","Description"],["amt","Amount"],["status","Status"],["",""]];
   const ro=canWrite?"":"disabled";
   $('view').innerHTML=`<div class="view">
-    <div class="kpis">${kpi("Total expenses","KD "+KD(total),"warn")}${kpi("Lines",M.length,"")}${kpi("Categories",Object.keys(cats).length,"")}</div>
+    <div class="kpis">${kpi("Total expenses","KD "+KD(total),"warn")}${kpi("Paid","KD "+KD(paid),"good")}${kpi("Pending","KD "+KD(pending),"bad")}${kpi("Lines",M.length,"")}</div>
     <div class="grid2">
       <div class="panel"><h2>By category</h2><div class="body">${top.length?hbars(top,'kd'):'<div class="muted">No expenses</div>'}</div></div>
       <div class="panel"><h2>Add expense</h2><div class="body"><button class="btn" id="neAdd"${canWrite?"":" disabled"}>+ Add expense</button></div></div>
@@ -463,6 +468,7 @@ function renderExpenses(){
         <td><select class="edit" data-c="money" data-id="${esc(m.id)}" data-f="cat" ${ro}>${opts(EXPCATS.includes(m.cat)?EXPCATS:[m.cat].concat(EXPCATS),m.cat)}</select></td>
         <td style="min-width:200px"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||m.id)}</button></td>
         <td class="num neg"><input type="number" step="0.001" class="edit num" style="width:104px" data-c="money" data-id="${esc(m.id)}" data-f="amt" value="${esc(m.amt)}" ${ro}></td>
+        <td>${csel("pay","money",m.id,"status",m.status,PAY,ro)}</td>
         <td>${canWrite?rowMenu("money",m.id):""}</td></tr>`).join("")}</tbody></table></div>
       <div class="rowcount">${M.length} expenses</div>
     </div></div>`;
@@ -500,32 +506,42 @@ function renderSalaries(){
   bindSort('sortM',renderSalaries);
 }
 function renderPayouts(){
-  _SS=state.sortM;
-  let M=sortBy(moneyF().filter(m=>m.dir==="Payout"),state.sortM.k,state.sortM.dir);
+  const M=moneyF().filter(m=>m.dir==="Payout");
   const total=Math.abs(M.reduce((a,m)=>a+(+m.amt||0),0));
   const pending=Math.abs(M.filter(m=>m.status!=="Paid").reduce((a,m)=>a+(+m.amt||0),0));
-  const head=[["id","ID"],["date","Date"],["partner","Partner"],["brand","Brand"],["desc","Description"],["amt","Amount"],["status","Status"],["due","Due"],["",""]];
-  const ro=canWrite?"":"disabled";
+  // group rows into payout events by batch (legacy rows without a batch stand alone)
+  const groups={};
+  M.forEach(m=>{const k=m.batch||m.id;if(!groups[k])groups[k]={batch:k,date:m.date||"",desc:m.desc||"Profit split",rows:[]};groups[k].rows.push(m);if((m.date||"")>groups[k].date)groups[k].date=m.date||groups[k].date;});
+  const events=Object.values(groups).map(g=>{
+    g.total=Math.abs(g.rows.reduce((a,m)=>a+(+m.amt||0),0));
+    g.status=g.rows.every(m=>m.status==="Paid")?"Paid":"Pending";
+    g.ids=g.rows.map(m=>m.id);
+    return g;
+  }).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  const ro=!canWrite;
+  const eventHtml=events.length?events.map(g=>`
+    <div class="poevent" data-batch="${esc(g.batch)}">
+      <div class="pohead">
+        <div class="poinfo"><span class="pototal">KD ${KD(g.total)}</span><span class="muted"> · ${esc(g.date||'—')} · ${esc(g.desc)}</span></div>
+        <div class="poact">
+          <span class="pill ${g.status==='Paid'?'pill-good':'pill-bad'}">${g.status}</span>
+          ${ro?"":`<button class="ghost pytoggle" data-batch="${esc(g.batch)}" data-to="${g.status==='Paid'?'Pending':'Paid'}">Mark ${g.status==='Paid'?'pending':'paid'}</button>`}
+          ${ro?"":`<button class="ghost pydel" data-batch="${esc(g.batch)}" title="Delete this payout">✕</button>`}
+        </div>
+      </div>
+      <div class="porows">
+        ${g.rows.map(m=>`<div class="por"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.partner||'—')}</button><span class="num neg">KD ${KD(Math.abs(+m.amt||0))}</span></div>`).join("")}
+      </div>
+    </div>`).join(""):'<div class="rowcount">No payouts yet. Add one when you split profits.</div>';
   $('view').innerHTML=`<div class="view">
-    <div class="kpis">${kpi("Total payouts","KD "+KD(total),"warn")}${kpi("Pending","KD "+KD(pending),"bad")}${kpi("Paid","KD "+KD(total-pending),"good")}${kpi("Lines",M.length,"")}</div>
+    <div class="kpis">${kpi("Total payouts","KD "+KD(total),"warn")}${kpi("Pending","KD "+KD(pending),"bad")}${kpi("Paid","KD "+KD(total-pending),"good")}${kpi("Events",events.length,"")}</div>
     <div class="panel">
-      <div class="addbar"><button class="btn" id="pyAdd"${canWrite?"":" disabled"}>+ Add payout</button></div>
-      <div class="tablewrap"><table><thead><tr>${thhead(head)}</tr></thead>
-      <tbody>${M.map(m=>`<tr id="mrow-${esc(m.id)}">
-        <td class="id">${esc(m.id)}</td>
-        <td><input type="date" class="edit" data-c="money" data-id="${esc(m.id)}" data-f="date" value="${esc(m.date||'')}" ${ro}></td>
-        <td><input class="edit" style="width:110px" data-c="money" data-id="${esc(m.id)}" data-f="partner" value="${esc(m.partner||'')}" ${ro}></td>
-        <td><select class="edit" data-c="money" data-id="${esc(m.id)}" data-f="acct" ${ro}>${brandOpts(m.acct)}</select></td>
-        <td style="min-width:180px"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||m.id)}</button></td>
-        <td class="num neg"><input type="number" step="0.001" class="edit num" style="width:104px" data-c="money" data-id="${esc(m.id)}" data-f="amt" value="${esc(m.amt)}" ${ro}></td>
-        <td>${csel("payout","money",m.id,"status",m.status,PAYOUT_STATUS,ro)}</td>
-        <td><input type="date" class="edit" data-c="money" data-id="${esc(m.id)}" data-f="due" value="${esc(m.due||'')}" ${ro}></td>
-        <td>${canWrite?rowMenu("money",m.id):""}</td></tr>`).join("")}</tbody></table></div>
-      <div class="rowcount">${M.length} payouts</div>
+      <div class="addbar"><span class="muted" style="flex:1">Payouts are PIVOT profit splits, divided equally among the partners in each split.</span><button class="btn" id="pyAdd"${canWrite?"":" disabled"}>+ Add payout</button></div>
+      <div class="poevents">${eventHtml}</div>
     </div></div>`;
-  if(pendingHL){const el=$('mrow-'+pendingHL);pendingHL="";if(el){el.classList.add('hlrow');el.scrollIntoView({block:'center',behavior:'smooth'});setTimeout(()=>el.classList.remove('hlrow'),3000);}}
-  $('pyAdd').onclick=openPayoutNew;
-  bindSort('sortM',renderPayouts);
+  if($('pyAdd'))$('pyAdd').onclick=openPayoutNew;
+  document.querySelectorAll('.pytoggle').forEach(b=>b.onclick=()=>{const g=events.find(e=>e.batch===b.dataset.batch);if(!g)return;const to=b.dataset.to;updateMany("money",g.ids,{status:to,paid:(to==='Paid'?(g.date||todayISO):"")});});
+  document.querySelectorAll('.pydel').forEach(b=>b.onclick=()=>{const g=events.find(e=>e.batch===b.dataset.batch);if(!g)return;removeMany("money",g.ids);});
 }
 function renderAccounts(){
   _SS=state.sortA;
@@ -693,6 +709,7 @@ function openExpenseNew(){
       ${fld("Brand",`<select id="mx_acct">${brandOpts("")}</select>`)}
       ${fld("Category",`<select id="mx_cat">${opts(EXPCATS,"Other Expense")}</select>`)}
       ${fld("Amount (KD)",`<input type="number" step="0.001" id="mx_amt" placeholder="0.000">`)}
+      ${fld("Status",`<select id="mx_status">${opts(PAY,"Paid")}</select>`)}
     </div>
     <div class="formfull">
       ${fld("Description",`<input id="mx_desc">`)}
@@ -703,7 +720,8 @@ function openExpenseNew(){
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   $('mkSave').onclick=()=>{const g=f=>{const el=$('mx_'+f);return el?el.value:"";};const amt=parseFloat(g('amt'));if(isNaN(amt)){toast("Enter an amount");return;}
-    create("money",nextId("money","LDG-",4),{date:g('date')||todayISO,acct:g('acct'),eng:"",dir:"Expense",cat:g('cat'),desc:g('desc'),amt:-Math.abs(amt),status:"Paid",due:"",paid:g('date')||todayISO,notes:g('notes')});close();};
+    const st=g('status')||"Paid";
+    create("money",nextId("money","LDG-",4),{date:g('date')||todayISO,acct:g('acct'),eng:"",dir:"Expense",cat:g('cat'),desc:g('desc'),amt:-Math.abs(amt),status:st,due:"",paid:(st==='Paid'?(g('date')||todayISO):""),notes:g('notes')});close();};
 }
 function openSalaryNew(){
   if(!canWrite){toast("Read-only access");return;}
@@ -727,23 +745,33 @@ function openSalaryNew(){
 }
 function openPayoutNew(){
   if(!canWrite){toast("Read-only access");return;}
+  const partnerBoxes=TEAM_ACTIVE.map(n=>`<label class="pchk"><input type="checkbox" class="mp_partner" value="${esc(n)}" checked> ${esc(n)}</label>`).join("");
   $('modal').innerHTML=`<div class="sheet">
-    <div class="sheethead"><div><div class="id">New payout</div><h3>Add payout <span class="muted" style="font-weight:500">· partner profit split</span></h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
+    <div class="sheethead"><div><div class="id">New payout</div><h3>Add payout <span class="muted" style="font-weight:500">· PIVOT profit split, divided equally</span></h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
     <div class="formgrid">
       ${fld("Date",`<input type="date" id="mp_date" value="${todayISO}">`)}
-      ${fld("Partner / freelancer",`<input id="mp_partner" placeholder="Name">`)}
-      ${fld("Brand (optional)",`<select id="mp_acct">${brandOpts("")}</select>`)}
-      ${fld("Amount (KD)",`<input type="number" step="0.001" id="mp_amt" placeholder="0.000">`)}
+      ${fld("Total amount (KD)",`<input type="number" step="0.001" id="mp_amt" placeholder="0.000">`)}
       ${fld("Status",`<select id="mp_status">${opts(PAYOUT_STATUS,"Pending")}</select>`)}
-      ${fld("Due",`<input type="date" id="mp_due">`)}
     </div>
-    <div class="formfull">${fld("Description",`<input id="mp_desc" placeholder="What is this payout for">`)}${fld("Note (optional)",`<textarea id="mp_notes" rows="2"></textarea>`)}</div>
+    <div class="formfull">
+      ${fld("Partners in this split",`<div class="pchks">${partnerBoxes}</div>`)}
+      <div class="muted" id="mp_preview" style="margin:-4px 0 8px;font-size:12px"></div>
+      ${fld("Description",`<input id="mp_desc" placeholder="e.g. Q3 profit split">`)}
+      ${fld("Note (optional)",`<textarea id="mp_notes" rows="2"></textarea>`)}
+    </div>
     <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Add payout</button></div></div>`;
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
-  $('mkSave').onclick=()=>{const g=f=>{const el=$('mp_'+f);return el?el.value:"";};const amt=parseFloat(g('amt'));if(isNaN(amt)){toast("Enter an amount");return;}
-    const st=g('status');
-    create("money",nextId("money","LDG-",4),{date:g('date')||todayISO,acct:g('acct'),eng:"",dir:"Payout",cat:"Partner Payout",partner:g('partner'),desc:g('desc'),amt:-Math.abs(amt),status:st,due:g('due'),paid:(st==='Paid'?(g('date')||todayISO):""),notes:g('notes')});close();};
+  const picked=()=>Array.from(document.querySelectorAll('.mp_partner')).filter(c=>c.checked).map(c=>c.value);
+  const preview=()=>{const amt=parseFloat($('mp_amt').value)||0;const p=picked();const each=p.length?amt/p.length:0;$('mp_preview').textContent=p.length?`${p.length} partner${p.length===1?'':'s'} · KD ${KD(each)} each`:"Select at least one partner";};
+  $('mp_amt').oninput=preview;document.querySelectorAll('.mp_partner').forEach(c=>c.onchange=preview);preview();
+  $('mkSave').onclick=()=>{const g=f=>{const el=$('mp_'+f);return el?el.value:"";};const amt=parseFloat(g('amt'));if(isNaN(amt)||amt<=0){toast("Enter a total amount");return;}
+    const p=picked();if(!p.length){toast("Pick at least one partner");return;}
+    const st=g('status'),date=g('date')||todayISO,paid=(st==='Paid'?date:""),each=amt/p.length;
+    const batch="PO-"+Date.now().toString(36).toUpperCase();
+    let mx=0;store.money.forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});
+    const rows=p.map((name,i)=>({id:"LDG-"+String(mx+1+i).padStart(4,"0"),date,acct:"",eng:"",dir:"Payout",cat:"Partner Payout",partner:name,batch,desc:g('desc')||"Profit split",amt:-Math.abs(each),status:st,due:"",paid,notes:g('notes')}));
+    createMany("money",rows);close();};
 }
 function openAccountNew(){
   if(!canWrite){toast("Read-only access");return;}
@@ -832,7 +860,7 @@ function openMoney(id){
     <div class="formgrid">
       ${fld("Type",`<select id="mm_dir" ${ro}>${opts(["Income","Expense","Salary","Payout"],m.dir||"Income")}</select>`)}
       ${fld("Date",`<input type="date" id="mm_date" value="${esc(m.date||'')}" ${ro}>`)}
-      ${fld("Brand",`<select id="mm_acct" ${ro}>${brandOpts(m.acct)}</select>`)}
+      ${m.dir==="Payout"?"":fld("Brand",`<select id="mm_acct" ${ro}>${brandOpts(m.acct)}</select>`)}
       ${m.dir==="Salary"?(fld("Person",`<input id="mm_partner" value="${esc(m.partner||'')}" ${ro}>`)+fld("Role",`<select id="mm_role" ${ro}><option value="">—</option>${opts(ROLES,m.role)}</select>`)):(m.dir==="Payout"?fld("Partner",`<input id="mm_partner" value="${esc(m.partner||'')}" ${ro}>`):fld("Category",`<input id="mm_cat" value="${esc(m.cat||'')}" ${ro}>`))}
       ${fld("Amount (KD)",`<input type="number" step="0.001" id="mm_amt" value="${esc(Math.abs(+m.amt||0))}" ${ro}>`)}
       ${fld("Status",`<select id="mm_status" ${ro}>${opts((m.dir==="Payout"||m.dir==="Salary")?PAYOUT_STATUS:PAY,m.status||((m.dir==="Payout"||m.dir==="Salary")?"Pending":"Unpaid"))}</select>`)}

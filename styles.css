@@ -185,3 +185,20 @@ svg:hover .pieslice{opacity:.5}
 .loginbox{width:340px;max-width:88vw;background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:24px;display:flex;flex-direction:column;gap:10px}
 .loginbox input{font-family:var(--font);font-size:14px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface-2);color:var(--ink)}
 .loginbox .dot{width:12px;height:12px;border-radius:50%;background:var(--accent);display:inline-block}
+
+/* payouts — grouped events */
+.poevents{display:flex;flex-direction:column;gap:12px}
+.poevent{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}
+.pohead{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.poinfo{flex:1;min-width:0}
+.pototal{font-weight:700;font-size:16px}
+.poact{display:flex;align-items:center;gap:8px}
+.porows{display:flex;flex-direction:column}
+.por{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:1px solid var(--line)}
+.por:last-child{border-bottom:none}
+.pill{font-size:11px;font-weight:700;letter-spacing:.02em;padding:3px 9px;border-radius:999px;white-space:nowrap}
+.pill-good{color:var(--good);background:var(--good-soft)}
+.pill-bad{color:var(--bad);background:var(--bad-soft)}
+.pchks{display:flex;flex-wrap:wrap;gap:10px}
+.pchk{display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:7px 11px;border:1px solid var(--line);border-radius:9px;background:var(--surface-2);cursor:pointer;user-select:none}
+.pchk input{accent-color:var(--accent)}
