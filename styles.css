@@ -302,3 +302,13 @@ svg:hover .pieslice{opacity:.5}
 .poinfo{overflow:hidden;text-overflow:ellipsis}
 .poinfo .linkname{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pipecard .linkname{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+
+/* popups: long text must wrap or clip, never push the box wider */
+.sheet,.sheet *{overflow-wrap:anywhere}
+.sheethead{min-width:0}
+.sheethead h3,.sheethead .id{overflow-wrap:anywhere;word-break:break-word}
+.formfull,.formgrid{min-width:0;max-width:100%}
+.formgrid>*,.formfull>*{min-width:0;max-width:100%}
+.formgrid input,.formgrid select,.formgrid textarea,.formfull input,.formfull select,.formfull textarea{width:100%;max-width:100%;box-sizing:border-box}
+.fld{max-width:100%}
+.pchks{max-width:100%}
