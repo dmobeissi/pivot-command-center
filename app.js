@@ -41,7 +41,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v41 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v42 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -932,32 +932,15 @@ async function deployProjectFromDeal(d){
   } else { render(); }
   toast("Project deployed"+(lines.length?(" with "+lines.length+" tasks"):""));
 }
-function renderTeam(){
-  const ppl=(store.people||[]).slice().sort((a,b)=>((a.active==="No")-(b.active==="No"))||(a.name||'').localeCompare(b.name||''));
-  const ro=canWrite?"":"disabled";
-  const row=p=>`<tr>
-    <td class="id">${esc(p.id)}</td>
-    <td><input class="edit" style="min-width:140px" data-c="people" data-id="${esc(p.id)}" data-f="name" value="${esc(p.name||'')}" ${ro}></td>
-    <td><input class="edit" style="width:120px" data-c="people" data-id="${esc(p.id)}" data-f="role" value="${esc(p.role||'')}" ${ro} placeholder="e.g. Partner"></td>
-    <td><select class="edit" data-c="people" data-id="${esc(p.id)}" data-f="active" ${ro}><option value="Yes"${p.active!=="No"?" selected":""}>Active</option><option value="No"${p.active==="No"?" selected":""}>Archived</option></select></td>
-    <td>${canWrite?rowMenu("people",p.id):""}</td></tr>`;
-  $('view').innerHTML=`<div class="view"><div class="panel">
-    <div class="addbar"><button class="btn" id="tmAdd"${canWrite?"":" disabled"}>+ Add member</button><span class="muted" style="font-size:12px">Active members appear in owner, salary and payout pickers. Archived (Churned) ones don't.</span></div>
-    <div class="tablewrap"><table><thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Status</th><th></th></tr></thead>
-    <tbody>${ppl.length?ppl.map(row).join(""):'<tr><td colspan="5" class="rowcount">No team members yet. Add one, or run migration-05 to seed the team.</td></tr>'}</tbody></table></div>
-    <div class="rowcount">${ppl.filter(p=>p.active!=="No").length} active · ${ppl.filter(p=>p.active==="No").length} archived</div>
-  </div></div>`;
-  if($('tmAdd'))$('tmAdd').onclick=openMemberNew;
-}
 function openMemberNew(){
   if(!canWrite){toast("Read-only access");return;}
   $('modal').innerHTML=`<div class="sheet"><div class="sheethead"><div><div class="id">New member</div><h3>Add team member</h3></div><button class="del" id="mkClose">✕</button></div>
-    <div class="formgrid">${fld("Name",`<input id="tm_name" placeholder="Name">`)}${fld("Role",`<input id="tm_role" placeholder="e.g. Partner, Staff, Freelance">`)}${fld("Status",`<select id="tm_active">${opts(["Active","Churned"],"Active")}</select>`)}</div>
+    <div class="formgrid">${fld("Name",`<input id="tm_name" placeholder="Name">`)}${fld("Role",`<input id="tm_role" placeholder="e.g. Partner, Staff, Freelance">`)}${fld("Status",`<select id="tm_active"><option value="Yes">Active</option><option value="No">Archived</option></select>`)}</div>
     <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Add</button></div></div>`;
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   $('mkSave').onclick=()=>{const name=$('tm_name').value.trim();if(!name){toast("Enter a name");return;}
-    create("people",nextId("people","PPL-",3),{name,role:$('tm_role').value,active:($('tm_active').value!=="Churned")});close();};
+    create("people",nextId("people","PPL-",3),{name,role:$('tm_role').value,active:$('tm_active').value});close();};
 }
 
 function bindSort(key,rerender){document.querySelectorAll('thead th[data-k]').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(!k)return;const s=state[key];s.dir=(s.k===k)?-s.dir:1;s.k=k;rerender();});}
