@@ -26,7 +26,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v17 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v18 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -310,6 +310,11 @@ function renderMoneyDash(){
   const cats={};Mall.filter(m=>m.dir==='Expense'&&inR(m,R.from,R.to)).forEach(m=>{const k=m.cat||"Other";cats[k]=(cats[k]||0)+Math.abs(+m.amt||0);});
   const topCat=Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,7).map(([l,v])=>({l,v}));
   const series=moneySeries(R.from,R.to);
+  const M2=moneyF();const bm={};
+  M2.forEach(m=>{const b=brandOf(m.acct);if(!b)return;if(!bm[b])bm[b]={rev:0,cost:0};if(m.dir==='Income'&&m.status==='Paid')bm[b].rev+=(+m.amt||0);else if(m.dir==='Expense')bm[b].cost+=Math.abs(+m.amt||0);});
+  const marginRows=Object.entries(bm).map(([l,o])=>({l,v:o.rev-o.cost})).filter(x=>x.v!==0).sort((a,b)=>b.v-a.v).slice(0,8);
+  const age={cur:0,b30:0,b60:0,b60p:0};
+  M2.filter(owed).forEach(m=>{const amt=+m.amt||0;if(!m.due||m.due>=todayISO){age.cur+=amt;return;}const d=daysBetween(m.due,todayISO);if(d<=30)age.b30+=amt;else if(d<=60)age.b60+=amt;else age.b60p+=amt;});
   $('view').innerHTML=`<div class="view">
     ${rangeBar()}
     <div style="margin:-4px 0 12px;display:flex"><span style="flex:1"></span><button class="ghost" id="repBtn">Generate report</button></div>
@@ -319,6 +324,15 @@ function renderMoneyDash(){
       <div class="panel"><h2>Invoices to chase ${overdueInv?`<span class="flag-over" style="font-size:11px;font-weight:700">· ${overdueInv} overdue</span>`:""}</h2><div class="attn">${chase.length?chase.map(m=>{const od=m.due&&m.due<todayISO;return `<div class="r" data-goto="invoices" data-hl="${esc(m.id)}" style="cursor:pointer"><span class="t"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||m.id)}</button> <span class="muted">· ${esc(brandOf(m.acct))}</span></span><span class="${od?'flag-over':'flag-soon'}" style="white-space:nowrap">KD ${KD(m.amt)}${m.due?` · ${esc(m.due)}`:''}</span></div>`;}).join(""):'<div class="rowcount">All invoices settled.</div>'}</div><div class="rowcount">KD ${KD(chaseTot)} outstanding · ${unpaid.length} invoice${unpaid.length===1?'':'s'} (live, all dates)</div></div>
       <div class="panel"><h2>Cash in range</h2><div class="body">${hbars([{l:"Collected",v:cur.collected,c:"var(--good)"},{l:"Billed",v:cur.billed,c:"var(--accent)"},{l:"Expenses",v:cur.expenses,c:"var(--warn)"}],'kd')}</div></div>
       <div class="panel"><h2>Expenses by category</h2><div class="body">${topCat.length?hbars(topCat,'kd'):'<div class="muted">No expenses in range</div>'}</div></div>
+    </div>
+    <div class="grid2">
+      <div class="panel"><h2>Profit by brand <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">· collected − direct costs</span></h2><div class="attn">${marginRows.length?marginRows.map(r=>`<div class="r"><span class="t">${esc(r.l)}</span><span class="num ${r.v<0?'neg':'pos'}">KD ${KD(r.v)}</span></div>`).join(""):'<div class="rowcount">No data in range.</div>'}</div></div>
+      <div class="panel"><h2>Receivables aging</h2><div class="attn">
+        <div class="r"><span class="t">Not due yet</span><span class="num">KD ${KD(age.cur)}</span></div>
+        <div class="r"><span class="t">1–30 days overdue</span><span class="num flag-soon">KD ${KD(age.b30)}</span></div>
+        <div class="r"><span class="t">31–60 days overdue</span><span class="num flag-soon">KD ${KD(age.b60)}</span></div>
+        <div class="r"><span class="t">60+ days overdue</span><span class="num flag-over">KD ${KD(age.b60p)}</span></div>
+      </div><div class="rowcount">KD ${KD(age.cur+age.b30+age.b60+age.b60p)} outstanding across all unpaid invoices</div></div>
     </div></div>`;
   wireRange(renderMoneyDash);
   if($('repBtn'))$('repBtn').onclick=()=>openReport('money');
@@ -451,11 +465,12 @@ function renderAccounts(){
     const coll=store.money.filter(m=>m.acct===a.id&&m.dir==="Income"&&m.status==="Paid").reduce((s,m)=>s+(+m.amt||0),0);
     const out=store.money.filter(m=>m.acct===a.id&&m.dir==="Income").reduce((s,m)=>s+(+m.amt||0),0)-coll;
     const eng=store.engagements.filter(e=>e.acct===a.id).length;
-    return Object.assign({open,coll,out,eng},a);
+    const cost=Math.abs(store.money.filter(m=>m.acct===a.id&&m.dir==="Expense").reduce((s,m)=>s+(+m.amt||0),0));
+    return Object.assign({open,coll,out,eng,cost,margin:coll-cost},a);
   }).filter(a=>!F.brand||a.brand===F.brand);
   rows=sortBy(rows,state.sortA.k,state.sortA.dir);
   const ro=canWrite?"":"disabled";
-  const head=[["id","ID"],["brand","Brand"],["country","Country"],["type","Type"],["lifecycle","Lifecycle"],["eng","Engagements"],["open","Open"],["coll","Collected"],["out","Outstanding"],["date_added","Added"]];
+  const head=[["id","ID"],["brand","Brand"],["country","Country"],["type","Type"],["lifecycle","Lifecycle"],["eng","Engagements"],["open","Open"],["coll","Collected"],["out","Outstanding"],["cost","Costs"],["margin","Margin"],["date_added","Added"]];
   $('view').innerHTML=`<div class="view"><div class="panel">
     <div class="addbar"><button class="btn" id="acAdd"${canWrite?"":" disabled"}>+ Add account</button><span class="muted" style="font-size:12px">Click a brand to open its profile.</span></div>
     <div class="tablewrap"><table>
@@ -468,6 +483,7 @@ function renderAccounts(){
       <td>${csel("life","accounts",a.id,"lifecycle",a.lifecycle,LIFE,ro)}</td>
       <td class="num">${a.eng}</td><td class="num">${a.open}</td>
       <td class="num pos">${KD(a.coll)}</td><td class="num ${a.out>0?'neg':''}">${KD(a.out)}</td>
+      <td class="num ${a.cost>0?'neg':''}">${KD(a.cost)}</td><td class="num ${a.margin<0?'neg':'pos'}">${KD(a.margin)}</td>
       <td class="muted">${esc(a.date_added||'')}</td></tr>`).join("")}</tbody></table></div>
     <div class="rowcount">${rows.length} accounts</div></div></div>`;
   if($('acAdd'))$('acAdd').onclick=openAccountNew;
