@@ -1,0 +1,44 @@
+name: Nightly Supabase backup
+
+# Runs every night at 02:00 Kuwait time (23:00 UTC) and on manual trigger.
+on:
+  schedule:
+    - cron: "0 23 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout app repo (for the script)
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Dump Supabase to ./backup-output
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: node scripts/backup.mjs
+
+      - name: Push backup to the private backup repo
+        env:
+          BACKUP_REPO: ${{ secrets.BACKUP_REPO }}     # e.g. dmobeissi/pivot-backups
+          BACKUP_TOKEN: ${{ secrets.BACKUP_TOKEN }}   # PAT with Contents read/write on that repo
+        run: |
+          set -e
+          DAY=$(date -u +%Y-%m-%d)
+          git clone --depth 1 "https://x-access-token:${BACKUP_TOKEN}@github.com/${BACKUP_REPO}.git" bkrepo
+          rm -rf "bkrepo/latest"
+          mkdir -p "bkrepo/backups/${DAY}" "bkrepo/latest"
+          cp -r backup-output/* "bkrepo/backups/${DAY}/"
+          cp -r backup-output/* "bkrepo/latest/"
+          cd bkrepo
+          git config user.name "pivot-backup-bot"
+          git config user.email "backup@pivot.local"
+          git add -A
+          git commit -m "Backup ${DAY}" || { echo "No changes"; exit 0; }
+          git push
