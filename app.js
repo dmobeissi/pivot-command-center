@@ -21,11 +21,12 @@ const DIRS=["Income","Expense"];
 const EXPCATS=["Salary","Software","Advertising","Freelancer","Partner Payout","Domain / Hosting","Tax","Office","Other Expense"];
 const TEAM_ACTIVE=["Daoud","Zawar","Arafa"];const TEAM_ARCHIVED=["Amr","Maisoun","Bilal"];let TEAM=[...TEAM_ACTIVE,...TEAM_ARCHIVED];
 const COLLS=["accounts","engagements","tasks","money"];
-const store={accounts:[],engagements:[],tasks:[],money:[],templates:[],people:[]};
-const loaded={accounts:false,engagements:false,tasks:false,money:false,templates:false,people:false};
+const store={accounts:[],engagements:[],tasks:[],money:[],templates:[],people:[],services:[]};
+const loaded={accounts:false,engagements:false,tasks:false,money:false,templates:false,people:false,services:false};
+const SOFT=new Set(['people','services']); // tables that may not exist yet; must not block boot
 let AMAP={}, canWrite=false, booted=false, myName="Someone", PEOPLE={};
 let sb=null, session=null;
-const ALLCOLLS=["accounts","engagements","tasks","money","templates","people"];
+const ALLCOLLS=["accounts","engagements","tasks","money","templates","people","services"];
 const F={brand:"",team:"",status:"",q:"",quick:""};
 const state={view:(()=>{try{return localStorage.getItem('pivot_view')||"dashboard"}catch(e){return"dashboard"}})(),sortT:{k:"due",dir:1},sortM:{k:"date",dir:-1},me:(()=>{try{return localStorage.getItem('pivot_me')||""}catch(e){return""}})(),
   range:(()=>{try{return JSON.parse(localStorage.getItem('pivot_range'))||{preset:'mtd',from:'',to:''}}catch(e){return{preset:'mtd',from:'',to:''}}})(),
@@ -40,7 +41,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v27 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v28 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -125,16 +126,16 @@ window.addEventListener('scroll',()=>closeRowMenu(),true);
 const _tip=document.createElement('div');_tip.id='tip';document.body.appendChild(_tip);
 document.addEventListener('mousemove',e=>{const b=e.target.closest('[data-tip]');if(b){_tip.textContent=b.getAttribute('data-tip');_tip.classList.add('show');_tip.style.left=Math.min(window.innerWidth-160,e.clientX+12)+'px';_tip.style.top=(e.clientY-14)+'px';}else _tip.classList.remove('show');});
 
-function fromDB(coll,r){ if(coll==='money'){const o=Object.assign({},r);o.desc=r.description;o.date=r.txn_date;return o;} if(coll==='templates'){const o=Object.assign({},r);o.dueDay=r.due_day;o.active=r.active?"Yes":"No";return o;} if(coll==='people'){const o=Object.assign({},r);o.active=(r.active===false?"No":"Yes");return o;} return r; }
+function fromDB(coll,r){ if(coll==='money'){const o=Object.assign({},r);o.desc=r.description;o.date=r.txn_date;return o;} if(coll==='templates'){const o=Object.assign({},r);o.dueDay=r.due_day;o.active=r.active?"Yes":"No";return o;} if(coll==='people'||coll==='services'){const o=Object.assign({},r);o.active=(r.active===false?"No":"Yes");return o;} return r; }
 function toDB(coll,obj){ const o=Object.assign({},obj);
   if(coll==='money'){ if('desc' in o){o.description=o.desc;delete o.desc;} if('date' in o){o.txn_date=o.date||null;delete o.date;} ['due','paid','txn_date'].forEach(k=>{if(o[k]==='')o[k]=null;}); }
   if(coll==='tasks'){ ['logged','due','done'].forEach(k=>{if(o[k]==='')o[k]=null;}); }
   if(coll==='templates'){ if('dueDay' in o){o.due_day=parseInt(o.dueDay)||1;delete o.dueDay;} if('active' in o){o.active=(o.active!=="No"&&o.active!==false);} }
-  if(coll==='people'){ if('active' in o){o.active=(o.active!=="No"&&o.active!==false);} }
+  if(coll==='people'||coll==='services'){ if('active' in o){o.active=(o.active!=="No"&&o.active!==false);} }
   return o; }
 async function fetchColl(coll){
   const {data,error}=await sb.from(coll).select('*');
-  if(error){ if(coll==='people'){store.people=[];loaded.people=true;return;} toast("Load error: "+coll); console.error(coll,error); return; }
+  if(error){ if(SOFT.has(coll)){store[coll]=[];loaded[coll]=true;return;} toast("Load error: "+coll); console.error(coll,error); return; }
   store[coll]=data.map(r=>fromDB(coll,r));
   if(coll==='accounts'){ AMAP={}; store.accounts.forEach(a=>AMAP[a.id]=a); rebuildBrandFilter(); }
   if(coll==='tasks'){ const s=new Set(store.tasks.map(x=>x.owner).filter(Boolean)); if(s.size){TEAM=[...new Set([...TEAM,...s])];rebuildTeamFilter();} }
@@ -732,6 +733,37 @@ function renderPipeline(){
   if($('pipeAdd'))$('pipeAdd').onclick=openAccountNew;
 }
 
+const SVC_TYPES=["Retainer","Project"];
+function renderServices(){
+  const ro=canWrite?"":"disabled";
+  const svc=(store.services||[]).slice().sort((a,b)=>((a.active==="No")-(b.active==="No"))||(a.name||'').localeCompare(b.name||''));
+  const rows=svc.length?svc.map(s=>`<tr>
+    <td class="id">${esc(s.id)}</td>
+    <td><input class="edit" style="min-width:150px" data-c="services" data-id="${esc(s.id)}" data-f="name" value="${esc(s.name||'')}" ${ro}></td>
+    <td><select class="edit" data-c="services" data-id="${esc(s.id)}" data-f="type" ${ro}>${opts(SVC_TYPES,s.type||"Project")}</select></td>
+    <td class="num"><input type="number" step="0.001" class="edit num" style="width:96px" data-c="services" data-id="${esc(s.id)}" data-f="price" value="${s.price!=null?esc(s.price):''}" ${ro}></td>
+    <td><input class="edit" style="width:80px" data-c="services" data-id="${esc(s.id)}" data-f="unit" value="${esc(s.unit||'')}" ${ro} placeholder="/mo, one-off"></td>
+    <td><input class="edit" style="min-width:180px" data-c="services" data-id="${esc(s.id)}" data-f="notes" value="${esc(s.notes||'')}" ${ro} placeholder="What it covers"></td>
+    <td><select class="edit" data-c="services" data-id="${esc(s.id)}" data-f="active" ${ro}><option value="Yes"${s.active!=="No"?" selected":""}>Active</option><option value="No"${s.active==="No"?" selected":""}>Retired</option></select></td>
+    <td>${canWrite?rowMenu("services",s.id):""}</td></tr>`).join(""):'<tr><td colspan="8" class="rowcount">No services yet. Add the things PIVOT sells — retainers and project types — so deals and invoices can reference them.</td></tr>';
+  $('view').innerHTML=`<div class="view"><div class="panel">
+    <div class="addbar"><button class="btn" id="svAdd"${canWrite?"":" disabled"}>+ Add service</button><span class="muted" style="font-size:12px">The catalogue of what PIVOT offers. Retainers bill monthly; projects are one-off.</span></div>
+    <div class="tablewrap"><table><thead><tr><th>ID</th><th>Service</th><th>Type</th><th>Price (KD)</th><th>Unit</th><th>Notes</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="rowcount">${svc.filter(s=>s.active!=="No").length} active services</div>
+  </div></div>`;
+  if($('svAdd'))$('svAdd').onclick=openServiceNew;
+}
+function openServiceNew(){
+  if(!canWrite){toast("Read-only access");return;}
+  $('modal').innerHTML=`<div class="sheet"><div class="sheethead"><div><div class="id">New service</div><h3>Add service</h3></div><button class="del" id="mkClose">✕</button></div>
+    <div class="formgrid">${fld("Service name",`<input id="sv_name" placeholder="e.g. Social media retainer">`)}${fld("Type",`<select id="sv_type">${opts(SVC_TYPES,"Retainer")}</select>`)}${fld("Price (KD)",`<input type="number" step="0.001" id="sv_price" placeholder="0.000">`)}${fld("Unit",`<input id="sv_unit" placeholder="/mo, one-off">`)}</div>
+    <div class="formfull">${fld("Notes",`<input id="sv_notes" placeholder="What it covers">`)}</div>
+    <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Add</button></div></div>`;
+  $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
+  $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
+  $('mkSave').onclick=()=>{const name=$('sv_name').value.trim();if(!name){toast("Enter a name");return;}
+    create("services",nextId("services","SVC-",3),{name,type:$('sv_type').value,price:Math.abs(parseFloat($('sv_price').value)||0),unit:$('sv_unit').value,notes:$('sv_notes').value,active:true});close();};
+}
 function renderTeam(){
   const ppl=(store.people||[]).slice().sort((a,b)=>((a.active==="No")-(b.active==="No"))||(a.name||'').localeCompare(b.name||''));
   const ro=canWrite?"":"disabled";
@@ -767,10 +799,10 @@ function render(){
   if(!booted||!ready())return;
   if(rafP)return; rafP=true;
   requestAnimationFrame(()=>{rafP=false;
-    const TITLES={tasksdash:"Tasks overview",moneydash:"Money overview",mytasks:"My Tasks",digest:"Digest",tasks:"All Tasks",recurring:"Recurring Tasks",invoices:"Invoices",expenses:"Expenses",salaries:"Salaries",payouts:"Payouts",retainers:"Retainers",accounts:"Accounts",pipeline:"Pipeline",activity:"Activity Log",setup:"Settings"};
-    const VIEWS={tasksdash:renderTasksDash,moneydash:renderMoneyDash,mytasks:renderMyTasks,digest:renderDigest,tasks:renderTasks,recurring:renderRecurring,invoices:renderInvoices,expenses:renderExpenses,salaries:renderSalaries,payouts:renderPayouts,retainers:renderRetainers,accounts:renderAccounts,pipeline:renderPipeline,activity:renderActivity,setup:renderSetup};
+    const TITLES={tasksdash:"Tasks overview",moneydash:"Money overview",mytasks:"My Tasks",digest:"Digest",tasks:"All Tasks",recurring:"Recurring Tasks",invoices:"Invoices",expenses:"Expenses",salaries:"Salaries",payouts:"Payouts",retainers:"Retainers",accounts:"Accounts",pipeline:"Pipeline",services:"Services",activity:"Activity Log",setup:"Settings"};
+    const VIEWS={tasksdash:renderTasksDash,moneydash:renderMoneyDash,mytasks:renderMyTasks,digest:renderDigest,tasks:renderTasks,recurring:renderRecurring,invoices:renderInvoices,expenses:renderExpenses,salaries:renderSalaries,payouts:renderPayouts,retainers:renderRetainers,accounts:renderAccounts,pipeline:renderPipeline,services:renderServices,activity:renderActivity,setup:renderSetup};
     if(!VIEWS[state.view])state.view="tasksdash";
-    const noFilter=new Set(['setup','activity','recurring','digest','retainers','pipeline']);
+    const noFilter=new Set(['setup','activity','recurring','digest','retainers','pipeline','services']);
     const fc=$('filterctrls');if(fc)fc.style.display=noFilter.has(state.view)?'none':'contents';
     $('viewtitle').textContent=TITLES[state.view];
     document.querySelectorAll('#nav button').forEach(b=>b.setAttribute('aria-current',b.dataset.view===state.view));
