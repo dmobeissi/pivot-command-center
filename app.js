@@ -21,12 +21,12 @@ const DIRS=["Income","Expense"];
 const EXPCATS=["Salary","Software","Advertising","Freelancer","Partner Payout","Domain / Hosting","Tax","Office","Other Expense"];
 const TEAM_ACTIVE=["Daoud","Zawar","Arafa"];const TEAM_ARCHIVED=["Amr","Maisoun","Bilal"];let TEAM=[...TEAM_ACTIVE,...TEAM_ARCHIVED];
 const COLLS=["accounts","engagements","tasks","money"];
-const store={accounts:[],engagements:[],tasks:[],money:[],templates:[],people:[],services:[],deals:[]};
-const loaded={accounts:false,engagements:false,tasks:false,money:false,templates:false,people:false,services:false,deals:false};
-const SOFT=new Set(['people','services','deals']); // tables that may not exist yet; must not block boot
+const store={accounts:[],engagements:[],tasks:[],money:[],templates:[],people:[],services:[],deals:[],projects:[]};
+const loaded={accounts:false,engagements:false,tasks:false,money:false,templates:false,people:false,services:false,deals:false,projects:false};
+const SOFT=new Set(['people','services','deals','projects']); // tables that may not exist yet; must not block boot
 let AMAP={}, canWrite=false, booted=false, myName="Someone", PEOPLE={};
 let sb=null, session=null;
-const ALLCOLLS=["accounts","engagements","tasks","money","templates","people","services","deals"];
+const ALLCOLLS=["accounts","engagements","tasks","money","templates","people","services","deals","projects"];
 const F={brand:"",team:"",status:"",q:"",quick:""};
 const state={view:(()=>{try{return localStorage.getItem('pivot_view')||"dashboard"}catch(e){return"dashboard"}})(),sortT:{k:"due",dir:1},sortM:{k:"date",dir:-1},me:(()=>{try{return localStorage.getItem('pivot_me')||""}catch(e){return""}})(),
   range:(()=>{try{return JSON.parse(localStorage.getItem('pivot_range'))||{preset:'mtd',from:'',to:''}}catch(e){return{preset:'mtd',from:'',to:''}}})(),
@@ -41,7 +41,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v36 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v37 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -133,6 +133,7 @@ function toDB(coll,obj){ const o=Object.assign({},obj);
   if(coll==='templates'){ if('dueDay' in o){o.due_day=parseInt(o.dueDay)||1;delete o.dueDay;} if('active' in o){o.active=(o.active!=="No"&&o.active!==false);} }
   if(coll==='people'||coll==='services'){ if('active' in o){o.active=(o.active!=="No"&&o.active!==false);} }
   if(coll==='deals'){ ['contract_date','signed_date','close_date'].forEach(k=>{if(o[k]==='')o[k]=null;}); }
+  if(coll==='projects'){ ['start_date','due_date'].forEach(k=>{if(o[k]==='')o[k]=null;}); }
   return o; }
 async function fetchColl(coll){
   const {data,error}=await sb.from(coll).select('*');
@@ -216,7 +217,8 @@ const CMAP={status:{"To Do":["var(--hold-soft)","var(--hold)"],"In Progress":["v
   priority:{High:["var(--bad-soft)","var(--bad)"],Medium:["var(--warn-soft)","var(--warn)"],Low:["var(--good-soft)","var(--good)"]},
   pay:{Paid:["var(--good-soft)","var(--good)"],Partial:["var(--warn-soft)","var(--warn)"],Unpaid:["var(--bad-soft)","var(--bad)"],Voided:["var(--hold-soft)","var(--hold)"],Cancelled:["var(--hold-soft)","var(--hold)"]},
   payout:{Pending:["var(--warn-soft)","var(--warn)"],Paid:["var(--good-soft)","var(--good)"]},
-  life:{Active:["var(--good-soft)","var(--good)"],Lead:["var(--info-soft)","var(--info)"],Paused:["var(--warn-soft)","var(--warn)"],Churned:["var(--hold-soft)","var(--hold)"],Lost:["var(--bad-soft)","var(--bad)"],Internal:["var(--accent-soft)","var(--accent)"]}};
+  life:{Active:["var(--good-soft)","var(--good)"],Lead:["var(--info-soft)","var(--info)"],Paused:["var(--warn-soft)","var(--warn)"],Churned:["var(--hold-soft)","var(--hold)"],Lost:["var(--bad-soft)","var(--bad)"],Internal:["var(--accent-soft)","var(--accent)"]},
+  proj:{Planned:["var(--info-soft)","var(--info)"],Active:["var(--good-soft)","var(--good)"],"On Hold":["var(--warn-soft)","var(--warn)"],Done:["var(--hold-soft)","var(--hold)"]}};
 function cstyle(kind,val){const map=CMAP[kind]||{};let c=map[val];if(!c&&val){const key=String(val).trim().toLowerCase();const hit=Object.keys(map).find(k=>k.toLowerCase()===key);if(hit)c=map[hit];}return c?`background-color:${c[0]};color:${c[1]};border-color:transparent`:"";}
 function csel(kind,coll,id,field,val,list,ro){return `<select class="edit csel" data-color="${kind}" data-c="${coll}" data-id="${esc(id)}" data-f="${field}" style="${cstyle(kind,val)}" ${ro}>${opts(list,val)}</select>`;}
 
@@ -793,6 +795,7 @@ function openDealNew(d){
       ${fld("Expected close",`<input type="date" id="dl_close_date" value="${esc(d.close_date||'')}">`)}
     </div>
     <div class="formfull">${fld("Notes",`<textarea id="dl_notes" rows="2">${esc(d.notes||'')}</textarea>`)}</div>
+    ${edit&&d.stage==="Signed"?`<div class="formfull"><div class="attn"><div class="r"><span class="t">${(store.projects||[]).some(x=>x.deal===d.id)?'Project deployed for this deal.':'This deal is signed. Deploy its project and tasks.'}</span>${(store.projects||[]).some(x=>x.deal===d.id)?'':`<button class="btn" id="dlDeploy"${canWrite?"":" disabled"}>Deploy project</button>`}</div></div></div>`:''}
     <div class="sheetfoot">${edit?`<button class="del" id="mkDelete">Delete</button>`:""}<span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">${edit?"Save":"Add deal"}</button></div></div>`;
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
@@ -800,6 +803,7 @@ function openDealNew(d){
     const patch={acct,service:g('service'),title:g('title'),value:Math.abs(parseFloat(g('value'))||0),stage:g('stage'),contract_date:g('contract_date'),signed_date:g('signed_date'),close_date:g('close_date'),notes:g('notes')};
     if(edit){write("deals",d.id,patch);}else{create("deals",nextId("deals","DEAL-",3),patch);}close();};
   if(edit&&$('mkDelete'))$('mkDelete').onclick=()=>{close();remove("deals",d.id);};
+  if($('dlDeploy'))$('dlDeploy').onclick=()=>{close();deployProjectFromDeal(d);};
 }
 function openDeal(id){const d=(store.deals||[]).find(x=>x.id===id);if(d)openDealNew(d);}
 
@@ -813,13 +817,14 @@ function renderServices(){
     <td><select class="edit" data-c="services" data-id="${esc(s.id)}" data-f="type" ${ro}>${opts(SVC_TYPES,s.type||"Project")}</select></td>
     <td class="num"><input type="number" step="0.001" class="edit num" style="width:96px" data-c="services" data-id="${esc(s.id)}" data-f="price" value="${s.price!=null?esc(s.price):''}" ${ro}></td>
     <td><input class="edit" style="width:80px" data-c="services" data-id="${esc(s.id)}" data-f="unit" value="${esc(s.unit||'')}" ${ro} placeholder="/mo, one-off"></td>
-    <td><input class="edit" style="min-width:180px" data-c="services" data-id="${esc(s.id)}" data-f="notes" value="${esc(s.notes||'')}" ${ro} placeholder="What it covers"></td>
+    <td><input class="edit" style="min-width:160px" data-c="services" data-id="${esc(s.id)}" data-f="notes" value="${esc(s.notes||'')}" ${ro} placeholder="What it covers"></td>
+    <td><button class="linkmini" data-svopen="${esc(s.id)}">${((s.tasks||'').split('\n').map(x=>x.trim()).filter(Boolean)).length||0} tasks ›</button></td>
     <td><select class="edit" data-c="services" data-id="${esc(s.id)}" data-f="active" ${ro}><option value="Yes"${s.active!=="No"?" selected":""}>Active</option><option value="No"${s.active==="No"?" selected":""}>Retired</option></select></td>
-    <td>${canWrite?rowMenu("services",s.id):""}</td></tr>`).join(""):'<tr><td colspan="8" class="rowcount">No services yet. Add the things PIVOT sells (retainers and projects) so deals and invoices can use them.</td></tr>';
+    <td>${canWrite?rowMenu("services",s.id):""}</td></tr>`).join(""):'<tr><td colspan="9" class="rowcount">No services yet. Add the things PIVOT sells (retainers and projects) so deals and invoices can use them.</td></tr>';
   $('view').innerHTML=`<div class="view"><div class="panel">
     <div class="addbar"><button class="btn" id="svAdd"${canWrite?"":" disabled"}>+ Add service</button><span class="muted" style="font-size:12px">The catalogue of what PIVOT offers. Retainers bill monthly; projects are one-off.</span></div>
-    <div class="tablewrap"><table><thead><tr><th>ID</th><th>Service</th><th>Type</th><th>Price (KD)</th><th>Unit</th><th>Notes</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="rowcount">${svc.filter(s=>s.active!=="No").length} active services</div>
+    <div class="tablewrap"><table><thead><tr><th>ID</th><th>Service</th><th>Type</th><th>Price (KD)</th><th>Unit</th><th>Notes</th><th>Checklist</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="rowcount">${svc.filter(s=>s.active!=="No").length} active services · click the checklist to set the tasks a project deploys with</div>
   </div></div>`;
   if($('svAdd'))$('svAdd').onclick=openServiceNew;
 }
@@ -827,12 +832,103 @@ function openServiceNew(){
   if(!canWrite){toast("Read-only access");return;}
   $('modal').innerHTML=`<div class="sheet"><div class="sheethead"><div><div class="id">New service</div><h3>Add service</h3></div><button class="del" id="mkClose">✕</button></div>
     <div class="formgrid">${fld("Service name",`<input id="sv_name" placeholder="e.g. Social media retainer">`)}${fld("Type",`<select id="sv_type">${opts(SVC_TYPES,"Retainer")}</select>`)}${fld("Price (KD)",`<input type="number" step="0.001" id="sv_price" placeholder="0.000">`)}${fld("Unit",`<input id="sv_unit" placeholder="/mo, one-off">`)}</div>
-    <div class="formfull">${fld("Notes",`<input id="sv_notes" placeholder="What it covers">`)}</div>
+    <div class="formfull">${fld("Notes",`<input id="sv_notes" placeholder="What it covers">`)}${fld("Default task checklist (one task per line)",`<textarea id="sv_tasks" rows="4" placeholder="Kickoff call&#10;Collect brand assets&#10;Build&#10;QA and launch"></textarea>`)}</div>
     <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Add</button></div></div>`;
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   $('mkSave').onclick=()=>{const name=$('sv_name').value.trim();if(!name){toast("Enter a name");return;}
-    create("services",nextId("services","SVC-",3),{name,type:$('sv_type').value,price:Math.abs(parseFloat($('sv_price').value)||0),unit:$('sv_unit').value,notes:$('sv_notes').value,active:true});close();};
+    create("services",nextId("services","SVC-",3),{name,type:$('sv_type').value,price:Math.abs(parseFloat($('sv_price').value)||0),unit:$('sv_unit').value,notes:$('sv_notes').value,tasks:$('sv_tasks')?$('sv_tasks').value:"",active:true});close();};
+}
+function openServiceEdit(id){
+  const s=(store.services||[]).find(x=>x.id===id);if(!s||!canWrite){if(!canWrite)toast("Read-only access");return;}
+  $('modal').innerHTML=`<div class="sheet"><div class="sheethead"><div><div class="id">${esc(s.id)}</div><h3>Edit ${esc(s.name)}</h3></div><button class="del" id="mkClose">✕</button></div>
+    <div class="formgrid">${fld("Service name",`<input id="se_name" value="${esc(s.name||'')}">`)}${fld("Type",`<select id="se_type">${opts(SVC_TYPES,s.type||"Retainer")}</select>`)}${fld("Price (KD)",`<input type="number" step="0.001" id="se_price" value="${s.price!=null?esc(s.price):''}">`)}${fld("Unit",`<input id="se_unit" value="${esc(s.unit||'')}">`)}</div>
+    <div class="formfull">${fld("Notes",`<input id="se_notes" value="${esc(s.notes||'')}">`)}${fld("Default task checklist (one task per line)",`<textarea id="se_tasks" rows="6" placeholder="Kickoff call&#10;Collect brand assets&#10;Build the store&#10;QA and launch">${esc(s.tasks||'')}</textarea>`)}</div>
+    <div class="sheetfoot"><button class="del" id="mkDelete">Delete</button><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Save</button></div></div>`;
+  $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
+  $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
+  $('mkSave').onclick=()=>{write("services",id,{name:$('se_name').value,type:$('se_type').value,price:Math.abs(parseFloat($('se_price').value)||0),unit:$('se_unit').value,notes:$('se_notes').value,tasks:$('se_tasks').value});close();};
+  $('mkDelete').onclick=()=>{close();remove("services",id);};
+}
+
+// ---------- Projects ----------
+const PROJ_STATUS=["Planned","Active","On Hold","Done"];
+function projStats(pid){const ts=store.tasks.filter(t=>t.project===pid);return {total:ts.length,done:ts.filter(t=>t.status==="Done").length};}
+function renderProjects(){
+  const ro=canWrite?"":"disabled";
+  const ord={Active:0,Planned:1,"On Hold":2,Done:3};
+  const ps=(store.projects||[]).slice().sort((a,b)=>((ord[a.status]??1)-(ord[b.status]??1))||(a.name||'').localeCompare(b.name||''));
+  const card=p=>{const st=projStats(p.id);const pct=st.total?Math.round(st.done/st.total*100):0;const a=AMAP[p.acct];return `
+    <div class="poevent">
+      <div class="pohead">
+        <div class="poinfo"><button class="linkname" data-popen="${esc(p.id)}" style="font-weight:700;font-size:15px">${esc(p.name||p.id)}</button><span class="muted"> · ${esc(a?a.brand:(p.acct||'—'))}</span></div>
+        <div class="poact">${csel("proj","projects",p.id,"status",p.status||"Planned",PROJ_STATUS,ro)}</div>
+      </div>
+      <div style="padding:10px 14px 14px">
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:5px"><span>${st.done}/${st.total} tasks done</span><span>${p.due_date?('due '+esc(p.due_date)):''}</span></div>
+        <div class="burnwrap"><div class="burnbar" style="width:${Math.max(2,pct)}%;background:var(--good)"></div></div>
+      </div>
+    </div>`;};
+  $('view').innerHTML=`<div class="view">
+    <div class="kpis">${kpi("Active projects",ps.filter(p=>p.status!=="Done").length,"accent")}${kpi("All projects",ps.length,"")}</div>
+    <div class="panel"><div class="addbar"><button class="btn" id="prAdd"${canWrite?"":" disabled"}>+ Add project</button><span class="muted" style="font-size:12px">A project groups the work for one piece of a client's engagement. Sign a deal in Pipeline to deploy one with its tasks.</span></div>
+    <div class="poevents">${ps.length?ps.map(card).join(""):'<div class="rowcount">No projects yet. Add one, or deploy from a signed deal.</div>'}</div></div></div>`;
+  if($('prAdd'))$('prAdd').onclick=()=>openProjectNew();
+}
+function openProjectNew(p){
+  if(!canWrite){toast("Read-only access");return;}
+  p=p||{status:"Planned"};const edit=!!p.id;
+  const svcOpts=`<option value="">—</option>`+(store.services||[]).filter(s=>s.active!=="No"||s.id===p.service).map(s=>`<option value="${esc(s.id)}"${s.id===p.service?" selected":""}>${esc(s.name)}</option>`).join("");
+  $('modal').innerHTML=`<div class="sheet"><div class="sheethead"><div><div class="id">${edit?esc(p.id):"New project"}</div><h3>${edit?"Edit":"Add"} project</h3></div><button class="del" id="mkClose">✕</button></div>
+    <div class="formgrid">
+      ${fld("Client / brand",`<select id="pr_acct">${accountOpts(p.acct||"","")}</select>`)}
+      ${fld("Service",`<select id="pr_service">${svcOpts}</select>`)}
+      ${fld("Project name",`<input id="pr_name" value="${esc(p.name||'')}" placeholder="e.g. Shopify build">`)}
+      ${fld("Status",`<select id="pr_status">${opts(PROJ_STATUS,p.status||"Planned")}</select>`)}
+      ${fld("Start",`<input type="date" id="pr_start_date" value="${esc(p.start_date||'')}">`)}
+      ${fld("Due",`<input type="date" id="pr_due_date" value="${esc(p.due_date||'')}">`)}
+    </div>
+    <div class="formfull">${fld("Notes",`<textarea id="pr_notes" rows="2">${esc(p.notes||'')}</textarea>`)}</div>
+    <div class="sheetfoot">${edit?`<button class="del" id="mkDelete">Delete</button>`:""}<span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">${edit?"Save":"Add"}</button></div></div>`;
+  $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
+  $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
+  $('mkSave').onclick=()=>{const g=f=>{const el=$('pr_'+f);return el?el.value:"";};const name=g('name').trim();if(!name){toast("Enter a project name");return;}
+    const patch={acct:g('acct'),service:g('service'),name,status:g('status'),start_date:g('start_date'),due_date:g('due_date'),notes:g('notes')};
+    if(edit){write("projects",p.id,patch);}else{create("projects",nextId("projects","PRJ-",3),patch);}close();};
+  if(edit&&$('mkDelete'))$('mkDelete').onclick=()=>{close();remove("projects",p.id);};
+}
+function openProject(id){const p=(store.projects||[]).find(x=>x.id===id);if(p)openProjectDetail(p);}
+function openProjectDetail(p){
+  const tasks=store.tasks.filter(t=>t.project===p.id);
+  const tops=tasks.filter(t=>!t.parent);const subsOf=pid=>tasks.filter(t=>t.parent===pid);
+  const a=AMAP[p.acct];const st=projStats(p.id);
+  const row=(t,sub)=>`<div class="r" style="${sub?'padding-left:22px':''}"><span class="t"><button class="linkname" data-open="${esc(t.id)}">${esc(t.name||t.id)}</button>${!sub&&canWrite?` <button class="linkmini" data-subtask="${esc(t.id)}">+ sub</button>`:''}</span><span class="${flag(t)[1]}" style="white-space:nowrap">${esc(t.status||'')}</span></div>`;
+  const list=tops.length?tops.map(t=>row(t,false)+subsOf(t.id).map(s=>row(s,true)).join("")).join(""):'<div class="rowcount">No tasks yet. Add one below.</div>';
+  $('modal').innerHTML=`<div class="sheet"><div class="sheethead"><div><div class="id">${esc(p.id)}</div><h3>${esc(p.name)} <span class="muted" style="font-weight:500">· ${esc(a?a.brand:'')}${p.status?' · '+esc(p.status):''}</span></h3></div><button class="del" id="mkClose">✕</button></div>
+    <div class="formfull">
+      <label class="fld"><span style="display:flex;align-items:center;gap:8px"><span style="flex:1">Tasks · ${st.done}/${st.total} done</span>${canWrite?`<button class="linkmini" id="prTask">+ Task</button>`:''}</span><div class="attn">${list}</div></label>
+      ${p.notes?`<label class="fld"><span>Notes</span><div class="attn"><div class="r"><span class="t">${esc(p.notes)}</span></div></div></label>`:''}
+    </div>
+    <div class="sheetfoot"><span style="flex:1"></span>${canWrite?`<button class="ghost" id="prEdit">Edit</button>`:''}</div></div>`;
+  $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
+  $('mkClose').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
+  if($('prEdit'))$('prEdit').onclick=()=>openProjectNew(p);
+  if($('prTask'))$('prTask').onclick=()=>{close();openTaskNew({acct:p.acct,project:p.id});};
+  document.querySelectorAll('[data-subtask]').forEach(b=>b.onclick=()=>{close();openTaskNew({acct:p.acct,project:p.id,parent:b.dataset.subtask});});
+}
+async function deployProjectFromDeal(d){
+  if(!canWrite){toast("Read-only access");return;}
+  if((store.projects||[]).some(p=>p.deal===d.id)){toast("Project already deployed for this deal");return;}
+  const svc=(store.services||[]).find(s=>s.id===d.service);
+  const pid=nextId("projects","PRJ-",3);
+  await create("projects",pid,{acct:d.acct,deal:d.id,service:d.service||"",name:d.title||(svc?svc.name:"Project"),status:"Active",start_date:todayISO,due_date:"",notes:""});
+  const lines=((svc&&svc.tasks)||"").split("\n").map(x=>x.trim()).filter(Boolean);
+  if(lines.length){
+    let mx=0;store.tasks.forEach(t=>{const m=String(t.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});
+    const rows=lines.map((name,i)=>({id:"TSK-"+String(mx+1+i).padStart(4,"0"),acct:d.acct,eng:"",name,details:"",owner:"",priority:"Medium",reqby:"PIVOT",logged:todayISO,due:"",done:"",status:"To Do",output:"",notes:"",tags:"project",project:pid,parent:""}));
+    await createMany("tasks",rows);
+  } else { render(); }
+  toast("Project deployed"+(lines.length?(" with "+lines.length+" tasks"):""));
 }
 function renderTeam(){
   const ppl=(store.people||[]).slice().sort((a,b)=>((a.active==="No")-(b.active==="No"))||(a.name||'').localeCompare(b.name||''));
@@ -869,10 +965,10 @@ function render(){
   if(!booted||!ready())return;
   if(rafP)return; rafP=true;
   requestAnimationFrame(()=>{rafP=false;
-    const TITLES={tasksdash:"Tasks overview",moneydash:"Money overview",mytasks:"My Tasks",digest:"Digest",tasks:"All Tasks",recurring:"Recurring Tasks",invoices:"Invoices",expenses:"Expenses",salaries:"Salaries",payouts:"Payouts",retainers:"Retainers",accounts:"Accounts",pipeline:"Pipeline",services:"Services",activity:"Activity Log",setup:"Settings"};
-    const VIEWS={tasksdash:renderTasksDash,moneydash:renderMoneyDash,mytasks:renderMyTasks,digest:renderDigest,tasks:renderTasks,recurring:renderRecurring,invoices:renderInvoices,expenses:renderExpenses,salaries:renderSalaries,payouts:renderPayouts,retainers:renderRetainers,accounts:renderAccounts,pipeline:renderPipeline,services:renderServices,activity:renderActivity,setup:renderSetup};
+    const TITLES={tasksdash:"Tasks overview",moneydash:"Money overview",mytasks:"My Tasks",digest:"Digest",tasks:"All Tasks",recurring:"Recurring Tasks",invoices:"Invoices",expenses:"Expenses",salaries:"Salaries",payouts:"Payouts",retainers:"Retainers",accounts:"Accounts",pipeline:"Pipeline",projects:"Projects",services:"Services",activity:"Activity Log",setup:"Settings"};
+    const VIEWS={tasksdash:renderTasksDash,moneydash:renderMoneyDash,mytasks:renderMyTasks,digest:renderDigest,tasks:renderTasks,recurring:renderRecurring,invoices:renderInvoices,expenses:renderExpenses,salaries:renderSalaries,payouts:renderPayouts,retainers:renderRetainers,accounts:renderAccounts,pipeline:renderPipeline,projects:renderProjects,services:renderServices,activity:renderActivity,setup:renderSetup};
     if(!VIEWS[state.view])state.view="tasksdash";
-    const noFilter=new Set(['setup','activity','recurring','digest','retainers','pipeline','services']);
+    const noFilter=new Set(['setup','activity','recurring','digest','retainers','pipeline','services','projects']);
     const fc=$('filterctrls');if(fc)fc.style.display=noFilter.has(state.view)?'none':'contents';
     $('viewtitle').textContent=TITLES[state.view];
     document.querySelectorAll('#nav button').forEach(b=>b.setAttribute('aria-current',b.dataset.view===state.view));
@@ -917,13 +1013,14 @@ function openTask(id){
     await write("tasks",id,{name:g('name'),acct:g('acct'),owner:g('owner'),priority:g('priority'),status:st,reqby:g('reqby'),logged:g('logged'),due:g('due'),done:dn,details:g('details'),output:g('output'),notes:g('notes'),tags:g('tags')});logAct("edited","tasks",id,g('name'));close();};
   if($('mkDelete'))$('mkDelete').onclick=()=>{close();remove("tasks",id);};
 }
-function openTaskNew(){
+function openTaskNew(preset){
   if(!canWrite){toast("Read-only access");return;}
+  preset=preset||{};
   $('modal').innerHTML=`<div class="sheet">
-    <div class="sheethead"><div><div class="id">New task</div><h3>Add task</h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
+    <div class="sheethead"><div><div class="id">${preset.parent?"New subtask":"New task"}</div><h3>${preset.parent?"Add subtask":"Add task"}</h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
     <div class="formgrid">
       ${fld("Task name",`<input id="mk_name" placeholder="What needs doing">`)}
-      ${fld("Brand",`<select id="mk_acct">${brandOpts("")}</select>`)}
+      ${fld("Brand",`<select id="mk_acct">${brandOpts(preset.acct||"")}</select>`)}
       ${fld("Owner",`<select id="mk_owner"><option value="">—</option>${opts(teamActive())}</select>`)}
       ${fld("Priority",`<select id="mk_priority">${opts(PRIOS,"Medium")}</select>`)}
       ${fld("Status",`<select id="mk_status">${opts(STATUSES,"To Do")}</select>`)}
@@ -940,7 +1037,7 @@ function openTaskNew(){
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   $('mkSave').onclick=()=>{const g=f=>{const el=$('mk_'+f);return el?el.value:"";};const name=g('name').trim();if(!name){toast("Enter a task name");return;}
     const st=g('status');const dn=st==='Done'?todayISO:"";
-    create("tasks",nextId("tasks","TSK-",4),{acct:g('acct'),eng:"",name,details:g('details'),owner:g('owner'),priority:g('priority'),reqby:g('reqby'),logged:g('logged')||todayISO,due:g('due'),done:dn,status:st,output:"",notes:"",tags:g('tags')});close();};
+    create("tasks",nextId("tasks","TSK-",4),{acct:g('acct'),eng:"",name,details:g('details'),owner:g('owner'),priority:g('priority'),reqby:g('reqby'),logged:g('logged')||todayISO,due:g('due'),done:dn,status:st,output:"",notes:"",tags:g('tags'),project:preset.project||"",parent:preset.parent||""});close();};
 }
 function openTemplateNew(){
   if(!canWrite){toast("Read-only access");return;}
@@ -1374,6 +1471,8 @@ document.addEventListener('click',e=>{const d=e.target.closest('[data-del]');if(
 document.addEventListener('click',e=>{const g=e.target.closest('[data-goto]');if(g){if(g.dataset.hl)pendingHL=g.dataset.hl;state.view=g.dataset.goto;try{localStorage.setItem('pivot_view',state.view);}catch(_){}render();}});
 document.addEventListener('click',e=>{const b=e.target.closest('[data-brand]');if(b)openBrand(b.dataset.brand);});
 document.addEventListener('click',e=>{const b=e.target.closest('[data-dopen]');if(b)openDeal(b.dataset.dopen);});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-popen]');if(b)openProject(b.dataset.popen);});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-svopen]');if(b)openServiceEdit(b.dataset.svopen);});
 document.addEventListener('click',e=>{const c=e.target.closest('[data-quick]');if(c){F.quick=c.dataset.quick;render();}});
 document.addEventListener('click',e=>{const d=e.target.closest('[data-dq]');if(d){F.quick=d.dataset.dq;state.view='tasks';try{localStorage.setItem('pivot_view','tasks');}catch(_){}render();}});
 $('theme').onclick=()=>{const order=['system','light','dark'];setTheme(order[(order.indexOf(state.theme||'system')+1)%3]);};
