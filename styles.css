@@ -230,6 +230,7 @@ svg:hover .pieslice{opacity:.5}
 .toast{display:flex;align-items:center;gap:14px}
 .undobtn{all:unset;cursor:pointer;font-weight:700;font-size:13px;color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:7px;padding:4px 12px}
 .undobtn:hover{background:rgba(255,255,255,.14)}
+.undobtn{pointer-events:auto}
 
 /* retainer burn bars */
 .burnwrap{height:8px;border-radius:5px;background:var(--surface-2);border:1px solid var(--line);overflow:hidden}
