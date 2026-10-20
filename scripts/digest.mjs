@@ -107,7 +107,7 @@ const body = [
 ];
 if (overdue.length) {
   body.push({ type: "TextBlock", text: `⚠️ Overdue invoices (${overdue.length})`, weight: "Bolder", wrap: true, spacing: "Medium" });
-  body.push({ type: "TextBlock", wrap: true, text: overdue.slice(0, 10).map((m) => `- ${m.description || m.id} · ${brand(m.acct)} — **KD ${KD(m.amt)}** · ${days(m.due, today)}d`).join("\n") });
+  body.push({ type: "TextBlock", wrap: true, text: overdue.slice(0, 10).map((m) => `- ${m.description || m.id} · ${brand(m.acct)} · **KD ${KD(m.amt)}** · ${days(m.due, today)}d`).join("\n") });
 } else {
   body.push({ type: "TextBlock", text: "✓ No overdue invoices.", color: "Good", wrap: true, spacing: "Medium" });
 }
@@ -120,7 +120,7 @@ if (pendSal.length || pendExp.length) {
 }
 if (dueRecurring.length) {
   body.push({ type: "TextBlock", text: `Recurring not logged (${dueRecurring.length})`, weight: "Bolder", wrap: true, spacing: "Medium" });
-  body.push({ type: "TextBlock", wrap: true, text: dueRecurring.map((t) => `- ${t.name || t.cat} · ${t.freq || "Monthly"} — KD ${KD(t.amt)}`).join("\n") });
+  body.push({ type: "TextBlock", wrap: true, text: dueRecurring.map((t) => `- ${t.name || t.cat} · ${t.freq || "Monthly"} · KD ${KD(t.amt)}`).join("\n") });
 }
 const adaptive = { type: "AdaptiveCard", $schema: "http://adaptivecards.io/schemas/adaptive-card.json", version: "1.4", body,
   actions: APP_URL ? [{ type: "Action.OpenUrl", title: "Open PIVOT Command Center", url: APP_URL }] : [] };

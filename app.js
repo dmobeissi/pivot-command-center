@@ -41,7 +41,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v35 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v36 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -314,7 +314,7 @@ function renderTasksDash(){
     <div class="kpis">${kpi("Logged in range",curT.created,"accent",prevT?delta(curT.created,prevT.created,true):"")}${kpi("Completed in range",curT.completed,"good",prevT?delta(curT.completed,prevT.completed,true):"")}</div>
     <div class="kpis">${kpi("Open tasks",open,"accent")}${kpi("Overdue",overdue,"bad")}${kpi("High open",high,"warn")}${kpi("Done",done,"good")}${kpi("Active brands",store.accounts.filter(a=>a.lifecycle==="Active").length,"")}${kpi("Engagements",store.engagements.length,"")}</div>
     <div class="grid3">
-      <div class="panel"><h2>Needs attention — soonest due</h2><div class="attn">${attn.length?attn.map(t=>{const[fl,fc]=flag(t);return `<div class="r"><span class="t"><button class="linkname" data-open="${esc(t.id)}">${esc(t.name||t.id)}</button> <span class="muted">· ${esc(brandOf(t.acct))}</span></span><span class="${fc}">${esc(t.due||'')}</span></div>`;}).join(""):'<div class="rowcount">Nothing due.</div>'}</div></div>
+      <div class="panel"><h2>Needs attention, soonest due</h2><div class="attn">${attn.length?attn.map(t=>{const[fl,fc]=flag(t);return `<div class="r"><span class="t"><button class="linkname" data-open="${esc(t.id)}">${esc(t.name||t.id)}</button> <span class="muted">· ${esc(brandOf(t.acct))}</span></span><span class="${fc}">${esc(t.due||'')}</span></div>`;}).join(""):'<div class="rowcount">Nothing due.</div>'}</div></div>
       <div class="panel"><h2>Tasks by status</h2><div class="body" style="display:flex;justify-content:center">${donut(sParts.map(p=>({v:p.v,c:p.c,k:p.name})))}</div><div class="legend">${sParts.map(p=>`<span class="drill" data-drill="status" data-val="${esc(p.name)}"><span class="sw" style="background:${p.c}"></span>${p.name} ${p.v}</span>`).join("")}</div></div>
       <div class="panel"><h2>Open tasks by owner</h2><div class="body">${ownerItems.length?hbars(ownerItems,null,'team'):'<div class="muted">No open tasks</div>'}</div></div>
     </div>
@@ -368,10 +368,10 @@ function renderMoneyDash(){
     </div>
     <div class="grid2">
       <div class="panel"><h2>Profit by brand <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">· collected − direct costs</span></h2><div class="attn">${marginRows.length?marginRows.map(r=>`<div class="r"><span class="t">${esc(r.l)}</span><span class="num ${r.v<0?'neg':'pos'}">KD ${KD(r.v)}</span></div>`).join(""):'<div class="rowcount">No data in range.</div>'}</div></div>
-      <div class="panel"><h2>Receivables aging</h2><div class="attn">
+      <div class="panel"><h2>Unpaid invoices by age</h2><div class="attn">
         <div class="r"><span class="t">Not due yet</span><span class="num">KD ${KD(age.cur)}</span></div>
-        <div class="r"><span class="t">1–30 days overdue</span><span class="num flag-soon">KD ${KD(age.b30)}</span></div>
-        <div class="r"><span class="t">31–60 days overdue</span><span class="num flag-soon">KD ${KD(age.b60)}</span></div>
+        <div class="r"><span class="t">1-30 days overdue</span><span class="num flag-soon">KD ${KD(age.b30)}</span></div>
+        <div class="r"><span class="t">31-60 days overdue</span><span class="num flag-soon">KD ${KD(age.b60)}</span></div>
         <div class="r"><span class="t">60+ days overdue</span><span class="num flag-over">KD ${KD(age.b60p)}</span></div>
       </div><div class="rowcount">KD ${KD(age.cur+age.b30+age.b60+age.b60p)} outstanding across all unpaid invoices</div></div>
     </div></div>`;
@@ -740,7 +740,7 @@ function renderRetainers(){
     </div>`;}).join(""):'<div class="rowcount">No retainers yet. Open a brand in Accounts → Edit → set a Monthly retainer, and it appears here.</div>';
   const dueN=retainerInvoicesDue().length;
   $('view').innerHTML=`<div class="view">
-    <div class="kpis">${kpi("Monthly retainer value","KD "+KD(totFee),"accent")}${kpi("Retainers",rows.length,"")}${kpi("Delivery cost (mo)","KD "+KD(totCost),"warn")}${kpi("Blended margin (mo)","KD "+KD(totFee-totCost),(totFee-totCost)<0?"bad":"good")}</div>
+    <div class="kpis">${kpi("Monthly retainer value","KD "+KD(totFee),"accent")}${kpi("Retainers",rows.length,"")}${kpi("Delivery cost (mo)","KD "+KD(totCost),"warn")}${kpi("Total margin (mo)","KD "+KD(totFee-totCost),(totFee-totCost)<0?"bad":"good")}</div>
     <div class="panel">
       <div class="addbar"><span class="muted" style="flex:1;font-size:12px">Burn = this month's delivery cost (expenses, freelancers, payouts on the brand) vs the fee. Amber ≥80%, red ≥100%.</span><button class="btn" id="genRetInv"${canWrite&&dueN?"":" disabled"}>Generate retainer invoices${dueN?` (${dueN})`:""}</button></div>
       <div class="muted" style="font-size:12px;margin:0 0 12px">Invoices bill the month before on the 1st, due the 10th, as "<month> support plan". They land Unpaid until you mark them paid.</div>
@@ -815,7 +815,7 @@ function renderServices(){
     <td><input class="edit" style="width:80px" data-c="services" data-id="${esc(s.id)}" data-f="unit" value="${esc(s.unit||'')}" ${ro} placeholder="/mo, one-off"></td>
     <td><input class="edit" style="min-width:180px" data-c="services" data-id="${esc(s.id)}" data-f="notes" value="${esc(s.notes||'')}" ${ro} placeholder="What it covers"></td>
     <td><select class="edit" data-c="services" data-id="${esc(s.id)}" data-f="active" ${ro}><option value="Yes"${s.active!=="No"?" selected":""}>Active</option><option value="No"${s.active==="No"?" selected":""}>Retired</option></select></td>
-    <td>${canWrite?rowMenu("services",s.id):""}</td></tr>`).join(""):'<tr><td colspan="8" class="rowcount">No services yet. Add the things PIVOT sells — retainers and project types — so deals and invoices can reference them.</td></tr>';
+    <td>${canWrite?rowMenu("services",s.id):""}</td></tr>`).join(""):'<tr><td colspan="8" class="rowcount">No services yet. Add the things PIVOT sells (retainers and projects) so deals and invoices can use them.</td></tr>';
   $('view').innerHTML=`<div class="view"><div class="panel">
     <div class="addbar"><button class="btn" id="svAdd"${canWrite?"":" disabled"}>+ Add service</button><span class="muted" style="font-size:12px">The catalogue of what PIVOT offers. Retainers bill monthly; projects are one-off.</span></div>
     <div class="tablewrap"><table><thead><tr><th>ID</th><th>Service</th><th>Type</th><th>Price (KD)</th><th>Unit</th><th>Notes</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
@@ -846,7 +846,7 @@ function renderTeam(){
   $('view').innerHTML=`<div class="view"><div class="panel">
     <div class="addbar"><button class="btn" id="tmAdd"${canWrite?"":" disabled"}>+ Add member</button><span class="muted" style="font-size:12px">Active members appear in owner, salary and payout pickers. Archived (Churned) ones don't.</span></div>
     <div class="tablewrap"><table><thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Status</th><th></th></tr></thead>
-    <tbody>${ppl.length?ppl.map(row).join(""):'<tr><td colspan="5" class="rowcount">No team members yet — add one, or run migration-05 to seed the current team.</td></tr>'}</tbody></table></div>
+    <tbody>${ppl.length?ppl.map(row).join(""):'<tr><td colspan="5" class="rowcount">No team members yet. Add one, or run migration-05 to seed the team.</td></tr>'}</tbody></table></div>
     <div class="rowcount">${ppl.filter(p=>p.active!=="No").length} active · ${ppl.filter(p=>p.active==="No").length} archived</div>
   </div></div>`;
   if($('tmAdd'))$('tmAdd').onclick=openMemberNew;
@@ -898,8 +898,8 @@ function openTask(id){
       ${fld("Tags (comma-separated)",`<input id="mk_tags" value="${esc(t.tags||'')}" placeholder="e.g. dev, waiting-on-client" ${ro}>`)}
     </div>
     <div class="formfull">
-      ${fld("Description — what the task is (the brief)",`<textarea id="mk_details" rows="4" ${ro}>${esc(t.details||'')}</textarea>`)}
-      ${fld("Output — what was done (filled by whoever did it)",`<textarea id="mk_output" rows="4" ${ro}>${esc(t.output||'')}</textarea>`)}
+      ${fld("Description (the brief)",`<textarea id="mk_details" rows="4" ${ro}>${esc(t.details||'')}</textarea>`)}
+      ${fld("Output (what was done)",`<textarea id="mk_output" rows="4" ${ro}>${esc(t.output||'')}</textarea>`)}
       ${fld("Internal notes",`<textarea id="mk_notes" rows="2" ${ro}>${esc(t.notes||'')}</textarea>`)}
     </div>
     <div class="sheetfoot">
@@ -932,7 +932,7 @@ function openTaskNew(){
       ${fld("Due",`<input type="date" id="mk_due">`)}
       ${fld("Tags (comma-separated)",`<input id="mk_tags" placeholder="e.g. dev, waiting-on-client">`)}
     </div>
-    <div class="formfull">${fld("Description — what the task is",`<textarea id="mk_details" rows="3"></textarea>`)}</div>
+    <div class="formfull">${fld("Description",`<textarea id="mk_details" rows="3"></textarea>`)}</div>
     <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Add task</button></div>
   </div>`;
   $('modal').classList.add('show');
@@ -977,7 +977,7 @@ function openInvoiceNew(){
       ${fld("Income type",`<select id="mi_income_type">${opts(["Project","Retainer"],"Project")}</select>`)}
     </div>
     <div class="formfull">
-      ${fld("Description — what was billed",`<input id="mi_desc" placeholder="e.g. October retainer">`)}
+      ${fld("Description",`<input id="mi_desc" placeholder="e.g. October retainer">`)}
       ${fld("Note (optional)",`<textarea id="mi_notes" rows="2"></textarea>`)}
     </div>
     <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Add invoice</button></div>
@@ -1175,7 +1175,7 @@ function openMoney(id){
     </div>
     <div class="formfull">
       ${fld("Description",`<input id="mm_desc" value="${esc(m.desc||'')}" ${ro}>`)}
-      ${fld("Note — e.g. voided by us, or cancelled by client",`<textarea id="mm_notes" rows="2" ${ro}>${esc(m.notes||'')}</textarea>`)}
+      ${fld("Note (e.g. voided or cancelled)",`<textarea id="mm_notes" rows="2" ${ro}>${esc(m.notes||'')}</textarea>`)}
     </div>
     <div class="sheetfoot">
       ${canWrite?`<button class="ghost" id="mkDelete" style="color:var(--bad);border-color:var(--bad-soft)">Delete</button>`:""}
