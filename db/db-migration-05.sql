@@ -21,20 +21,24 @@ update money m
    and (m.inv_no is null or m.inv_no = '');
 
 -- 3. Team (people table)
-create table if not exists people (id text primary key);
-alter table people add column if not exists name   text;
-alter table people add column if not exists role   text;
-alter table people add column if not exists active boolean default true;
+-- NOTE: this resets the people table to the schema the app expects.
+-- Any older people rows (e.g. a legacy emails table) are replaced.
+drop table if exists people cascade;
+create table people (
+  id     text primary key,
+  name   text,
+  role   text,
+  active boolean default true,
+  email  text
+);
 alter table people enable row level security;
 drop policy if exists team_all on people;
 create policy team_all on people for all to authenticated using (true) with check (true);
 
--- seed current team (idempotent)
 insert into people (id, name, role, active) values
   ('PPL-001','Daoud','Partner',   true),
   ('PPL-002','Arafa','Partner',   true),
   ('PPL-003','Zawar','Part-time', true),
   ('PPL-004','Amr','Former',      false),
   ('PPL-005','Maisoun','Former',  false),
-  ('PPL-006','Bilal','Former',    false)
-on conflict (id) do nothing;
+  ('PPL-006','Bilal','Former',    false);
