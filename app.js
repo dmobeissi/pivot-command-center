@@ -5,6 +5,7 @@ const LIFE=["Lead","Active","Paused","Churned","Lost","Internal"];
 const PAY=["Paid","Partial","Unpaid","Voided","Cancelled"];
 const PAYOUT_STATUS=["Pending","Paid"];
 const ROLES=["Full-time","Part-time","Freelance"];
+const FREQ=["Monthly","Yearly"];
 const DIRS=["Income","Expense"];
 const EXPCATS=["Salary","Software","Advertising","Freelancer","Partner Payout","Domain / Hosting","Tax","Office","Other Expense"];
 const TEAM_ACTIVE=["Daoud","Zawar","Arafa"];const TEAM_ARCHIVED=["Amr","Maisoun","Bilal"];let TEAM=[...TEAM_ACTIVE,...TEAM_ARCHIVED];
@@ -28,7 +29,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v21 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v22 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -453,11 +454,18 @@ function renderExpenses(){
   const top=Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([l,v])=>({l,v}));
   const head=[["id","ID"],["date","Date"],["brand","Brand"],["cat","Category"],["desc","Description"],["amt","Amount"],["status","Status"],["",""]];
   const ro=canWrite?"":"disabled";
+  const rtpls=(store.templates||[]).filter(t=>t.kind==="expense");
+  const dueCount=recurringExpenseDue().length;
+  const rtHtml=rtpls.length?rtpls.map(t=>`<div class="por"><span class="porperson"><button class="linkname" data-etpl="${esc(t.id)}">${esc(t.name||t.cat||t.id)}</button><span class="rtag">${esc(t.freq||'Monthly')}</span>${(t.active||"Yes")==="No"?'<span class="rtag" style="color:var(--bad);background:var(--bad-soft)">paused</span>':''}</span><span class="num neg">KD ${KD(Math.abs(+t.amt||0))}${(t.freq==='Yearly'?' /yr':' /mo')}</span></div>`).join(""):'<div class="rowcount">No recurring expenses yet.</div>';
   $('view').innerHTML=`<div class="view">
     <div class="kpis">${kpi("Total expenses","KD "+KD(total),"warn")}${kpi("Paid","KD "+KD(paid),"good")}${kpi("Pending","KD "+KD(pending),"bad")}${kpi("Lines",M.length,"")}</div>
     <div class="grid2">
       <div class="panel"><h2>By category</h2><div class="body">${top.length?hbars(top,'kd'):'<div class="muted">No expenses</div>'}</div></div>
-      <div class="panel"><h2>Add expense</h2><div class="body"><button class="btn" id="neAdd"${canWrite?"":" disabled"}>+ Add expense</button></div></div>
+      <div class="panel"><h2>Recurring expenses</h2>
+        <div class="poevents" style="margin-bottom:10px">${rtHtml}</div>
+        <div class="addbar"><button class="ghost" id="reAdd"${canWrite?"":" disabled"}>+ Create recurring</button><button class="btn" id="reGen"${canWrite&&dueCount?"":" disabled"}>Generate due${dueCount?` (${dueCount})`:""}</button></div>
+        <div class="muted" style="font-size:12px;margin-top:6px">Generated lines land as pending until you mark them paid; past-dated ones that already auto-charged come in as paid.</div>
+      </div>
     </div>
     <div class="panel">
       <div class="tablewrap"><table><thead><tr>${thhead(head)}</tr></thead>
@@ -474,8 +482,74 @@ function renderExpenses(){
     </div></div>`;
   if(pendingHL){const el=$('mrow-'+pendingHL);pendingHL="";if(el){el.classList.add('hlrow');el.scrollIntoView({block:'center',behavior:'smooth'});setTimeout(()=>el.classList.remove('hlrow'),3000);}}
   $('neAdd').onclick=openExpenseNew;
+  if($('reAdd'))$('reAdd').onclick=openExpTemplateNew;
+  if($('reGen'))$('reGen').onclick=generateDueExpenses;
+  document.querySelectorAll('[data-etpl]').forEach(b=>b.onclick=()=>openExpTemplateEdit(b.dataset.etpl));
   bindSort('sortM',renderExpenses);
 }
+// ----- recurring expenses -----
+function isoOf(y,m0,dd){return new Date(Date.UTC(y,m0,dd)).toISOString().slice(0,10);}
+function tplOccurrences(t){
+  // occurrences from `since` through the first one after today (so the upcoming period shows as due)
+  const out=[];const freq=t.freq||"Monthly";const dd=Math.min(28,Math.max(1,parseInt(t.dueDay)||1));
+  const start=(t.since||t.date||todayISO);const sy=+start.slice(0,4),sm=+start.slice(5,7)-1;
+  if(freq==="Yearly"){
+    const am=Math.min(12,Math.max(1,parseInt(t.amonth)||1))-1;
+    let y=sy;if(isoOf(y,am,dd)<start)y++;
+    const endY=(+todayISO.slice(0,4))+1;
+    for(;y<=endY;y++){const due=isoOf(y,am,dd);out.push({due,ym:due.slice(0,7),yr:due.slice(0,4)});if(due>todayISO)break;}
+  }else{
+    let y=sy,m=sm;
+    for(let i=0;i<600;i++){const due=isoOf(y,m,dd);out.push({due,ym:due.slice(0,7),yr:due.slice(0,4)});if(due>todayISO)break;m++;if(m>11){m=0;y++;}}
+  }
+  return out;
+}
+function occCovered(t,occ){
+  const amt=Math.round(Math.abs(+t.amt||0)*1000)/1000;const yearly=(t.freq==="Yearly");
+  return store.money.some(m=>{if(m.dir!=="Expense")return false;if(m.tpl===t.id&&(m.date||"").slice(0,(yearly?4:7))===(yearly?occ.yr:occ.ym))return true;
+    return (m.cat||"")===(t.cat||"")&&Math.round(Math.abs(+m.amt||0)*1000)/1000===amt&&(m.date||"").slice(0,(yearly?4:7))===(yearly?occ.yr:occ.ym);});
+}
+function recurringExpenseDue(){
+  const due=[];(store.templates||[]).filter(t=>t.kind==="expense"&&(t.active||"Yes")!=="No").forEach(t=>{
+    tplOccurrences(t).forEach(occ=>{if(!occCovered(t,occ))due.push({t,occ});});
+  });
+  return due;
+}
+async function generateDueExpenses(){
+  if(!canWrite){toast("Read-only access");return;}
+  const due=recurringExpenseDue();
+  if(!due.length){toast("Nothing due to generate");return;}
+  let mx=0;store.money.forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});
+  const rows=due.map(({t,occ},i)=>{const past=occ.due<=todayISO;const st=past?"Paid":"Unpaid";
+    return {id:"LDG-"+String(mx+1+i).padStart(4,"0"),date:occ.due,acct:t.acct||"",eng:"",dir:"Expense",cat:t.cat||"Other Expense",tpl:t.id,desc:t.name||t.cat||"Recurring expense",amt:-Math.abs(+t.amt||0),status:st,due:occ.due,paid:(past?occ.due:""),notes:"auto · recurring"};});
+  await createMany("money",rows);
+}
+function openExpTemplateNew(t){
+  if(!canWrite){toast("Read-only access");return;}
+  t=t||{freq:"Monthly",cat:"Domain / Hosting",dueDay:1,amonth:1,active:"Yes",since:todayISO.slice(0,7)+"-01"};
+  const edit=!!t.id;
+  $('modal').innerHTML=`<div class="sheet">
+    <div class="sheethead"><div><div class="id">${edit?esc(t.id):"New recurring expense"}</div><h3>${edit?"Edit":"Create"} recurring expense</h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
+    <div class="formgrid">
+      ${fld("Description",`<input id="re_name" value="${esc(t.name||'')}" placeholder="e.g. Microsoft email">`)}
+      ${fld("Category",`<select id="re_cat">${opts(EXPCATS,t.cat||"Domain / Hosting")}</select>`)}
+      ${fld("Amount (KD)",`<input type="number" step="0.001" id="re_amt" value="${t.amt!=null?esc(Math.abs(+t.amt)):''}" placeholder="0.000">`)}
+      ${fld("Frequency",`<select id="re_freq">${opts(FREQ,t.freq||"Monthly")}</select>`)}
+      ${fld("Day of month (1-28)",`<input type="number" min="1" max="28" id="re_dueDay" value="${esc(t.dueDay||1)}">`)}
+      ${fld("Month (yearly only)",`<select id="re_amonth">${["01","02","03","04","05","06","07","08","09","10","11","12"].map((mm,i)=>`<option value="${i+1}" ${(+t.amonth||1)===i+1?'selected':''}>${monthLabel("2000-"+mm).split(' ')[0]}</option>`).join("")}</select>`)}
+      ${fld("Tracking since",`<input type="date" id="re_since" value="${esc(t.since||'')}">`)}
+      ${fld("Active",`<select id="re_active">${opts(["Yes","No"],t.active||"Yes")}</select>`)}
+    </div>
+    <div class="sheetfoot">${edit?`<button class="del" id="mkDelete">Delete</button>`:""}<span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">${edit?"Save":"Create"}</button></div></div>`;
+  $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
+  $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
+  $('mkSave').onclick=()=>{const g=f=>{const el=$('re_'+f);return el?el.value:"";};const amt=parseFloat(g('amt'));if(isNaN(amt)||amt<=0){toast("Enter an amount");return;}
+    const patch={kind:"expense",name:g('name'),cat:g('cat'),amt:Math.abs(amt),freq:g('freq'),dueDay:Math.min(28,Math.max(1,parseInt(g('dueDay'))||1)),amonth:parseInt(g('amonth'))||1,since:g('since'),active:g('active')};
+    if(edit){write("templates",t.id,patch);}else{const tid="TPL-"+String((store.templates.reduce((mx,d)=>{const mm=String(d.id).match(/(\d+)$/);return mm?Math.max(mx,+mm[1]):mx;},0))+1).padStart(3,"0");create("templates",tid,patch);}
+    close();};
+  if(edit&&$('mkDelete'))$('mkDelete').onclick=()=>{close();remove("templates",t.id);};
+}
+function openExpTemplateEdit(id){const t=(store.templates||[]).find(x=>x.id===id);if(t)openExpTemplateNew(t);}
 
 function monthLabel(ym){const MM=["January","February","March","April","May","June","July","August","September","October","November","December"];const p=(ym||"").split("-");return p.length>=2?MM[(+p[1]||1)-1]+" "+p[0]:(ym||"—");}
 function renderSalaries(){
@@ -976,7 +1050,7 @@ function renderDigest(){
 async function generateMonthly(){
   if(!canWrite){toast("Read-only access");return;}
   const ym=new Date().toISOString().slice(0,7);
-  const act=(store.templates||[]).filter(t=>(t.active||"Yes")!=="No");
+  const act=(store.templates||[]).filter(t=>(t.active||"Yes")!=="No"&&t.kind!=="expense");
   if(!act.length){toast("No active templates");return;}
   let base=0;store.tasks.forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)base=Math.max(base,+m[1]);});
   let made=0,skip=0;
@@ -991,7 +1065,7 @@ async function generateMonthly(){
   toast("Generated "+made+", skipped "+skip+" already there");
 }
 function renderRecurring(){
-  const tpls=store.templates||[];const ro=canWrite?"":"disabled";
+  const tpls=(store.templates||[]).filter(t=>t.kind!=="expense");const ro=canWrite?"":"disabled";
   const trows=tpls.length?tpls.map(t=>`<tr>
     <td class="id">${esc(t.id)}</td>
     <td><select class="edit" data-c="templates" data-id="${esc(t.id)}" data-f="acct" ${ro}>${brandOpts(t.acct)}</select></td>
