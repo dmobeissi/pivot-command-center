@@ -41,7 +41,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v40 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v41 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -443,7 +443,7 @@ function renderMyTasks(){
 
 function renderInvoices(){
   _SS=state.sortM;
-  let M=sortBy(moneyF().filter(m=>m.dir==="Income"),state.sortM.k,state.sortM.dir);
+  let M=sortBy(moneyF().filter(m=>m.dir==="Income"&&(!F.status||m.status===F.status)),state.sortM.k,state.sortM.dir);
   const collected=M.filter(m=>m.status==="Paid").reduce((a,m)=>a+(+m.amt||0),0);
   const billed=M.filter(m=>!voided(m)).reduce((a,m)=>a+(+m.amt||0),0);
   const overdue=M.filter(m=>owed(m)&&m.due&&m.due<todayISO).reduce((a,m)=>a+(+m.amt||0),0);
@@ -472,7 +472,7 @@ function renderInvoices(){
 
 function renderExpenses(){
   _SS=state.sortM;
-  let M=sortBy(moneyF().filter(m=>m.dir==="Expense"),state.sortM.k,state.sortM.dir);
+  let M=sortBy(moneyF().filter(m=>m.dir==="Expense"&&(!F.status||m.status===F.status)),state.sortM.k,state.sortM.dir);
   const total=Math.abs(M.filter(m=>!voided(m)).reduce((a,m)=>a+(+m.amt||0),0));
   const paid=Math.abs(M.filter(m=>m.status==="Paid").reduce((a,m)=>a+(+m.amt||0),0));
   const pending=Math.abs(M.filter(m=>owed(m)).reduce((a,m)=>a+(+m.amt||0),0));
@@ -579,7 +579,7 @@ function openExpTemplateEdit(id){const t=(store.templates||[]).find(x=>x.id===id
 
 function monthLabel(ym){const MM=["January","February","March","April","May","June","July","August","September","October","November","December"];const p=(ym||"").split("-");return p.length>=2?MM[(+p[1]||1)-1]+" "+p[0]:(ym||"—");}
 function renderSalaries(){
-  const M=moneyF().filter(m=>m.dir==="Salary");
+  const M=moneyF().filter(m=>m.dir==="Salary"&&(!F.status||m.status===F.status));
   const total=Math.abs(M.reduce((a,m)=>a+(+m.amt||0),0));
   const pending=Math.abs(M.filter(m=>m.status!=="Paid").reduce((a,m)=>a+(+m.amt||0),0));
   // group into monthly payroll runs by the month of the date
@@ -620,7 +620,7 @@ function renderSalaries(){
   document.querySelectorAll('.sldel').forEach(b=>b.onclick=()=>{const g=months.find(e=>e.ym===b.dataset.ym);if(!g)return;removeMany("money",g.ids);});
 }
 function renderPayouts(){
-  const M=moneyF().filter(m=>m.dir==="Payout");
+  const M=moneyF().filter(m=>m.dir==="Payout"&&(!F.status||m.status===F.status));
   const total=Math.abs(M.reduce((a,m)=>a+(+m.amt||0),0));
   const pending=Math.abs(M.filter(m=>m.status!=="Paid").reduce((a,m)=>a+(+m.amt||0),0));
   // group rows into payout events by batch (legacy rows without a batch stand alone)
@@ -668,7 +668,7 @@ function renderAccounts(){
     const eng=store.engagements.filter(e=>e.acct===a.id).length;
     const cost=Math.abs(store.money.filter(m=>m.acct===a.id&&(m.dir==="Expense"||m.dir==="Payout"||m.dir==="Salary")).reduce((s,m)=>s+(+m.amt||0),0));
     return Object.assign({open,coll,out,eng,cost,margin:coll-cost},a);
-  }).filter(a=>!F.brand||a.brand===F.brand);
+  }).filter(a=>(!F.brand||a.brand===F.brand)&&(!F.status||a.lifecycle===F.status)&&(!F.q||((a.id+" "+(a.brand||"")+" "+(a.country||"")+" "+(a.type||"")).toLowerCase().includes(F.q))));
   rows=sortBy(rows,state.sortA.k,state.sortA.dir);
   const ro=canWrite?"":"disabled";
   const head=[["id","ID"],["brand","Brand"],["country","Country"],["type","Type"],["lifecycle","Lifecycle"],["eng","Engagements"],["open","Open"],["coll","Collected"],["out","Outstanding"],["cost","Costs"],["margin","Margin"],["date_added","Added"]];
@@ -753,7 +753,7 @@ function renderRetainers(){
 const DEAL_STAGES=["Lead","Proposal","Contract","Signed","Lost"];
 function dealBrand(d){const a=AMAP[d.acct];return a?a.brand:(d.acct||"—");}
 function renderPipeline(){
-  const deals=(store.deals||[]);
+  const deals=(store.deals||[]).filter(d=>(!F.brand||dealBrand(d)===F.brand)&&(!F.status||d.stage===F.status)&&(!F.q||((d.id+" "+(d.title||"")+" "+dealBrand(d)).toLowerCase().includes(F.q))));
   const val=d=>Math.abs(+d.value||0);
   const byStage=s=>deals.filter(d=>d.stage===s).sort((a,b)=>val(b)-val(a));
   const openStages=["Lead","Proposal","Contract"];
@@ -810,7 +810,8 @@ function openDeal(id){const d=(store.deals||[]).find(x=>x.id===id);if(d)openDeal
 const SVC_TYPES=["Retainer","Project"];
 function renderServices(){
   const ro=canWrite?"":"disabled";
-  const svc=(store.services||[]).slice().sort((a,b)=>((a.active==="No")-(b.active==="No"))||(a.name||'').localeCompare(b.name||''));
+  const svcMatch=s=>{if(F.status==="Active"&&s.active==="No")return false;if(F.status==="Retired"&&s.active!=="No")return false;if(F.q&&!((s.id+" "+(s.name||"")+" "+(s.type||"")+" "+(s.notes||"")).toLowerCase().includes(F.q)))return false;return true;};
+  const svc=(store.services||[]).filter(svcMatch).slice().sort((a,b)=>((a.active==="No")-(b.active==="No"))||(a.name||'').localeCompare(b.name||''));
   const rows=svc.length?svc.map(s=>`<tr>
     <td class="id">${esc(s.id)}</td>
     <td><input class="edit" style="min-width:150px" data-c="services" data-id="${esc(s.id)}" data-f="name" value="${esc(s.name||'')}" ${ro}></td>
@@ -857,7 +858,8 @@ function projStats(pid){const ts=store.tasks.filter(t=>t.project===pid);return {
 function renderProjects(){
   const ro=canWrite?"":"disabled";
   const ord={Active:0,Planned:1,"On Hold":2,Done:3};
-  const ps=(store.projects||[]).slice().sort((a,b)=>((ord[a.status]??1)-(ord[b.status]??1))||(a.name||'').localeCompare(b.name||''));
+  const pBrand=p=>{const a=AMAP[p.acct];return a?a.brand:(p.acct||"");};
+  const ps=(store.projects||[]).filter(p=>(!F.brand||pBrand(p)===F.brand)&&(!F.status||(p.status||"Planned")===F.status)&&(!F.q||((p.id+" "+(p.name||"")+" "+pBrand(p)).toLowerCase().includes(F.q)))).slice().sort((a,b)=>((ord[a.status]??1)-(ord[b.status]??1))||(a.name||'').localeCompare(b.name||''));
   const card=p=>{const st=projStats(p.id);const pct=st.total?Math.round(st.done/st.total*100):0;const a=AMAP[p.acct];return `
     <div class="poevent">
       <div class="pohead">
@@ -960,6 +962,29 @@ function openMemberNew(){
 
 function bindSort(key,rerender){document.querySelectorAll('thead th[data-k]').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(!k)return;const s=state[key];s.dir=(s.k===k)?-s.dir:1;s.k=k;rerender();});}
 
+// each view's own filters; brand + team carry across views, status options are per view
+const VIEWFILTERS={
+  tasks:{team:true,status:STATUSES},
+  mytasks:{team:true,status:STATUSES},
+  invoices:{status:PAY},
+  expenses:{status:PAY},
+  salaries:{status:PAYOUT_STATUS},
+  payouts:{status:PAYOUT_STATUS},
+  accounts:{status:LIFE,statusLabel:"All lifecycle"},
+  pipeline:{status:DEAL_STAGES,statusLabel:"All stages"},
+  projects:{status:PROJ_STATUS,statusLabel:"All statuses"},
+  services:{brand:false,status:["Active","Retired"]}
+};
+function setupFilters(view){
+  const cfg=VIEWFILTERS[view];const fc=$('filterctrls');
+  if(!cfg){ if(fc)fc.style.display='none'; return; }
+  if(fc)fc.style.display='contents';
+  const fb=$('fBrand');if(fb)fb.style.display=(cfg.brand===false)?'none':'';
+  const ft=$('fTeam');if(ft)ft.style.display=cfg.team?'':'none';
+  const fs=$('fStatus');
+  if(fs){ const opts=cfg.status||[]; if(F.status&&!opts.includes(F.status))F.status="";
+    const cur=F.status; fs.innerHTML=""; fs.add(new Option(cfg.statusLabel||"All status","")); opts.forEach(s=>fs.add(new Option(s,s))); fs.value=cur; fs.style.display=opts.length?'':'none'; }
+}
 let rafP=false;
 function render(){
   if(!booted||!ready())return;
@@ -968,8 +993,7 @@ function render(){
     const TITLES={tasksdash:"Tasks overview",moneydash:"Money overview",mytasks:"My Tasks",digest:"Digest",tasks:"All Tasks",recurring:"Recurring Tasks",invoices:"Invoices",expenses:"Expenses",salaries:"Salaries",payouts:"Payouts",retainers:"Retainers",accounts:"Accounts",pipeline:"Pipeline",projects:"Projects",services:"Services",activity:"Activity Log",setup:"Settings"};
     const VIEWS={tasksdash:renderTasksDash,moneydash:renderMoneyDash,mytasks:renderMyTasks,digest:renderDigest,tasks:renderTasks,recurring:renderRecurring,invoices:renderInvoices,expenses:renderExpenses,salaries:renderSalaries,payouts:renderPayouts,retainers:renderRetainers,accounts:renderAccounts,pipeline:renderPipeline,projects:renderProjects,services:renderServices,activity:renderActivity,setup:renderSetup};
     if(!VIEWS[state.view])state.view="tasksdash";
-    const noFilter=new Set(['setup','activity','recurring','digest','retainers','pipeline','services','projects']);
-    const fc=$('filterctrls');if(fc)fc.style.display=noFilter.has(state.view)?'none':'contents';
+    setupFilters(state.view);
     $('viewtitle').textContent=TITLES[state.view];
     document.querySelectorAll('#nav button').forEach(b=>b.setAttribute('aria-current',b.dataset.view===state.view));
     VIEWS[state.view]();
@@ -1452,7 +1476,6 @@ document.addEventListener('click',e=>{if(!e.target.closest('#addMenu')&&!e.targe
 $('fBrand').onchange=e=>{F.brand=e.target.value;render();};
 $('fTeam').onchange=e=>{F.team=e.target.value;render();};
 $('fStatus').onchange=e=>{F.status=e.target.value;render();};
-STATUSES.forEach(s=>$('fStatus').add(new Option(s,s)));
 $('fSearch').oninput=e=>{F.q=e.target.value.toLowerCase().trim();render();};
 document.addEventListener('keydown',e=>{if(e.key==='/'&&!/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName||'')&&!$('modal').classList.contains('show')){e.preventDefault();const s=$('fSearch');if(s)s.focus();}});
 document.addEventListener('change',e=>{const el=e.target;if(el.classList&&el.classList.contains('edit')&&el.dataset.c){
