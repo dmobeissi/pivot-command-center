@@ -21,12 +21,12 @@ const DIRS=["Income","Expense"];
 const EXPCATS=["Salary","Software","Advertising","Freelancer","Partner Payout","Domain / Hosting","Tax","Office","Other Expense"];
 const TEAM_ACTIVE=["Daoud","Zawar","Arafa"];const TEAM_ARCHIVED=["Amr","Maisoun","Bilal"];let TEAM=[...TEAM_ACTIVE,...TEAM_ARCHIVED];
 const COLLS=["accounts","engagements","tasks","money"];
-const store={accounts:[],engagements:[],tasks:[],money:[],templates:[],people:[],services:[]};
-const loaded={accounts:false,engagements:false,tasks:false,money:false,templates:false,people:false,services:false};
-const SOFT=new Set(['people','services']); // tables that may not exist yet; must not block boot
+const store={accounts:[],engagements:[],tasks:[],money:[],templates:[],people:[],services:[],deals:[]};
+const loaded={accounts:false,engagements:false,tasks:false,money:false,templates:false,people:false,services:false,deals:false};
+const SOFT=new Set(['people','services','deals']); // tables that may not exist yet; must not block boot
 let AMAP={}, canWrite=false, booted=false, myName="Someone", PEOPLE={};
 let sb=null, session=null;
-const ALLCOLLS=["accounts","engagements","tasks","money","templates","people","services"];
+const ALLCOLLS=["accounts","engagements","tasks","money","templates","people","services","deals"];
 const F={brand:"",team:"",status:"",q:"",quick:""};
 const state={view:(()=>{try{return localStorage.getItem('pivot_view')||"dashboard"}catch(e){return"dashboard"}})(),sortT:{k:"due",dir:1},sortM:{k:"date",dir:-1},me:(()=>{try{return localStorage.getItem('pivot_me')||""}catch(e){return""}})(),
   range:(()=>{try{return JSON.parse(localStorage.getItem('pivot_range'))||{preset:'mtd',from:'',to:''}}catch(e){return{preset:'mtd',from:'',to:''}}})(),
@@ -41,7 +41,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v28 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v29 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -132,6 +132,7 @@ function toDB(coll,obj){ const o=Object.assign({},obj);
   if(coll==='tasks'){ ['logged','due','done'].forEach(k=>{if(o[k]==='')o[k]=null;}); }
   if(coll==='templates'){ if('dueDay' in o){o.due_day=parseInt(o.dueDay)||1;delete o.dueDay;} if('active' in o){o.active=(o.active!=="No"&&o.active!==false);} }
   if(coll==='people'||coll==='services'){ if('active' in o){o.active=(o.active!=="No"&&o.active!==false);} }
+  if(coll==='deals'){ ['contract_date','signed_date','close_date'].forEach(k=>{if(o[k]==='')o[k]=null;}); }
   return o; }
 async function fetchColl(coll){
   const {data,error}=await sb.from(coll).select('*');
@@ -715,23 +716,60 @@ function renderRetainers(){
     <div class="poevents">${cards}</div></div></div>`;
 }
 
+const DEAL_STAGES=["Lead","Proposal","Contract","Signed","Lost"];
+function dealBrand(d){const a=AMAP[d.acct];return a?a.brand:(d.acct||"—");}
 function renderPipeline(){
-  const inPipe=store.accounts.filter(a=>a.stage&&STAGES.includes(a.stage));
-  const val=a=>Math.abs(+a.deal_value||0);
-  const byStage=s=>inPipe.filter(a=>a.stage===s).sort((a,b)=>val(b)-val(a));
-  const openVal=inPipe.filter(a=>a.stage==="Lead"||a.stage==="Proposal").reduce((s,a)=>s+val(a),0);
-  const won=byStage("Won").length,lost=byStage("Lost").length;
-  const winRate=(won+lost)?Math.round(won/(won+lost)*100):0;
-  const wonVal=byStage("Won").reduce((s,a)=>s+val(a),0);
-  const col=s=>{const items=byStage(s);const tot=items.reduce((x,a)=>x+val(a),0);return `
+  const deals=(store.deals||[]);
+  const val=d=>Math.abs(+d.value||0);
+  const byStage=s=>deals.filter(d=>d.stage===s).sort((a,b)=>val(b)-val(a));
+  const openStages=["Lead","Proposal","Contract"];
+  const openVal=deals.filter(d=>openStages.includes(d.stage)).reduce((s,d)=>s+val(d),0);
+  const openN=deals.filter(d=>openStages.includes(d.stage)).length;
+  const signed=byStage("Signed").length,lost=byStage("Lost").length;
+  const winRate=(signed+lost)?Math.round(signed/(signed+lost)*100):0;
+  const signedVal=byStage("Signed").reduce((s,d)=>s+val(d),0);
+  const stagePill=d=>{ if(d.stage==="Signed"&&d.signed_date)return `<span class="dchip dchip-good">signed ${esc(d.signed_date)}</span>`; if(d.stage==="Contract")return `<span class="dchip dchip-warn">${d.contract_date?'sent '+esc(d.contract_date):'contract out'}</span>`; return ""; };
+  const col=s=>{const items=byStage(s);const tot=items.reduce((x,d)=>x+val(d),0);return `
     <div class="pipecol"><div class="pipehead"><span>${s}</span><span class="muted">${items.length} · KD ${KD(tot)}</span></div>
-    <div class="pipebody">${items.length?items.map(a=>`<div class="pipecard"><button class="linkname" data-brand="${esc(a.id)}">${esc(a.brand)}</button><div class="pipeval">KD ${KD(val(a))}</div><select class="edit stagesel" data-c="accounts" data-id="${esc(a.id)}" data-f="stage">${opts(STAGES,a.stage)}</select></div>`).join(""):'<div class="pipeempty">—</div>'}</div></div>`;};
+    <div class="pipebody">${items.length?items.map(d=>`<div class="pipecard">
+      <button class="linkname" data-dopen="${esc(d.id)}">${esc(d.title||d.id)}</button>
+      <div class="muted" style="font-size:12px"><button class="linkname" data-brand="${esc(d.acct)}" style="font-size:12px">${esc(dealBrand(d))}</button></div>
+      <div class="pipeval">KD ${KD(val(d))}</div>${stagePill(d)}
+      <select class="edit stagesel" data-c="deals" data-id="${esc(d.id)}" data-f="stage">${opts(DEAL_STAGES,d.stage)}</select>
+    </div>`).join(""):'<div class="pipeempty">—</div>'}</div></div>`;};
   $('view').innerHTML=`<div class="view">
-    <div class="kpis">${kpi("Open pipeline","KD "+KD(openVal),"accent")}${kpi("Open deals",byStage("Lead").length+byStage("Proposal").length,"")}${kpi("Won value","KD "+KD(wonVal),"good")}${kpi("Win rate",winRate+"%",(won+lost)?"good":"")}</div>
-    <div class="pipegrid">${STAGES.map(col).join("")}</div>
-    <div class="addbar" style="margin-top:12px"><button class="ghost" id="pipeAdd"${canWrite?"":" disabled"}>+ Add lead</button><span class="muted" style="font-size:12px">Add a brand with a stage + deal value, or set the stage on any account.</span></div></div>`;
-  if($('pipeAdd'))$('pipeAdd').onclick=openAccountNew;
+    <div class="kpis">${kpi("Open pipeline","KD "+KD(openVal),"accent")}${kpi("Open deals",openN,"")}${kpi("Signed value","KD "+KD(signedVal),"good")}${kpi("Win rate",winRate+"%",(signed+lost)?"good":"")}</div>
+    <div class="pipegrid">${DEAL_STAGES.map(col).join("")}</div>
+    <div class="addbar" style="margin-top:12px"><button class="btn" id="dealAdd"${canWrite?"":" disabled"}>+ Add deal</button><span class="muted" style="font-size:12px">A deal is one opportunity for a client. Move it through Lead → Proposal → Contract → Signed.</span></div></div>`;
+  if($('dealAdd'))$('dealAdd').onclick=openDealNew;
 }
+function openDealNew(d){
+  if(!canWrite){toast("Read-only access");return;}
+  d=d||{stage:"Lead"};
+  const edit=!!d.id;
+  const svcOpts=`<option value="">—</option>`+(store.services||[]).filter(s=>s.active!=="No"||s.id===d.service).map(s=>`<option value="${esc(s.id)}"${s.id===d.service?" selected":""}>${esc(s.name)}</option>`).join("");
+  $('modal').innerHTML=`<div class="sheet">
+    <div class="sheethead"><div><div class="id">${edit?esc(d.id):"New deal"}</div><h3>${edit?"Edit":"Add"} deal</h3></div><button class="del" id="mkClose">✕</button></div>
+    <div class="formgrid">
+      ${fld("Client / brand",`<select id="dl_acct">${accountOpts(d.acct||"","")}</select>`)}
+      ${fld("Service",`<select id="dl_service">${svcOpts}</select>`)}
+      ${fld("Deal title",`<input id="dl_title" value="${esc(d.title||'')}" placeholder="e.g. Shopify build">`)}
+      ${fld("Value (KD)",`<input type="number" step="0.001" id="dl_value" value="${d.value!=null?esc(Math.abs(+d.value)):''}" placeholder="0.000">`)}
+      ${fld("Stage",`<select id="dl_stage">${opts(DEAL_STAGES,d.stage||"Lead")}</select>`)}
+      ${fld("Contract sent",`<input type="date" id="dl_contract_date" value="${esc(d.contract_date||'')}">`)}
+      ${fld("Signed on",`<input type="date" id="dl_signed_date" value="${esc(d.signed_date||'')}">`)}
+      ${fld("Expected close",`<input type="date" id="dl_close_date" value="${esc(d.close_date||'')}">`)}
+    </div>
+    <div class="formfull">${fld("Notes",`<textarea id="dl_notes" rows="2">${esc(d.notes||'')}</textarea>`)}</div>
+    <div class="sheetfoot">${edit?`<button class="del" id="mkDelete">Delete</button>`:""}<span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">${edit?"Save":"Add deal"}</button></div></div>`;
+  $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
+  $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
+  $('mkSave').onclick=()=>{const g=f=>{const el=$('dl_'+f);return el?el.value:"";};const acct=g('acct');if(!acct){toast("Pick a client");return;}
+    const patch={acct,service:g('service'),title:g('title'),value:Math.abs(parseFloat(g('value'))||0),stage:g('stage'),contract_date:g('contract_date'),signed_date:g('signed_date'),close_date:g('close_date'),notes:g('notes')};
+    if(edit){write("deals",d.id,patch);}else{create("deals",nextId("deals","DEAL-",3),patch);}close();};
+  if(edit&&$('mkDelete'))$('mkDelete').onclick=()=>{close();remove("deals",d.id);};
+}
+function openDeal(id){const d=(store.deals||[]).find(x=>x.id===id);if(d)openDealNew(d);}
 
 const SVC_TYPES=["Retainer","Project"];
 function renderServices(){
@@ -1018,8 +1056,6 @@ function openAccountNew(){
       ${fld("Lifecycle",`<select id="ma_lifecycle">${opts(LIFE,"Lead")}</select>`)}
       ${fld("Parent account (optional)",`<select id="ma_parent">${accountOpts("","")}</select>`)}
       ${fld("Monthly retainer (KD, optional)",`<input type="number" step="0.001" id="ma_retainer_fee" placeholder="0 = not a retainer">`)}
-      ${fld("Pipeline stage (optional)",`<select id="ma_stage"><option value="">— not in pipeline —</option>${opts(STAGES,"")}</select>`)}
-      ${fld("Deal value (KD, optional)",`<input type="number" step="0.001" id="ma_deal_value" placeholder="0.000">`)}
     </div>
     <div class="formfull">${fld("Notes (optional)",`<textarea id="ma_notes" rows="2"></textarea>`)}</div>
     <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Add account</button></div>
@@ -1027,7 +1063,7 @@ function openAccountNew(){
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   $('mkSave').onclick=()=>{const g=f=>{const el=$('ma_'+f);return el?el.value:"";};const brand=g('brand').trim();if(!brand){toast("Enter a brand name");return;}
-    create("accounts",nextId("accounts","ACC-",3),{brand,type:g('type'),country:g('country'),lifecycle:g('lifecycle'),parent:g('parent'),notes:g('notes'),date_added:todayISO,retainer_fee:Math.abs(parseFloat(g('retainer_fee'))||0),stage:g('stage'),deal_value:Math.abs(parseFloat(g('deal_value'))||0)});close();};
+    create("accounts",nextId("accounts","ACC-",3),{brand,type:g('type'),country:g('country'),lifecycle:g('lifecycle'),parent:g('parent'),notes:g('notes'),date_added:todayISO,retainer_fee:Math.abs(parseFloat(g('retainer_fee'))||0)});close();};
 }
 function openAccountEdit(id){
   const a=AMAP[id];if(!a)return;if(!canWrite){toast("Read-only access");return;}
@@ -1041,15 +1077,13 @@ function openAccountEdit(id){
       ${fld("Parent account",`<select id="ae_parent">${accountOpts(a.parent||"",a.id)}</select>`)}
       ${fld("Date added",`<input type="date" id="ae_date_added" value="${esc(a.date_added||'')}">`)}
       ${fld("Monthly retainer (KD)",`<input type="number" step="0.001" id="ae_retainer_fee" value="${a.retainer_fee!=null?esc(Math.abs(+a.retainer_fee)):''}" placeholder="0 = not a retainer">`)}
-      ${fld("Pipeline stage",`<select id="ae_stage"><option value="">— not in pipeline —</option>${opts(STAGES,a.stage||"")}</select>`)}
-      ${fld("Deal value (KD)",`<input type="number" step="0.001" id="ae_deal_value" value="${a.deal_value!=null?esc(Math.abs(+a.deal_value)):''}" placeholder="0.000">`)}
     </div>
     <div class="formfull">${fld("Notes",`<textarea id="ae_notes" rows="2">${esc(a.notes||'')}</textarea>`)}</div>
     <div class="sheetfoot">${canWrite?`<button class="ghost" id="mkDelete" style="color:var(--bad);border-color:var(--bad-soft)">Delete</button>`:""}<span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Save</button></div></div>`;
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   $('mkSave').onclick=async()=>{const g=f=>{const el=$('ae_'+f);return el?el.value:"";};
-    await write("accounts",id,{brand:g('brand'),type:g('type'),country:g('country'),lifecycle:g('lifecycle'),parent:g('parent'),date_added:g('date_added'),notes:g('notes'),retainer_fee:Math.abs(parseFloat(g('retainer_fee'))||0),stage:g('stage'),deal_value:Math.abs(parseFloat(g('deal_value'))||0)});close();};
+    await write("accounts",id,{brand:g('brand'),type:g('type'),country:g('country'),lifecycle:g('lifecycle'),parent:g('parent'),date_added:g('date_added'),notes:g('notes'),retainer_fee:Math.abs(parseFloat(g('retainer_fee'))||0)});close();};
   if($('mkDelete'))$('mkDelete').onclick=()=>{close();remove("accounts",id);};
 }
 function openReport(kind){
@@ -1294,6 +1328,7 @@ document.addEventListener('click',e=>{const d=e.target.closest('[data-drill]');i
 document.addEventListener('click',e=>{const d=e.target.closest('[data-del]');if(d)remove(d.dataset.del,d.dataset.id);});
 document.addEventListener('click',e=>{const g=e.target.closest('[data-goto]');if(g){if(g.dataset.hl)pendingHL=g.dataset.hl;state.view=g.dataset.goto;try{localStorage.setItem('pivot_view',state.view);}catch(_){}render();}});
 document.addEventListener('click',e=>{const b=e.target.closest('[data-brand]');if(b)openBrand(b.dataset.brand);});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-dopen]');if(b)openDeal(b.dataset.dopen);});
 document.addEventListener('click',e=>{const c=e.target.closest('[data-quick]');if(c){F.quick=c.dataset.quick;render();}});
 $('theme').onclick=()=>{const order=['system','light','dark'];setTheme(order[(order.indexOf(state.theme||'system')+1)%3]);};
 applyTheme();
