@@ -99,9 +99,12 @@ td.editname .edit{width:100%;min-width:160px}
 .addbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--surface-2)}
 .btn{all:unset;cursor:pointer;background:var(--accent);color:var(--accent-ink);font-weight:600;font-size:13px;padding:8px 14px;border-radius:9px}
 .btn:hover{opacity:.88} .btn[disabled]{opacity:.5;cursor:not-allowed}
-.attn{display:flex;flex-direction:column}
-.attn .r{display:flex;justify-content:space-between;gap:10px;padding:9px 16px;border-bottom:1px solid var(--line)}
-.attn .r:last-child{border-bottom:0}.attn .t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.attn{display:flex;flex-direction:column;min-width:0}
+.attn .r{display:flex;justify-content:space-between;gap:10px;padding:9px 16px;border-bottom:1px solid var(--line);min-width:0}
+.attn .r:last-child{border-bottom:0}
+.attn .t{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.attn .r>span:last-child{flex:0 0 auto;max-width:55%;overflow:hidden;text-overflow:ellipsis}
+.fld{min-width:0}
 svg{display:block;max-width:100%}
 .legend{display:flex;flex-wrap:wrap;gap:10px;padding:0 16px 14px;font-size:12px;color:var(--muted)}
 .legend span{display:inline-flex;align-items:center;gap:6px}.sw{width:10px;height:10px;border-radius:3px;display:inline-block}
