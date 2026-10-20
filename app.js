@@ -41,7 +41,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v33 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v34 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -1235,7 +1235,9 @@ function openBrand(acctId){
   if($('vaInv'))$('vaInv').onclick=()=>{state.sortM={k:'date',dir:-1};goBrand('invoices');};
 }
 function renderDigest(){
-  const open=store.tasks.filter(t=>t.status!=="Done");
+  let open=store.tasks.filter(t=>t.status!=="Done");
+  if(F.brand)open=open.filter(t=>brandOf(t.acct)===F.brand);
+  if(F.team)open=open.filter(t=>(t.owner||"Unassigned")===F.team);
   const byDue=(a,b)=>((a.due||"9999-99-99")+"").localeCompare((b.due||"9999-99-99")+"");
   const isOv=t=>t.due&&t.due<todayISO;
   const isWk=t=>t.due&&t.due>=todayISO&&(new Date(t.due)-new Date(todayISO))<=7*864e5;
@@ -1250,10 +1252,17 @@ function renderDigest(){
     if(!ov.length&&!wk.length)return"";
     return `<div class="panel"><h2>${esc(n)} <span class="muted" style="font-weight:500">· ${ov.length} overdue · ${wk.length} due this week</span></h2><div class="attn">${ov.length?`<div class="rowcount" style="color:var(--bad);font-weight:700">Overdue</div>`+ov.map(line).join(""):""}${wk.length?`<div class="rowcount" style="color:var(--warn);font-weight:700">Due this week</div>`+wk.map(line).join(""):""}</div></div>`;
   }).filter(Boolean).join("");
+  const brandSel=`<select id="dgBrand"><option value="">All brands</option>${store.accounts.filter(a=>a.lifecycle!=="Churned"&&a.lifecycle!=="Lost").slice().sort((x,y)=>(x.brand||'').localeCompare(y.brand||'')).map(a=>`<option value="${esc(a.brand)}"${F.brand===a.brand?' selected':''}>${esc(a.brand)}</option>`).join("")}</select>`;
+  const ownerSel=`<select id="dgOwner"><option value="">All people</option>${[...teamActive(),"Unassigned"].map(n=>`<option value="${esc(n)}"${F.team===n?' selected':''}>${esc(n)}</option>`).join("")}</select>`;
+  const kL=(l,v,c,q)=>`<div class="kpiclick" data-dq="${q}">${kpi(l,v,c)}</div>`;
   $('view').innerHTML=`<div class="view">
-    <div class="kpis">${kpi("Overdue",totOv,"bad")}${kpi("Due this week",totWk,"warn")}${kpi("Open total",open.length,"accent")}${kpi("People",names.length,"")}</div>
+    <div class="rangebar">${brandSel}${ownerSel}${(F.brand||F.team)?`<button class="ghost" id="dgClear">Clear</button>`:''}<span style="flex:1"></span><span class="muted" style="font-size:12px">Click a number to open those tasks</span></div>
+    <div class="kpis">${kL("Overdue",totOv,"bad","overdue")}${kL("Due this week",totWk,"warn","week")}${kL("Open total",open.length,"accent","open")}${kpi("People",names.length,"")}</div>
     ${sections||'<div class="center"><h2>Nothing overdue or due this week</h2><p>Everyone is clear for the next 7 days.</p></div>'}
   </div>`;
+  if($('dgBrand'))$('dgBrand').onchange=e=>{F.brand=e.target.value;render();};
+  if($('dgOwner'))$('dgOwner').onchange=e=>{F.team=e.target.value;render();};
+  if($('dgClear'))$('dgClear').onclick=()=>{F.brand="";F.team="";render();};
 }
 async function generateMonthly(){
   if(!canWrite){toast("Read-only access");return;}
@@ -1366,5 +1375,6 @@ document.addEventListener('click',e=>{const g=e.target.closest('[data-goto]');if
 document.addEventListener('click',e=>{const b=e.target.closest('[data-brand]');if(b)openBrand(b.dataset.brand);});
 document.addEventListener('click',e=>{const b=e.target.closest('[data-dopen]');if(b)openDeal(b.dataset.dopen);});
 document.addEventListener('click',e=>{const c=e.target.closest('[data-quick]');if(c){F.quick=c.dataset.quick;render();}});
+document.addEventListener('click',e=>{const d=e.target.closest('[data-dq]');if(d){F.quick=d.dataset.dq;state.view='tasks';try{localStorage.setItem('pivot_view','tasks');}catch(_){}render();}});
 $('theme').onclick=()=>{const order=['system','light','dark'];setTheme(order[(order.indexOf(state.theme||'system')+1)%3]);};
 applyTheme();

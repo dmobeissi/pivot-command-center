@@ -265,3 +265,8 @@ svg:hover .pieslice{opacity:.5}
 /* small inline "view all" link */
 .linkmini{all:unset;cursor:pointer;color:var(--accent);font-size:12px;font-weight:600}
 .linkmini:hover{text-decoration:underline}
+
+/* clickable digest KPI */
+.kpiclick{cursor:pointer}
+.kpiclick .kpi{transition:border-color .12s,transform .12s}
+.kpiclick:hover .kpi{border-color:var(--accent)}
