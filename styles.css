@@ -209,3 +209,19 @@ svg:hover .pieslice{opacity:.5}
 .slrow .slx{padding:6px 8px}
 .porperson{display:flex;align-items:center;gap:8px;min-width:0}
 .rtag{font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--hold);background:var(--hold-soft);padding:2px 7px;border-radius:999px}
+
+/* collapsible payout/salary groups */
+.pocaret{all:unset;cursor:pointer;font-size:12px;line-height:1;color:var(--muted);padding:4px 6px;border-radius:6px;transition:transform .12s ease}
+.pocaret:hover{background:var(--surface-2);color:var(--ink)}
+.poevent.collapsed .pocaret{transform:rotate(-90deg)}
+.poevent.collapsed .porows{display:none}
+.poinfo{cursor:pointer}
+.pohead{gap:8px}
+
+/* report modal: pin header/footer, scroll the body, fit numbers */
+.sheet{max-height:calc(100vh - 48px)}
+.sheethead,.sheetfoot{flex-shrink:0}
+.sheet-report{overflow:hidden}
+.reportbody{display:flex;flex-direction:column;gap:12px;overflow:auto;min-height:0;flex:1}
+.sheet-report .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+.kpi .val{white-space:nowrap}

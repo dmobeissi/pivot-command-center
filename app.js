@@ -6,6 +6,16 @@ const PAY=["Paid","Partial","Unpaid","Voided","Cancelled"];
 const PAYOUT_STATUS=["Pending","Paid"];
 const ROLES=["Full-time","Part-time","Freelance"];
 const FREQ=["Monthly","Yearly"];
+const COLLAPSE=new Set();
+function wireCollapse(prefix,keys){
+  const esckey=(typeof CSS!=='undefined'&&CSS.escape)?(k=>CSS.escape(k)):(k=>k);
+  const setCls=(key,coll)=>{const el=document.querySelector(`[data-grp="${prefix}:${esckey(key)}"]`);if(el)el.classList.toggle('collapsed',coll);};
+  const toggle=key=>{const id=prefix+':'+key;if(COLLAPSE.has(id)){COLLAPSE.delete(id);setCls(key,false);}else{COLLAPSE.add(id);setCls(key,true);}};
+  document.querySelectorAll(`[data-tog]`).forEach(b=>{if(b.dataset.tog.indexOf(prefix+':')===0)b.onclick=e=>{e.stopPropagation();toggle(b.dataset.tog.slice(prefix.length+1));};});
+  const all=coll=>keys.forEach(k=>{const id=prefix+':'+k;if(coll)COLLAPSE.add(id);else COLLAPSE.delete(id);setCls(k,coll);});
+  if($(prefix+'XpAll'))$(prefix+'XpAll').onclick=()=>all(false);
+  if($(prefix+'ClAll'))$(prefix+'ClAll').onclick=()=>all(true);
+}
 const DIRS=["Income","Expense"];
 const EXPCATS=["Salary","Software","Advertising","Freelancer","Partner Payout","Domain / Hosting","Tax","Office","Other Expense"];
 const TEAM_ACTIVE=["Daoud","Zawar","Arafa"];const TEAM_ARCHIVED=["Amr","Maisoun","Bilal"];let TEAM=[...TEAM_ACTIVE,...TEAM_ARCHIVED];
@@ -29,7 +39,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v22 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v23 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -194,7 +204,7 @@ const CMAP={status:{"To Do":["var(--hold-soft)","var(--hold)"],"In Progress":["v
   pay:{Paid:["var(--good-soft)","var(--good)"],Partial:["var(--warn-soft)","var(--warn)"],Unpaid:["var(--bad-soft)","var(--bad)"],Voided:["var(--hold-soft)","var(--hold)"],Cancelled:["var(--hold-soft)","var(--hold)"]},
   payout:{Pending:["var(--warn-soft)","var(--warn)"],Paid:["var(--good-soft)","var(--good)"]},
   life:{Active:["var(--good-soft)","var(--good)"],Lead:["var(--info-soft)","var(--info)"],Paused:["var(--warn-soft)","var(--warn)"],Churned:["var(--hold-soft)","var(--hold)"],Lost:["var(--bad-soft)","var(--bad)"],Internal:["var(--accent-soft)","var(--accent)"]}};
-function cstyle(kind,val){const c=(CMAP[kind]||{})[val];return c?`background:${c[0]};color:${c[1]}`:"";}
+function cstyle(kind,val){const map=CMAP[kind]||{};let c=map[val];if(!c&&val){const key=String(val).trim().toLowerCase();const hit=Object.keys(map).find(k=>k.toLowerCase()===key);if(hit)c=map[hit];}return c?`background-color:${c[0]};color:${c[1]};border-color:transparent`:"";}
 function csel(kind,coll,id,field,val,list,ro){return `<select class="edit csel" data-color="${kind}" data-c="${coll}" data-id="${esc(id)}" data-f="${field}" style="${cstyle(kind,val)}" ${ro}>${opts(list,val)}</select>`;}
 
 function donut(parts,size=150){const tot=parts.reduce((a,p)=>a+p.v,0)||1,R=size/2,r=R*0.62;let a0=-Math.PI/2,paths="";
@@ -568,9 +578,10 @@ function renderSalaries(){
   }).sort((a,b)=>(b.ym||"").localeCompare(a.ym||""));
   const ro=!canWrite;
   const monthHtml=months.length?months.map(g=>`
-    <div class="poevent" data-ym="${esc(g.ym)}">
+    <div class="poevent${COLLAPSE.has('sal:'+g.ym)?' collapsed':''}" data-grp="sal:${esc(g.ym)}">
       <div class="pohead">
-        <div class="poinfo"><span class="pototal">KD ${KD(g.total)}</span><span class="muted"> · ${esc(monthLabel(g.ym))} · ${g.rows.length} ${g.rows.length===1?'person':'people'}</span></div>
+        <button class="pocaret" data-tog="sal:${esc(g.ym)}" title="Collapse">▾</button>
+        <div class="poinfo" data-tog="sal:${esc(g.ym)}"><span class="pototal">KD ${KD(g.total)}</span><span class="muted"> · ${esc(monthLabel(g.ym))} · ${g.rows.length} ${g.rows.length===1?'person':'people'}</span></div>
         <div class="poact">
           <span class="pill ${g.status==='Paid'?'pill-good':'pill-bad'}">${g.status==='Paid'?'Sent':'Pending'}</span>
           ${ro?"":`<button class="ghost sltoggle" data-ym="${esc(g.ym)}" data-to="${g.status==='Paid'?'Pending':'Paid'}">Mark ${g.status==='Paid'?'pending':'sent'}</button>`}
@@ -584,10 +595,11 @@ function renderSalaries(){
   $('view').innerHTML=`<div class="view">
     <div class="kpis">${kpi("Total salaries","KD "+KD(total),"warn")}${kpi("Pending","KD "+KD(pending),"bad")}${kpi("Paid","KD "+KD(total-pending),"good")}${kpi("Months",months.length,"")}</div>
     <div class="panel">
-      <div class="addbar"><span class="muted" style="flex:1">Salaries are grouped by month. Each month lists the people paid, full-time, part-time or freelance.</span><button class="btn" id="slAdd"${canWrite?"":" disabled"}>+ Add month</button></div>
+      <div class="addbar"><span class="muted" style="flex:1">Salaries are grouped by month. Each month lists the people paid, full-time, part-time or freelance.</span>${months.length>1?`<button class="ghost" id="salXpAll">Expand all</button><button class="ghost" id="salClAll">Collapse all</button>`:""}<button class="btn" id="slAdd"${canWrite?"":" disabled"}>+ Add month</button></div>
       <div class="poevents">${monthHtml}</div>
     </div></div>`;
   if($('slAdd'))$('slAdd').onclick=openSalaryNew;
+  wireCollapse('sal',months.map(e=>e.ym));
   document.querySelectorAll('.sltoggle').forEach(b=>b.onclick=()=>{const g=months.find(e=>e.ym===b.dataset.ym);if(!g)return;const to=b.dataset.to;updateMany("money",g.ids,{status:to,paid:(to==='Paid'?(g.rows[0].date||todayISO):"")});});
   document.querySelectorAll('.sldel').forEach(b=>b.onclick=()=>{const g=months.find(e=>e.ym===b.dataset.ym);if(!g)return;removeMany("money",g.ids);});
 }
@@ -606,9 +618,10 @@ function renderPayouts(){
   }).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   const ro=!canWrite;
   const eventHtml=events.length?events.map(g=>`
-    <div class="poevent" data-batch="${esc(g.batch)}">
+    <div class="poevent${COLLAPSE.has('pay:'+g.batch)?' collapsed':''}" data-grp="pay:${esc(g.batch)}">
       <div class="pohead">
-        <div class="poinfo"><span class="pototal">KD ${KD(g.total)}</span><span class="muted"> · ${esc(g.date||'—')} · ${esc(g.desc)}</span></div>
+        <button class="pocaret" data-tog="pay:${esc(g.batch)}" title="Collapse">▾</button>
+        <div class="poinfo" data-tog="pay:${esc(g.batch)}"><span class="pototal">KD ${KD(g.total)}</span><span class="muted"> · ${esc(g.date||'—')} · ${esc(g.desc)}</span></div>
         <div class="poact">
           <span class="pill ${g.status==='Paid'?'pill-good':'pill-bad'}">${g.status}</span>
           ${ro?"":`<button class="ghost pytoggle" data-batch="${esc(g.batch)}" data-to="${g.status==='Paid'?'Pending':'Paid'}">Mark ${g.status==='Paid'?'pending':'paid'}</button>`}
@@ -622,10 +635,11 @@ function renderPayouts(){
   $('view').innerHTML=`<div class="view">
     <div class="kpis">${kpi("Total payouts","KD "+KD(total),"warn")}${kpi("Pending","KD "+KD(pending),"bad")}${kpi("Paid","KD "+KD(total-pending),"good")}${kpi("Events",events.length,"")}</div>
     <div class="panel">
-      <div class="addbar"><span class="muted" style="flex:1">Payouts are PIVOT profit splits, divided equally among the partners in each split.</span><button class="btn" id="pyAdd"${canWrite?"":" disabled"}>+ Add payout</button></div>
+      <div class="addbar"><span class="muted" style="flex:1">Payouts are PIVOT profit splits, divided equally among the partners in each split.</span>${events.length>1?`<button class="ghost" id="payXpAll">Expand all</button><button class="ghost" id="payClAll">Collapse all</button>`:""}<button class="btn" id="pyAdd"${canWrite?"":" disabled"}>+ Add payout</button></div>
       <div class="poevents">${eventHtml}</div>
     </div></div>`;
   if($('pyAdd'))$('pyAdd').onclick=openPayoutNew;
+  wireCollapse('pay',events.map(e=>e.batch));
   document.querySelectorAll('.pytoggle').forEach(b=>b.onclick=()=>{const g=events.find(e=>e.batch===b.dataset.batch);if(!g)return;const to=b.dataset.to;updateMany("money",g.ids,{status:to,paid:(to==='Paid'?(g.date||todayISO):"")});});
   document.querySelectorAll('.pydel').forEach(b=>b.onclick=()=>{const g=events.find(e=>e.batch===b.dataset.batch);if(!g)return;removeMany("money",g.ids);});
 }
@@ -946,9 +960,9 @@ function openReport(kind){
     fname=`PIVOT status report ${todayISO}.csv`;
     csv=()=>exportTasksCSV(open,fname);
   }
-  $('modal').innerHTML=`<div class="sheet" style="max-width:720px">
+  $('modal').innerHTML=`<div class="sheet sheet-report" style="max-width:720px">
     <div class="sheethead"><div><div class="id">${esc(lbl)}</div><h3>${title}</h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
-    <div class="formfull">${html}</div>
+    <div class="reportbody">${html}</div>
     <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Close</button><button class="btn" id="mkCsv">Download CSV</button></div>
   </div>`;
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
