@@ -27,7 +27,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v19 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v20 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -822,6 +822,7 @@ function openBrand(acctId){
   const payo=Math.abs(store.money.filter(m=>m.acct===acctId&&m.dir==="Payout").reduce((s,m)=>s+(+m.amt||0),0));
   const parent=a.parent?AMAP[a.parent]:null;
   const children=store.accounts.filter(x=>x.parent===acctId);
+  const topOpen=[...openT].sort((x,y)=>((x.due||"9999")+"").localeCompare((y.due||"9999")+"")).slice(0,8);
   const chip=x=>`<button class="linkname" data-brand="${esc(x.id)}" style="font-size:12px">${esc(x.brand)}</button>`;
   const famHtml=(parent||children.length)?`<label class="fld"><span>Family</span><div class="attn"><div class="r" style="flex-wrap:wrap;gap:8px">${parent?`<span class="muted">Parent:</span> ${chip(parent)}`:""}${children.length?`<span class="muted"${parent?' style="margin-left:10px"':''}>Brands:</span> ${children.map(chip).join(" ")}`:""}</div></div></label>`:"";
   $('modal').innerHTML=`<div class="sheet">
