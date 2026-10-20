@@ -63,10 +63,12 @@ input[type=search]{min-width:150px}
 .theme{all:unset;cursor:pointer;border:1px solid var(--line);border-radius:9px;padding:7px 9px;color:var(--muted);font-size:13px}
 .main{padding:18px max(16px,env(safe-area-inset-right,0px)) 48px max(16px,env(safe-area-inset-left,0px));min-width:0}
 .view{display:flex;flex-direction:column;gap:16px}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
-.kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:3px}
-.kpi .lab{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
-.kpi .val{font-family:var(--mono);font-size:21px;font-weight:600;font-variant-numeric:tabular-nums}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(164px,1fr));gap:12px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:3px;min-width:0;overflow:hidden}
+.kpi .lab{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi .val{font-family:var(--mono);font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi .val.valbig{font-size:24px}
+.kpi .kdelta{font-size:11px;margin-top:1px}
 .kpi.good .val{color:var(--good)} .kpi.bad .val{color:var(--bad)} .kpi.warn .val{color:var(--warn)} .kpi.accent .val{color:var(--accent)}
 .kpi .bar{height:3px;border-radius:3px;background:var(--accent);margin-top:6px;opacity:.9}
 .grid3{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:16px}
@@ -256,3 +258,6 @@ svg:hover .pieslice{opacity:.5}
 .dchip{font-size:10px;font-weight:700;letter-spacing:.02em;padding:2px 8px;border-radius:999px;display:inline-block;width:fit-content}
 .dchip-good{color:var(--good);background:var(--good-soft)}
 .dchip-warn{color:var(--warn);background:var(--warn-soft)}
+
+/* value label above vertical bars */
+.barval{font-size:9px;font-weight:700;color:var(--ink);font-family:var(--mono);line-height:1;white-space:nowrap}

@@ -41,7 +41,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v30 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v31 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -230,9 +230,11 @@ function hbars(items,unit,drill){const max=Math.max(1,...items.map(i=>i.v));retu
    <span class="muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(i.l)}</span>
    <span style="background:var(--surface-2);border-radius:6px;overflow:hidden"><span style="display:block;height:14px;width:${i.v/max*100}%;background:${i.c||'var(--accent)'}"></span></span>
    <span class="num">${unit==='kd'?KD(i.v):i.v}</span></div>`).join("")+`</div>`;}
-const kpi=(l,v,c,dh)=>`<div class="kpi ${c||''}"><span class="lab">${l}</span><span class="val">${v}${dh||''}</span><span class="bar"></span></div>`;
-function vbars(items,unit){const max=Math.max(1,...items.map(i=>i.v));return `<div style="display:flex;align-items:flex-end;gap:3px;height:128px;padding-top:8px">`+
-  items.map(i=>`<div data-tip="${esc(i.l)}: ${unit==='kd'?'KD '+KD(i.v):i.v}" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px;min-width:0;cursor:default">
+const kpi=(l,v,c,dh)=>`<div class="kpi ${c||''}"><span class="lab">${l}</span><span class="val">${v}</span>${dh?`<span class="kdelta">${dh}</span>`:''}<span class="bar"></span></div>`;
+function kShort(v){v=+v||0;const a=Math.abs(v);if(a>=1000)return (v/1000).toFixed(a>=10000?0:1).replace(/\.0$/,'')+'k';return Math.round(v);}
+function vbars(items,unit){const max=Math.max(1,...items.map(i=>i.v));return `<div style="display:flex;align-items:flex-end;gap:3px;height:148px;padding-top:18px">`+
+  items.map(i=>`<div data-tip="${esc(i.l)}: ${unit==='kd'?'KD '+KD(i.v):i.v}" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:3px;min-width:0;cursor:default">
+   <span class="barval">${i.v?(unit==='kd'?kShort(i.v):i.v):''}</span>
    <div style="width:100%;max-width:34px;background:var(--accent);border-radius:4px 4px 0 0;height:${Math.max(2,Math.round(i.v/max*100))}px"></div>
    <span class="muted" style="font-size:9px;white-space:nowrap;overflow:hidden;max-width:100%">${esc(i.s||i.l)}</span></div>`).join("")+`</div>`;}
 function isoAdd(iso,days){const d=new Date(iso+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10);}
@@ -263,17 +265,18 @@ function delta(cur,prev,goodUp){if(prev==null)return"";
   if(prev===0)return`<span class="delta d-${goodUp?'good':'bad'}">▲ new</span>`;
   const pct=Math.round((cur-prev)/Math.abs(prev)*100);const up=cur>=prev;const good=goodUp?up:!up;
   return `<span class="delta d-${pct===0?'flat':(good?'good':'bad')}">${up?'▲':'▼'} ${pct>0?'+':''}${pct}%</span>`;}
-function rangeBar(){
+function rangeBar(actions){
   const presets=[['today','Today'],['yesterday','Yesterday'],['last7','Last 7 days'],['last30','Last 30 days'],['last90','Last 90 days'],['wtd','Week to date'],['mtd','Month to date'],['qtd','Quarter to date'],['ytd','Year to date'],['lastmonth','Last month'],['all','All time'],['custom','Custom']];
   const cmps=[['none','No comparison'],['prev_period','Previous period'],['prev_month','Previous month'],['prev_year','Previous year']];
   const isC=state.range.preset==='custom';const R=activeRange();const C=cmpRange(R.from,R.to);
   return `<div class="rangebar">
     <select id="dPreset">${presets.map(p=>`<option value="${p[0]}"${state.range.preset===p[0]?' selected':''}>${p[1]}</option>`).join("")}</select>
     ${isC?`<input type="date" id="dFrom" value="${esc(state.range.from)}"><span class="muted">to</span><input type="date" id="dTo" value="${esc(state.range.to)}">`:`<span class="muted" style="font-size:12px">${esc(R.from)} → ${esc(R.to==='9999-12-31'?'now':R.to)}</span>`}
-    <span style="flex:1"></span>
     <span class="muted" style="font-size:12px">vs</span>
     <select id="dCmp">${cmps.map(c=>`<option value="${c[0]}"${state.cmp===c[0]?' selected':''}>${c[1]}</option>`).join("")}</select>
     ${C?`<span class="muted" style="font-size:11px">${esc(C.from)} → ${esc(C.to)}</span>`:""}
+    <span style="flex:1"></span>
+    ${actions||''}
   </div>`;}
 function wireRange(rerender){
   const p=$('dPreset');if(p)p.onchange=e=>{state.range.preset=e.target.value;if(state.range.preset==='custom'&&!state.range.from){const r=rangeFor('mtd');state.range.from=r.from;state.range.to=r.to;}saveRange();rerender();};
@@ -307,8 +310,7 @@ function renderTasksDash(){
   const tagg=(from,to)=>({created:T.filter(t=>inR(t.logged,from,to)).length,completed:T.filter(t=>inR(t.done,from,to)).length});
   const curT=tagg(R.from,R.to),prevT=C?tagg(C.from,C.to):null;
   $('view').innerHTML=`<div class="view">
-    ${rangeBar()}
-    <div style="margin:-4px 0 12px;display:flex"><span style="flex:1"></span><button class="ghost" id="repBtn">Generate report</button></div>
+    ${rangeBar(`<button class="ghost" id="repBtn">Export report</button>`)}
     <div class="kpis">${kpi("Logged in range",curT.created,"accent",prevT?delta(curT.created,prevT.created,true):"")}${kpi("Completed in range",curT.completed,"good",prevT?delta(curT.completed,prevT.completed,true):"")}</div>
     <div class="kpis">${kpi("Open tasks",open,"accent")}${kpi("Overdue",overdue,"bad")}${kpi("High open",high,"warn")}${kpi("Done",done,"good")}${kpi("Active brands",store.accounts.filter(a=>a.lifecycle==="Active").length,"")}${kpi("Engagements",store.engagements.length,"")}</div>
     <div class="grid3">
@@ -355,9 +357,8 @@ function renderMoneyDash(){
   const age={cur:0,b30:0,b60:0,b60p:0};
   M2.filter(owed).forEach(m=>{const amt=+m.amt||0;if(!m.due||m.due>=todayISO){age.cur+=amt;return;}const d=daysBetween(m.due,todayISO);if(d<=30)age.b30+=amt;else if(d<=60)age.b60+=amt;else age.b60p+=amt;});
   $('view').innerHTML=`<div class="view">
-    ${rangeBar()}
-    <div style="margin:-4px 0 12px;display:flex"><span style="flex:1"></span><button class="ghost" id="repBtn">Generate report</button></div>
-    <div class="kpis"><div class="kpi good" style="grid-column:span 2"><span class="lab">Cash on hand · all time</span><span class="val" style="font-size:25px">KD ${KD(cashOnHand)}</span><span class="bar"></span></div>${kpi("Payouts pending","KD "+KD(payPending),"bad")}</div>
+    ${rangeBar(`<button class="ghost" id="repBtn">Export report</button>`)}
+    <div class="kpis"><div class="kpi good" style="grid-column:span 2"><span class="lab">Cash available now · not yet spent</span><span class="val valbig">KD ${KD(cashOnHand)}</span><span class="bar"></span></div>${kpi("Payouts pending","KD "+KD(payPending),"bad")}</div>
     <div class="kpis">${kpi("Collected","KD "+KD(cur.collected),"good",prev?delta(cur.collected,prev.collected,true):"")}${kpi("Billed","KD "+KD(cur.billed),"accent",prev?delta(cur.billed,prev.billed,true):"")}${kpi("Expenses","KD "+KD(cur.expenses),"warn",prev?delta(cur.expenses,prev.expenses,false):"")}${kpi("Salaries","KD "+KD(cur.salaries),"warn",prev?delta(cur.salaries,prev.salaries,false):"")}${kpi("Payouts","KD "+KD(cur.payouts),"warn",prev?delta(cur.payouts,prev.payouts,false):"")}${kpi("Net","KD "+KD(cur.net),"accent",prev?delta(cur.net,prev.net,true):"")}${kpi("Collection rate",rate+"%","good",prevRate!=null?delta(rate,prevRate,true):"")}</div>
     <div class="panel"><h2>Billed over time</h2><div class="body">${series.length?vbars(series,'kd'):'<div class="muted">No income in range</div>'}</div></div>
     <div class="grid3">
