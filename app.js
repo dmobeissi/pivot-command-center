@@ -42,7 +42,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v49 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v50 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -289,11 +289,13 @@ function wireRange(rerender){
   const f=$('dFrom');if(f)f.onchange=e=>{state.range.from=e.target.value;saveRange();rerender();};
   const t=$('dTo');if(t)t.onchange=e=>{state.range.to=e.target.value;saveRange();rerender();};}
 function moneySeries(from,to){
-  let Mall=moneyF().filter(m=>m.dir==='Income'&&!voided(m));
-  if(Mall.length){const minD=Mall.reduce((a,m)=>(m.date&&m.date<a)?m.date:a,'9999-12-31');if(from<minD)from=minD;}
+  // collected over time: plot income on the date it was actually paid, not when it was billed
+  let Mall=moneyF().filter(m=>m.dir==='Income'&&m.status==='Paid');
+  const pd=m=>m.paid||m.date||'';
+  if(Mall.length){const minD=Mall.reduce((a,m)=>{const d=pd(m);return (d&&d<a)?d:a;},'9999-12-31');if(from<minD)from=minD;}
   if(to>todayISO)to=todayISO;
   const byMonth=daysBetween(from,to)>45;const map={};
-  Mall.forEach(m=>{const dt=m.date||'';if(dt<from||dt>to)return;const key=byMonth?dt.slice(0,7):dt;map[key]=(map[key]||0)+(+m.amt||0);});
+  Mall.forEach(m=>{const dt=pd(m);if(!dt||dt<from||dt>to)return;const key=byMonth?dt.slice(0,7):dt;map[key]=(map[key]||0)+(+m.amt||0);});
   const items=[];let guard=0;
   if(byMonth){let cur=from.slice(0,7),end=to.slice(0,7);while(cur<=end&&guard<36){items.push({l:cur,s:cur.slice(2),v:map[cur]||0});const[yy,mm]=cur.split('-').map(Number);cur=mm===12?`${yy+1}-01`:`${yy}-${String(mm+1).padStart(2,'0')}`;guard++;}}
   else{let cur=from;while(cur<=to&&guard<62){items.push({l:cur,s:cur.slice(5),v:map[cur]||0});cur=isoAdd(cur,1);guard++;}}
@@ -402,7 +404,37 @@ function drillList(title,rows,viewKey,viewLabel){
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   if($('drillGo'))$('drillGo').onclick=()=>{state.view=viewKey;try{localStorage.setItem('pivot_view',viewKey);}catch(_){}close();render();};
 }
+function openCashPosition(){
+  const b=moneyStats(store.money,'0000-01-01','9999-12-31');
+  const pendSal=Math.abs(store.money.filter(m=>m.dir==='Salary'&&m.status!=='Paid'&&!voided(m)).reduce((s,m)=>s+(+m.amt||0),0));
+  const pendOther=Math.max(0,b.toPayOut-pendSal);
+  const freeCash=b.bankBalance-b.toPayOut;
+  const wf=[{l:'In bank now',v:b.bankBalance,type:'start',dm:''}];
+  if(pendSal>0)wf.push({l:'Pending salaries',v:pendSal,type:'down',dm:'pay'});
+  if(pendOther>0)wf.push({l:'Pending other',v:pendOther,type:'down',dm:'pay'});
+  wf.push({l:'Free cash',type:'total'});
+  if(b.toCollect>0)wf.push({l:'To collect',v:b.toCollect,type:'up',dm:'collect'});
+  wf.push({l:'If all clears',type:'total'});
+  $('modal').innerHTML=`<div class="sheet">
+    <div class="sheethead"><div><div class="id">Actual cash now · KD ${KD(b.bankBalance)}</div><h3>Cash position</h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
+    <div class="formfull">
+      <div style="overflow-x:auto">${cashWaterfall(wf)}</div>
+      <div class="attn">
+        <div class="r"><span class="t">In the bank now · collected minus paid out</span><span class="num">KD ${KD(b.bankBalance)}</span></div>
+        ${pendSal>0?`<div class="r"><span class="t">Pending salaries still to pay</span><span class="num neg">- KD ${KD(pendSal)}</span></div>`:''}
+        ${pendOther>0?`<div class="r"><span class="t">Pending bills and payouts</span><span class="num neg">- KD ${KD(pendOther)}</span></div>`:''}
+        <div class="r"><span class="t"><b>Free cash after commitments</b></span><span class="num ${freeCash<0?'neg':'pos'}"><b>KD ${KD(freeCash)}</b></span></div>
+        ${b.toCollect>0?`<div class="r"><span class="t">Still to collect</span><span class="num pos">+ KD ${KD(b.toCollect)}</span></div>`:''}
+        <div class="r"><span class="t"><b>If everything owed clears</b></span><span class="num"><b>KD ${KD(b.bankBalance+b.toCollect-b.toPayOut)}</b></span></div>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:8px">Bank balance is actual cash: money collected minus money actually paid out. Pending items still show above but do not count until they move.</div>
+    </div>
+    <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Close</button></div></div>`;
+  $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
+  $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
+}
 function drillMoney(tok){
+  if(tok==='cashpos'){openCashPosition();return;}
   const R=activeRange();
   const inIssue=m=>(m.date||'')>=R.from&&(m.date||'')<=R.to;
   const inPaid=m=>m.status==='Paid'&&(m.paid||m.date||'')>=R.from&&(m.paid||m.date||'')<=R.to;
@@ -442,24 +474,11 @@ function renderMoneyDash(){
   const bankCls=S.bankBalance<0?'bad':'good';
   const settled=S.bankBalance+S.toCollect-S.toPayOut;
   const billedOut=S.perType.expense.issued+S.perType.salary.issued+S.perType.payout.issued;
-  const pendSal=Math.abs(store.money.filter(m=>m.dir==='Salary'&&m.status!=='Paid'&&!voided(m)).reduce((s,m)=>s+(+m.amt||0),0));
-  const pendOther=Math.max(0,S.toPayOut-pendSal);
-  const freeCash=S.bankBalance-S.toPayOut;
-  const wf=[{l:'In bank now',v:S.bankBalance,type:'start',dm:''}];
-  if(pendSal>0)wf.push({l:'Pending salaries',v:pendSal,type:'down',dm:'pay'});
-  if(pendOther>0)wf.push({l:'Pending other',v:pendOther,type:'down',dm:'pay'});
-  wf.push({l:'Free cash',type:'total'});
-  if(S.toCollect>0)wf.push({l:'To collect',v:S.toCollect,type:'up',dm:'collect'});
-  wf.push({l:'If all clears',type:'total'});
   $('view').innerHTML=`<div class="view">
     ${rangeBar(`<button class="ghost" id="repBtn">Export report</button>`)}
     <div class="kpis">
-      <div class="kpi ${bankCls}" style="grid-column:span 2"><span class="lab">Bank balance · actual cash now</span><span class="val valbig">KD ${KD(S.bankBalance)}</span><span class="kdelta muted">If everything owed clears: KD ${KD(settled)}</span><span class="bar"></span></div>
+      <div class="kpi ${bankCls} kpiclick" data-dm="cashpos" style="grid-column:span 2" title="See the cash position breakdown"><span class="lab">Bank balance · actual cash now · tap for breakdown</span><span class="val valbig">KD ${KD(S.bankBalance)}</span><span class="kdelta muted">If everything owed clears: KD ${KD(settled)}</span><span class="bar"></span></div>
       <div class="kpiclick" data-dm="collect">${kpi("Still to collect","KD "+KD(S.toCollect),"warn")}</div><div class="kpiclick" data-dm="pay">${kpi("Still to pay out","KD "+KD(S.toPayOut),"bad")}</div>
-    </div>
-    <div class="panel"><h2>Cash position <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">· what's in the bank and what's already spoken for</span></h2>
-      <div class="body" style="overflow-x:auto">${cashWaterfall(wf)}</div>
-      <div class="rowcount"><b class="${freeCash<0?'neg':'pos'}">KD ${KD(freeCash)}</b> free after pending salaries and bills${pendSal>0?` (KD ${KD(pendSal)} of salaries still to go out)`:''} · KD ${KD(S.toCollect)} expected in</div>
     </div>
     <div class="panel"><h2>Issued vs paid <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">· ${esc(R.from)} → ${esc(R.to==='9999-12-31'?'now':R.to)} · click a number to see which</span></h2>
       <div class="ivpwrap">
@@ -483,7 +502,7 @@ function renderMoneyDash(){
         </div>
       </div>
     </div>
-    <div class="panel"><h2>Billed over time</h2><div class="body">${series.length?vbars(series,'kd'):'<div class="muted">No income in range</div>'}</div></div>
+    <div class="panel"><h2>Collected over time <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">· by the date paid</span></h2><div class="body">${series.length?vbars(series,'kd'):'<div class="muted">Nothing collected in range</div>'}</div></div>
     <div class="grid3">
       <div class="panel"><h2>Invoices to chase ${overdueInv?`<span class="flag-over" style="font-size:11px;font-weight:700">· ${overdueInv} overdue</span>`:""}</h2><div class="attn">${chase.length?chase.map(m=>{const od=m.due&&m.due<todayISO;return `<div class="r" data-goto="invoices" data-hl="${esc(m.id)}" style="cursor:pointer"><span class="t"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||m.id)}</button> <span class="muted">· ${esc(brandOf(m.acct))}</span></span><span class="${od?'flag-over':'flag-soon'}" style="white-space:nowrap">KD ${KD(m.amt)}${m.due?` · ${esc(m.due)}`:''}</span></div>`;}).join(""):'<div class="rowcount">All invoices settled.</div>'}</div><div class="rowcount">KD ${KD(chaseTot)} outstanding · ${unpaid.length} invoice${unpaid.length===1?'':'s'} (live, all dates)</div></div>
       <div class="panel"><h2>Expenses by category <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">· issued in range</span></h2><div class="body">${topCat.length?hbars(topCat,'kd'):'<div class="muted">No expenses in range</div>'}</div></div>
