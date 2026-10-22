@@ -5,6 +5,7 @@ const LIFE=["Lead","Active","Paused","Churned","Lost","Internal"];
 const STAGES=["Lead","Proposal","Won","Lost"];
 const PAY=["Paid","Partial","Unpaid","Voided","Cancelled"];
 const PAYOUT_STATUS=["Pending","Paid"];
+const INCOME_TYPES=["Retainer","Project","One-time"];
 const ROLES=["Full-time","Part-time","Freelance"];
 const FREQ=["Monthly","Yearly"];
 const EXPANDED=new Set(); // groups default collapsed; presence here = expanded
@@ -41,7 +42,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v43 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v44 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -479,18 +480,19 @@ function renderInvoices(){
   const collected=M.filter(m=>m.status==="Paid").reduce((a,m)=>a+(+m.amt||0),0);
   const billed=M.filter(m=>!voided(m)).reduce((a,m)=>a+(+m.amt||0),0);
   const overdue=M.filter(m=>owed(m)&&m.due&&m.due<todayISO).reduce((a,m)=>a+(+m.amt||0),0);
-  const head=[["inv_no","Invoice #"],["date","Date"],["brand","Brand"],["desc","Description"],["amt","Amount"],["status","Status"],["due","Due"],["",""]];
+  const head=[["inv_no","Invoice #"],["date","Date"],["brand","Brand"],["income_type","Type"],["desc","Title"],["amt","Amount"],["status","Status"],["due","Due"],["",""]];
   const ro=canWrite?"":"disabled";
   $('view').innerHTML=`<div class="view">
     <div class="kpis">${kpi("Billed","KD "+KD(billed),"accent")}${kpi("Collected","KD "+KD(collected),"good")}${kpi("Outstanding","KD "+KD(billed-collected),"bad")}${kpi("Overdue","KD "+KD(overdue),"warn")}</div>
     <div class="panel">
-      <div class="addbar"><button class="btn" id="niAdd"${canWrite?"":" disabled"}>+ Add invoice</button></div>
+      <div class="addbar"><button class="btn" id="niAdd"${canWrite?"":" disabled"}>+ Add invoice</button><span class="muted" style="font-size:12px">Click a field to edit it. Click the invoice number to open the full record. Retainers bill the 1st of the next month, due the 10th.</span></div>
       <div class="tablewrap"><table><thead><tr>${thhead(head)}</tr></thead>
       <tbody>${M.map(m=>{const od=owed(m)&&m.due&&m.due<todayISO;return `<tr id="mrow-${esc(m.id)}">
-        <td class="id">${esc(m.inv_no||m.id)}</td>
+        <td class="id"><button class="linkname" data-mopen="${esc(m.id)}" title="Open full record">${esc(m.inv_no||m.id)}</button>${m.notes?` <span class="tag" style="color:var(--hold);background:var(--hold-soft)">note</span>`:""}</td>
         <td><input type="date" class="edit" data-c="money" data-id="${esc(m.id)}" data-f="date" value="${esc(m.date||'')}" ${ro}></td>
         <td><select class="edit" data-c="money" data-id="${esc(m.id)}" data-f="acct" ${ro}>${brandOpts(m.acct)}</select></td>
-        <td style="min-width:200px"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||m.id)}</button>${m.notes?`<div class="tagrow"><span class="tag" style="color:var(--hold);background:var(--hold-soft)">note</span></div>`:""}</td>
+        <td><select class="edit" data-c="money" data-id="${esc(m.id)}" data-f="income_type" ${ro}>${opts(INCOME_TYPES,m.income_type||"Project")}</select></td>
+        <td style="min-width:200px"><input class="edit" style="width:100%" data-c="money" data-id="${esc(m.id)}" data-f="desc" value="${esc(m.desc||'')}" ${ro} placeholder="Invoice title"></td>
         <td class="num pos"><input type="number" step="0.001" class="edit num" style="width:104px" data-c="money" data-id="${esc(m.id)}" data-f="amt" value="${esc(m.amt)}" ${ro}></td>
         <td>${csel("pay","money",m.id,"status",m.status,PAY,ro)}</td>
         <td class="${od?'flag-over':''}"><input type="date" class="edit" data-c="money" data-id="${esc(m.id)}" data-f="due" value="${esc(m.due||'')}" ${ro}></td>
@@ -619,7 +621,8 @@ function renderSalaries(){
   M.forEach(m=>{const ym=(m.date||"").slice(0,7)||"—";if(!groups[ym])groups[ym]={ym,rows:[]};groups[ym].rows.push(m);});
   const months=Object.values(groups).map(g=>{
     g.total=Math.abs(g.rows.reduce((a,m)=>a+(+m.amt||0),0));
-    g.status=g.rows.every(m=>m.status==="Paid")?"Paid":"Pending";
+    g.paidN=g.rows.filter(m=>m.status==="Paid").length;
+    g.status=g.paidN===g.rows.length?"Paid":(g.paidN===0?"Pending":"Partial");
     g.ids=g.rows.map(m=>m.id);
     g.rows.sort((a,b)=>(a.role==="Freelance"?1:0)-(b.role==="Freelance"?1:0)||(a.partner||"").localeCompare(b.partner||""));
     return g;
@@ -631,13 +634,13 @@ function renderSalaries(){
         <button class="pocaret" data-tog="sal:${esc(g.ym)}" title="Collapse">▾</button>
         <div class="poinfo" data-tog="sal:${esc(g.ym)}"><span class="pototal">KD ${KD(g.total)}</span><span class="muted"> · ${esc(monthLabel(g.ym))} · ${g.rows.length} ${g.rows.length===1?'person':'people'}</span></div>
         <div class="poact">
-          <span class="pill ${g.status==='Paid'?'pill-good':'pill-bad'}">${g.status==='Paid'?'Sent':'Pending'}</span>
-          ${ro?"":`<button class="ghost sltoggle" data-ym="${esc(g.ym)}" data-to="${g.status==='Paid'?'Pending':'Paid'}">Mark ${g.status==='Paid'?'pending':'sent'}</button>`}
+          <span class="pill ${g.status==='Paid'?'pill-good':(g.status==='Partial'?'pill-warn':'pill-bad')}">${g.status==='Paid'?'All sent':(g.status==='Partial'?('Partial · '+g.paidN+'/'+g.rows.length):'Pending')}</span>
+          ${ro?"":`<button class="ghost sltoggle" data-ym="${esc(g.ym)}" data-to="${g.status==='Paid'?'Pending':'Paid'}">Mark all ${g.status==='Paid'?'pending':'sent'}</button>`}
           ${ro?"":`<button class="ghost sldel" data-ym="${esc(g.ym)}" title="Delete this month">✕</button>`}
         </div>
       </div>
       <div class="porows">
-        ${g.rows.map(m=>`<div class="por"><span class="porperson"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.partner||m.desc||'—')}</button>${m.role?`<span class="rtag">${esc(m.role)}</span>`:""}</span><span class="num neg">KD ${KD(Math.abs(+m.amt||0))}</span></div>`).join("")}
+        ${g.rows.map(m=>{const paid=m.status==='Paid';return `<div class="por"><span class="porperson"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.partner||m.desc||'—')}</button>${m.role?`<span class="rtag">${esc(m.role)}</span>`:""}</span><span class="porright"><span class="num neg">KD ${KD(Math.abs(+m.amt||0))}</span>${ro?`<span class="pill ${paid?'pill-good':'pill-bad'}">${paid?'sent':'pending'}</span>`:`<button class="ghost slone ${paid?'on':''}" data-id="${esc(m.id)}" data-to="${paid?'Pending':'Paid'}" data-date="${esc(m.date||'')}">${paid?'✓ sent':'mark sent'}</button>`}</span></div>`;}).join("")}
       </div>
     </div>`).join(""):'<div class="rowcount">No salaries yet.</div>';
   $('view').innerHTML=`<div class="view">
@@ -649,6 +652,7 @@ function renderSalaries(){
   if($('slAdd'))$('slAdd').onclick=openSalaryNew;
   wireCollapse('sal',months.map(e=>e.ym));
   document.querySelectorAll('.sltoggle').forEach(b=>b.onclick=()=>{const g=months.find(e=>e.ym===b.dataset.ym);if(!g)return;const to=b.dataset.to;updateMany("money",g.ids,{status:to,paid:(to==='Paid'?(g.rows[0].date||todayISO):"")});});
+  document.querySelectorAll('.slone').forEach(b=>b.onclick=()=>{const to=b.dataset.to;write("money",b.dataset.id,{status:to,paid:(to==='Paid'?(b.dataset.date||todayISO):"")});});
   document.querySelectorAll('.sldel').forEach(b=>b.onclick=()=>{const g=months.find(e=>e.ym===b.dataset.ym);if(!g)return;removeMany("money",g.ids);});
 }
 function renderPayouts(){
@@ -1110,7 +1114,7 @@ function openInvoiceNew(){
       ${fld("Amount (KD)",`<input type="number" step="0.001" id="mi_amt" placeholder="0.000">`)}
       ${fld("Status",`<select id="mi_status">${opts(PAY,"Unpaid")}</select>`)}
       ${fld("Due",`<input type="date" id="mi_due">`)}
-      ${fld("Income type",`<select id="mi_income_type">${opts(["Project","Retainer"],"Project")}</select>`)}
+      ${fld("Invoice type",`<select id="mi_income_type">${opts(INCOME_TYPES,"Project")}</select>`)}
     </div>
     <div class="formfull">
       ${fld("Description",`<input id="mi_desc" placeholder="e.g. October retainer">`)}
@@ -1306,6 +1310,7 @@ function openMoney(id){
       ${fld("Date",`<input type="date" id="mm_date" value="${esc(m.date||'')}" ${ro}>`)}
       ${m.dir==="Payout"?"":fld("Brand",`<select id="mm_acct" ${ro}>${brandOpts(m.acct)}</select>`)}
       ${m.dir==="Salary"?(fld("Person",`<input id="mm_partner" value="${esc(m.partner||'')}" ${ro}>`)+fld("Role",`<select id="mm_role" ${ro}><option value="">—</option>${opts(ROLES,m.role)}</select>`)):(m.dir==="Payout"?fld("Partner",`<input id="mm_partner" value="${esc(m.partner||'')}" ${ro}>`):fld("Category",`<input id="mm_cat" value="${esc(m.cat||'')}" ${ro}>`))}
+      ${m.dir==="Income"?fld("Invoice type",`<select id="mm_income_type" ${ro}>${opts(INCOME_TYPES,m.income_type||"Project")}</select>`):""}
       ${fld("Amount (KD)",`<input type="number" step="0.001" id="mm_amt" value="${esc(Math.abs(+m.amt||0))}" ${ro}>`)}
       ${fld("Status",`<select id="mm_status" ${ro}>${opts((m.dir==="Payout"||m.dir==="Salary")?PAYOUT_STATUS:PAY,m.status||((m.dir==="Payout"||m.dir==="Salary")?"Pending":"Unpaid"))}</select>`)}
       ${fld("Due",`<input type="date" id="mm_due" value="${esc(m.due||'')}" ${ro}>`)}
@@ -1330,7 +1335,7 @@ function openMoney(id){
     const patch={dir,date:g('date'),acct:g('acct'),amt,status:g('status'),due:g('due'),paid:g('paid'),desc:g('desc'),notes:g('notes')};
     if(dir==="Salary"){patch.partner=($('mm_partner')?$('mm_partner').value:(m.partner||""));patch.role=($('mm_role')?$('mm_role').value:(m.role||""));}
     else if(dir==="Payout"){patch.partner=($('mm_partner')?$('mm_partner').value:(m.partner||""));}
-    else{patch.cat=($('mm_cat')?$('mm_cat').value:(m.cat||""));}
+    else{patch.cat=($('mm_cat')?$('mm_cat').value:(m.cat||""));if($('mm_income_type'))patch.income_type=$('mm_income_type').value;}
     await write("money",id,patch);logAct("edited","money",id,g('desc'));close();};
   if($('mkDelete'))$('mkDelete').onclick=()=>{close();remove("money",id);};
 }
