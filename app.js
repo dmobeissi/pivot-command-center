@@ -42,7 +42,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v45 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v46 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -159,20 +159,22 @@ async function loadAll(){
   if(typeof document!=='undefined')document.addEventListener('visibilitychange',()=>{ if(!document.hidden) refreshAll(); });
 }
 function applyLocal(coll,id,patch){ const arr=store[coll]; if(!arr)return; const i=arr.findIndex(x=>x.id===id); if(i>=0){ Object.assign(arr[i],patch); render(); } }
+const errMsg=e=>{const s=(e&&(e.message||e.hint||e.details))||"";return s?(": "+String(s).slice(0,140)):"";};
 const ready=()=>COLLS.every(c=>loaded[c]);
 
 async function write(coll,id,patch){
   if(!canWrite){toast("Read-only access");return;}
-  const {error}=await sb.from(coll).update(toDB(coll,patch)).eq('id',id);
-  if(error){ toast("Save failed"); console.error(error); } else { toast("Saved"); applyLocal(coll,id,patch); }
+  const o=toDB(coll,patch); delete o.id;              // never try to update the primary key
+  const {error}=await sb.from(coll).update(o).eq('id',id);
+  if(error){ toast("Save failed"+errMsg(error)); console.error(error); } else { toast("Saved"); applyLocal(coll,id,patch); }
 }
-async function create(coll,id,data){ if(!canWrite){toast("Read-only access");return;} const row=Object.assign({id},toDB(coll,data)); const {error}=await sb.from(coll).insert(row); if(error){ toast("Add failed"); console.error(error);} else { toast("Added"); logAct("added",coll,id,data.name||data.desc||""); await fetchColl(coll); render(); } }
-async function remove(coll,id){ if(!canWrite){toast("Read-only access");return;} const row=(store[coll]||[]).find(r=>r.id===id); const {error}=await sb.from(coll).delete().eq("id",id); if(error){ toast("Delete failed"); console.error(error);} else { logAct("deleted",coll,id,""); await fetchColl(coll); render(); if(row)undoToast("Deleted",coll,[row]); else toast("Deleted"); } }
+async function create(coll,id,data){ if(!canWrite){toast("Read-only access");return;} const row=Object.assign({id},toDB(coll,data)); const {error}=await sb.from(coll).insert(row); if(error){ toast("Add failed"+errMsg(error)); console.error(error);} else { toast("Added"); logAct("added",coll,id,data.name||data.desc||""); await fetchColl(coll); render(); } }
+async function remove(coll,id){ if(!canWrite){toast("Read-only access");return;} const row=(store[coll]||[]).find(r=>r.id===id); const {error}=await sb.from(coll).delete().eq("id",id); if(error){ toast("Delete failed"+errMsg(error)); console.error(error);} else { logAct("deleted",coll,id,""); await fetchColl(coll); render(); if(row)undoToast("Deleted",coll,[row]); else toast("Deleted"); } }
 async function restoreRows(coll,rows){ if(!canWrite||!rows||!rows.length)return; const payload=rows.map(r=>toDB(coll,Object.assign({},r))); const {error}=await sb.from(coll).insert(payload); if(error){ toast("Undo failed"); console.error(error); return; } rows.forEach(r=>logAct("restored",coll,r.id,r.desc||r.name||"")); await fetchColl(coll); render(); toast(rows.length>1?("Restored "+rows.length):"Restored"); }
 function undoToast(msg,coll,rows){ const t=$('toast'); if(!t)return; const hide=()=>{t.classList.remove('show');t.style.pointerEvents='';t.innerHTML='';}; t.innerHTML=`<span>${esc(msg)}</span><button id="undoBtn" class="undobtn">Undo</button>`; t.classList.add('show'); t.style.pointerEvents='auto'; clearTimeout(t._t); t._t=setTimeout(hide,7000); const b=$('undoBtn'); if(b)b.onclick=()=>{clearTimeout(t._t);hide();restoreRows(coll,rows);}; }
-async function createMany(coll,rows){ if(!canWrite){toast("Read-only access");return;} if(!rows.length)return; const payload=rows.map(r=>toDB(coll,r)); const {error}=await sb.from(coll).insert(payload); if(error){ toast("Add failed"); console.error(error);} else { toast("Added "+rows.length); rows.forEach(r=>logAct("added",coll,r.id,r.desc||"")); await fetchColl(coll); render(); } }
-async function removeMany(coll,ids){ if(!canWrite){toast("Read-only access");return;} if(!ids.length)return; const rows=(store[coll]||[]).filter(r=>ids.includes(r.id)); const {error}=await sb.from(coll).delete().in("id",ids); if(error){ toast("Delete failed"); console.error(error);} else { ids.forEach(id=>logAct("deleted",coll,id,"")); await fetchColl(coll); render(); undoToast("Deleted "+ids.length,coll,rows); } }
-async function updateMany(coll,ids,patch){ if(!canWrite){toast("Read-only access");return;} if(!ids.length)return; const {error}=await sb.from(coll).update(toDB(coll,patch)).in("id",ids); if(error){ toast("Save failed"); console.error(error);} else { toast("Saved"); await fetchColl(coll); render(); } }
+async function createMany(coll,rows){ if(!canWrite){toast("Read-only access");return;} if(!rows.length)return; const payload=rows.map(r=>toDB(coll,r)); const {error}=await sb.from(coll).insert(payload); if(error){ toast("Add failed"+errMsg(error)); console.error(error);} else { toast("Added "+rows.length); rows.forEach(r=>logAct("added",coll,r.id,r.desc||"")); await fetchColl(coll); render(); } }
+async function removeMany(coll,ids){ if(!canWrite){toast("Read-only access");return;} if(!ids.length)return; const rows=(store[coll]||[]).filter(r=>ids.includes(r.id)); const {error}=await sb.from(coll).delete().in("id",ids); if(error){ toast("Delete failed"+errMsg(error)); console.error(error);} else { ids.forEach(id=>logAct("deleted",coll,id,"")); await fetchColl(coll); render(); undoToast("Deleted "+ids.length,coll,rows); } }
+async function updateMany(coll,ids,patch){ if(!canWrite){toast("Read-only access");return;} if(!ids.length)return; const o=toDB(coll,patch); delete o.id; const {error}=await sb.from(coll).update(o).in("id",ids); if(error){ toast("Save failed"+errMsg(error)); console.error(error);} else { toast("Saved"); await fetchColl(coll); render(); } }
 function nextId(coll,prefix,pad){let mx=0;store[coll].forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});return prefix+String(mx+1).padStart(pad,"0");}
 async function logAct(act,coll,id,label){ try{ await sb.from("activity").insert({who:myName,action:act,coll,doc_id:id,label:label||""}); }catch(e){} }
 function dl(name,text){const blob=new Blob(["﻿"+text],{type:'text/csv;charset=utf-8'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},120);}
@@ -348,16 +350,47 @@ function moneyStats(M,from,to){
   const toPayOut=Math.abs(sumAmt(M.filter(owedOut)));                                           // unpaid outflows, all time
   return {perType,cashIn,cashOut,cashflow,accrualNet,bankBalance,toCollect,toPayOut};
 }
-// one compact "paid of issued" row with a filled track; no clutter
-function ivpRow(label,issued,paid,collect){
+// one compact "paid of issued" row with a filled track; both figures click through to the items
+function ivpRow(label,issued,paid,collect,type){
   const pct=issued>0?Math.round(paid/issued*100):(paid>0?100:0);
   const left=Math.max(0,issued-paid);
   const col=collect?'var(--good)':'var(--accent)';
   return `<div class="ivp">
-    <div class="ivptop"><span class="ivplab">${label}</span><span class="ivpval"><b>KD ${KD(paid)}</b> <span class="muted">of KD ${KD(issued)}</span></span></div>
-    <div class="ivptrack"><div class="ivpfill" style="width:${Math.min(100,pct)}%;background:${col}"></div></div>
+    <div class="ivptop"><span class="ivplab">${label}</span><span class="ivpval"><b class="dmlink" data-dm="${type}:paid" title="See which">KD ${KD(paid)}</b> <span class="muted">of</span> <span class="dmlink" data-dm="${type}:issued" title="See which">KD ${KD(issued)}</span></span></div>
+    <div class="ivptrack dmlink" data-dm="${type}:issued"><div class="ivpfill" style="width:${Math.min(100,pct)}%;background:${col}"></div></div>
     <div class="ivpfoot"><span class="muted">${pct}% ${collect?'collected':'paid'}</span><span class="muted">${left>0?('KD '+KD(left)+(collect?' to collect':' to pay')):'all settled'}</span></div>
   </div>`;
+}
+// popup listing the exact items behind a dashboard number, with a button into the full list
+function drillList(title,rows,viewKey,viewLabel){
+  rows=[...rows].sort((a,b)=>(((b.paid||b.date||'')+'').localeCompare((a.paid||a.date||''))));
+  const tot=rows.reduce((s,m)=>s+Math.abs(+m.amt||0),0);
+  const body=rows.length?rows.map(m=>`<div class="r"><span class="t"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||m.inv_no||m.id)}</button> <span class="muted">· ${esc(brandOf(m.acct)||m.partner||'')}</span></span><span style="display:flex;gap:8px;align-items:center;white-space:nowrap"><span class="num">KD ${KD(Math.abs(+m.amt||0))}</span><span class="dchip ${m.status==='Paid'?'dchip-good':(owed(m)||owedOut(m)?'dchip-warn':'')}">${esc(m.status||'')}</span> <span class="muted">${esc(m.paid||m.date||'')}</span></span></div>`).join(""):'<div class="rowcount">Nothing here.</div>';
+  $('modal').innerHTML=`<div class="sheet">
+    <div class="sheethead"><div><div class="id">${rows.length} item${rows.length===1?'':'s'} · KD ${KD(tot)}</div><h3>${esc(title)}</h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
+    <div class="formfull"><div class="attn">${body}</div></div>
+    <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Close</button>${viewKey?`<button class="btn" id="drillGo">Open ${esc(viewLabel||viewKey)}</button>`:''}</div></div>`;
+  $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
+  $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
+  if($('drillGo'))$('drillGo').onclick=()=>{state.view=viewKey;try{localStorage.setItem('pivot_view',viewKey);}catch(_){}close();render();};
+}
+function drillMoney(tok){
+  const R=activeRange();
+  const inIssue=m=>(m.date||'')>=R.from&&(m.date||'')<=R.to;
+  const inPaid=m=>m.status==='Paid'&&(m.paid||m.date||'')>=R.from&&(m.paid||m.date||'')<=R.to;
+  const rng=R.from+' → '+(R.to==='9999-12-31'?'now':R.to);
+  const dirOf={invoices:'Income',expenses:'Expense',salaries:'Salary',payouts:'Payout'};
+  const labelOf={invoices:'Invoices',expenses:'Expenses',salaries:'Salaries',payouts:'Payouts'};
+  let set=[],title='',view='',vlabel='';
+  if(tok==='collect'){set=store.money.filter(m=>m.dir==='Income'&&!voided(m)&&m.status!=='Paid');title='Invoices still to collect · all dates';view='invoices';vlabel='Invoices';}
+  else if(tok==='pay'){set=store.money.filter(owedOut);title='Still to pay out · all dates';}
+  else if(tok==='cashin'){set=store.money.filter(m=>m.dir==='Income'&&inPaid(m));title='Money in · '+rng;view='invoices';vlabel='Invoices';}
+  else if(tok==='cashout'){set=store.money.filter(m=>(m.dir==='Expense'||m.dir==='Salary'||m.dir==='Payout')&&inPaid(m));title='Money out · '+rng;}
+  else {const[type,mode]=tok.split(':');const dir=dirOf[type];if(!dir)return;const rows=store.money.filter(m=>m.dir===dir);
+    if(mode==='paid'){set=rows.filter(inPaid);title=labelOf[type]+' '+(type==='invoices'?'collected':'paid')+' · '+rng;}
+    else{set=rows.filter(m=>!voided(m)&&inIssue(m));title=labelOf[type]+' issued · '+rng;}
+    view=type;vlabel=labelOf[type];}
+  drillList(title,set,view,vlabel);
 }
 function renderMoneyDash(){
   const Mall=store.money;
@@ -378,22 +411,23 @@ function renderMoneyDash(){
   const age={cur:0,b30:0,b60:0,b60p:0};
   unpaid.forEach(m=>{const amt=+m.amt||0;if(!m.due||m.due>=todayISO){age.cur+=amt;return;}const d=daysBetween(m.due,todayISO);if(d<=30)age.b30+=amt;else if(d<=60)age.b60+=amt;else age.b60p+=amt;});
   const bankCls=S.bankBalance<0?'bad':'good';
+  const settled=S.bankBalance+S.toCollect-S.toPayOut;
   $('view').innerHTML=`<div class="view">
     ${rangeBar(`<button class="ghost" id="repBtn">Export report</button>`)}
     <div class="kpis">
-      <div class="kpi ${bankCls}" style="grid-column:span 2"><span class="lab">Bank balance · money left after everything paid</span><span class="val valbig">KD ${KD(S.bankBalance)}</span><span class="bar"></span></div>
-      ${kpi("Still to collect","KD "+KD(S.toCollect),"warn")}${kpi("Still to pay out","KD "+KD(S.toPayOut),"bad")}
+      <div class="kpi ${bankCls}" style="grid-column:span 2"><span class="lab">Bank balance · actual cash now</span><span class="val valbig">KD ${KD(S.bankBalance)}</span><span class="kdelta muted">If everything owed clears: KD ${KD(settled)}</span><span class="bar"></span></div>
+      <div class="kpiclick" data-dm="collect">${kpi("Still to collect","KD "+KD(S.toCollect),"warn")}</div><div class="kpiclick" data-dm="pay">${kpi("Still to pay out","KD "+KD(S.toPayOut),"bad")}</div>
     </div>
-    <div class="panel"><h2>Issued vs paid <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">· ${esc(R.from)} → ${esc(R.to==='9999-12-31'?'now':R.to)}</span></h2>
+    <div class="panel"><h2>Issued vs paid <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">· ${esc(R.from)} → ${esc(R.to==='9999-12-31'?'now':R.to)} · click a number to see which</span></h2>
       <div class="ivpwrap">
-        ${ivpRow("Invoices",S.perType.income.issued,S.perType.income.paid,true)}
-        ${ivpRow("Expenses",S.perType.expense.issued,S.perType.expense.paid,false)}
-        ${ivpRow("Salaries",S.perType.salary.issued,S.perType.salary.paid,false)}
-        ${ivpRow("Payouts",S.perType.payout.issued,S.perType.payout.paid,false)}
+        ${ivpRow("Invoices",S.perType.income.issued,S.perType.income.paid,true,"invoices")}
+        ${ivpRow("Expenses",S.perType.expense.issued,S.perType.expense.paid,false,"expenses")}
+        ${ivpRow("Salaries",S.perType.salary.issued,S.perType.salary.paid,false,"salaries")}
+        ${ivpRow("Payouts",S.perType.payout.issued,S.perType.payout.paid,false,"payouts")}
       </div>
       <div class="cashline">
-        <span><span class="muted">Money in</span> <b class="pos">KD ${KD(S.cashIn)}</b></span>
-        <span><span class="muted">Money out</span> <b class="neg">KD ${KD(S.cashOut)}</b></span>
+        <span class="dmlink" data-dm="cashin"><span class="muted">Money in</span> <b class="pos">KD ${KD(S.cashIn)}</b></span>
+        <span class="dmlink" data-dm="cashout"><span class="muted">Money out</span> <b class="neg">KD ${KD(S.cashOut)}</b></span>
         <span><span class="muted">Cashflow this range</span> <b class="${S.cashflow<0?'neg':'pos'}">KD ${KD(S.cashflow)}</b>${P?delta(S.cashflow,P.cashflow,true):''}</span>
       </div>
     </div>
@@ -1533,6 +1567,7 @@ document.addEventListener('click',e=>{const d=e.target.closest('[data-drill]');i
   state.view='tasks';render();}});
 document.addEventListener('click',e=>{const d=e.target.closest('[data-del]');if(d)remove(d.dataset.del,d.dataset.id);});
 document.addEventListener('click',e=>{const g=e.target.closest('[data-goto]');if(g){if(g.dataset.hl)pendingHL=g.dataset.hl;state.view=g.dataset.goto;try{localStorage.setItem('pivot_view',state.view);}catch(_){}render();}});
+document.addEventListener('click',e=>{const d=e.target.closest('[data-dm]');if(d){e.stopPropagation();drillMoney(d.dataset.dm);}});
 document.addEventListener('click',e=>{const b=e.target.closest('[data-brand]');if(b)openBrand(b.dataset.brand);});
 document.addEventListener('click',e=>{const b=e.target.closest('[data-dopen]');if(b)openDeal(b.dataset.dopen);});
 document.addEventListener('click',e=>{const b=e.target.closest('[data-popen]');if(b)openProject(b.dataset.popen);});

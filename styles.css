@@ -330,3 +330,12 @@ svg:hover .pieslice{opacity:.5}
 .pill-warn{color:var(--warn);background:var(--warn-soft)}
 .porright{display:flex;align-items:center;gap:10px;flex:0 0 auto}
 .slone.on{color:var(--good);border-color:var(--good-soft)}
+
+/* v46 dashboard drill-through affordance */
+.dmlink{cursor:pointer}
+.dmlink.ivptrack{display:block}
+.ivpval .dmlink{border-bottom:1px dotted var(--muted)}
+.ivpval b.dmlink{border-bottom:1px dotted var(--ink)}
+.cashline .dmlink{border-bottom:1px dotted var(--line);padding-bottom:1px}
+.dmlink:hover{opacity:.78}
+.kpiclick{cursor:pointer}
