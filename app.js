@@ -41,7 +41,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v42 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v43 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -325,58 +325,90 @@ function renderTasksDash(){
   wireRange(renderTasksDash);
   if($('repBtn'))$('repBtn').onclick=()=>openReport('tasks');
 }
+// ---- money maths, one place, testable ----
+// outflow still owed (expense/salary/payout not yet paid, not voided)
+const owedOut=m=>(m.dir==='Expense'||m.dir==='Salary'||m.dir==='Payout')&&m.status!=='Paid'&&!voided(m);
+function moneyStats(M,from,to){
+  const sumAmt=arr=>arr.reduce((a,m)=>a+(+m.amt||0),0);
+  const issuedIn=rows=>rows.filter(m=>!voided(m)&&(m.date||'')>=from&&(m.date||'')<=to);
+  const paidIn=rows=>rows.filter(m=>m.status==='Paid'&&(m.paid||m.date||'')>=from&&(m.paid||m.date||'')<=to);
+  const perType={};
+  [['income','Income'],['expense','Expense'],['salary','Salary'],['payout','Payout']].forEach(([k,dir])=>{
+    const rows=M.filter(m=>m.dir===dir);
+    perType[k]={issued:Math.abs(sumAmt(issuedIn(rows))),paid:Math.abs(sumAmt(paidIn(rows)))};
+  });
+  const cashIn=perType.income.paid;
+  const cashOut=perType.expense.paid+perType.salary.paid+perType.payout.paid;
+  const cashflow=cashIn-cashOut;                                   // cash basis, in range
+  const accrualNet=perType.income.issued-perType.expense.issued-perType.salary.issued-perType.payout.issued;
+  const allPaid=dir=>Math.abs(sumAmt(M.filter(m=>m.dir===dir&&m.status==='Paid')));
+  const bankBalance=allPaid('Income')-allPaid('Expense')-allPaid('Salary')-allPaid('Payout'); // all time, money left
+  const toCollect=sumAmt(M.filter(m=>m.dir==='Income'&&!voided(m)&&m.status!=='Paid'));         // unpaid invoices, all time
+  const toPayOut=Math.abs(sumAmt(M.filter(owedOut)));                                           // unpaid outflows, all time
+  return {perType,cashIn,cashOut,cashflow,accrualNet,bankBalance,toCollect,toPayOut};
+}
+// one compact "paid of issued" row with a filled track; no clutter
+function ivpRow(label,issued,paid,collect){
+  const pct=issued>0?Math.round(paid/issued*100):(paid>0?100:0);
+  const left=Math.max(0,issued-paid);
+  const col=collect?'var(--good)':'var(--accent)';
+  return `<div class="ivp">
+    <div class="ivptop"><span class="ivplab">${label}</span><span class="ivpval"><b>KD ${KD(paid)}</b> <span class="muted">of KD ${KD(issued)}</span></span></div>
+    <div class="ivptrack"><div class="ivpfill" style="width:${Math.min(100,pct)}%;background:${col}"></div></div>
+    <div class="ivpfoot"><span class="muted">${pct}% ${collect?'collected':'paid'}</span><span class="muted">${left>0?('KD '+KD(left)+(collect?' to collect':' to pay')):'all settled'}</span></div>
+  </div>`;
+}
 function renderMoneyDash(){
-  const Mall=moneyF();
+  const Mall=store.money;
   const R=activeRange(),C=cmpRange(R.from,R.to);
   const inR=(m,from,to)=>{const dt=m.date||'';return dt>=from&&dt<=to;};
-  const paidR=(m,from,to)=>{const dt=m.paid||m.date||'';return dt>=from&&dt<=to;};
-  const agg=(from,to)=>{
-    const billed=Mall.filter(m=>m.dir==='Income'&&!voided(m)&&inR(m,from,to)).reduce((a,m)=>a+(+m.amt||0),0);
-    const collected=Mall.filter(m=>m.dir==='Income'&&m.status==='Paid'&&paidR(m,from,to)).reduce((a,m)=>a+(+m.amt||0),0);
-    const expenses=Math.abs(Mall.filter(m=>m.dir==='Expense'&&inR(m,from,to)).reduce((a,m)=>a+(+m.amt||0),0));
-    const payouts=Math.abs(Mall.filter(m=>m.dir==='Payout'&&m.status==='Paid'&&paidR(m,from,to)).reduce((a,m)=>a+(+m.amt||0),0));
-    const salaries=Math.abs(Mall.filter(m=>m.dir==='Salary'&&m.status==='Paid'&&paidR(m,from,to)).reduce((a,m)=>a+(+m.amt||0),0));
-    return {billed,collected,expenses,payouts,salaries,net:collected-expenses-salaries-payouts};};
-  const cur=agg(R.from,R.to),prev=C?agg(C.from,C.to):null;
-  const rate=cur.billed?Math.round(cur.collected/cur.billed*100):0;
-  const prevRate=prev&&prev.billed?Math.round(prev.collected/prev.billed*100):null;
+  const S=moneyStats(Mall,R.from,R.to),P=C?moneyStats(Mall,C.from,C.to):null;
+  const rate=S.perType.income.issued?Math.round(S.perType.income.paid/S.perType.income.issued*100):0;
   const unpaid=Mall.filter(owed);
   const chase=[...unpaid].sort((a,b)=>((a.due||"9999")+"").localeCompare((b.due||"9999")+"")).slice(0,8);
   const chaseTot=unpaid.reduce((s,m)=>s+(+m.amt||0),0);
   const overdueInv=unpaid.filter(m=>m.due&&m.due<todayISO).length;
-  const cats={};Mall.filter(m=>m.dir==='Expense'&&inR(m,R.from,R.to)).forEach(m=>{const k=m.cat||"Other";cats[k]=(cats[k]||0)+Math.abs(+m.amt||0);});
+  const cats={};Mall.filter(m=>m.dir==='Expense'&&!voided(m)&&inR(m,R.from,R.to)).forEach(m=>{const k=m.cat||"Other";cats[k]=(cats[k]||0)+Math.abs(+m.amt||0);});
   const topCat=Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,7).map(([l,v])=>({l,v}));
   const series=moneySeries(R.from,R.to);
-  const M2=moneyF();const bm={};
-  M2.forEach(m=>{const b=brandOf(m.acct);if(!b)return;if(!bm[b])bm[b]={rev:0,cost:0};if(m.dir==='Income'&&m.status==='Paid')bm[b].rev+=(+m.amt||0);else if(m.dir==='Expense'||m.dir==='Payout'||m.dir==='Salary')bm[b].cost+=Math.abs(+m.amt||0);});
-  const cashIn=store.money.filter(m=>m.dir==='Income'&&m.status==='Paid').reduce((s,m)=>s+(+m.amt||0),0);
-  const cashExp=Math.abs(store.money.filter(m=>m.dir==='Expense'&&m.status==='Paid').reduce((s,m)=>s+(+m.amt||0),0));
-  const cashPayPaid=Math.abs(store.money.filter(m=>m.dir==='Payout'&&m.status==='Paid').reduce((s,m)=>s+(+m.amt||0),0));
-  const cashSalPaid=Math.abs(store.money.filter(m=>m.dir==='Salary'&&m.status==='Paid').reduce((s,m)=>s+(+m.amt||0),0));
-  const cashOnHand=cashIn-cashExp-cashPayPaid-cashSalPaid;
-  const payPending=Math.abs(store.money.filter(m=>m.dir==='Payout'&&m.status!=='Paid').reduce((s,m)=>s+(+m.amt||0),0));
+  const bm={};
+  Mall.forEach(m=>{const b=brandOf(m.acct);if(!b)return;if(!bm[b])bm[b]={rev:0,cost:0};if(m.dir==='Income'&&m.status==='Paid')bm[b].rev+=(+m.amt||0);else if((m.dir==='Expense'||m.dir==='Payout'||m.dir==='Salary')&&m.status==='Paid')bm[b].cost+=Math.abs(+m.amt||0);});
   const marginRows=Object.entries(bm).map(([l,o])=>({l,v:o.rev-o.cost})).filter(x=>x.v!==0).sort((a,b)=>b.v-a.v).slice(0,8);
   const age={cur:0,b30:0,b60:0,b60p:0};
-  M2.filter(owed).forEach(m=>{const amt=+m.amt||0;if(!m.due||m.due>=todayISO){age.cur+=amt;return;}const d=daysBetween(m.due,todayISO);if(d<=30)age.b30+=amt;else if(d<=60)age.b60+=amt;else age.b60p+=amt;});
+  unpaid.forEach(m=>{const amt=+m.amt||0;if(!m.due||m.due>=todayISO){age.cur+=amt;return;}const d=daysBetween(m.due,todayISO);if(d<=30)age.b30+=amt;else if(d<=60)age.b60+=amt;else age.b60p+=amt;});
+  const bankCls=S.bankBalance<0?'bad':'good';
   $('view').innerHTML=`<div class="view">
     ${rangeBar(`<button class="ghost" id="repBtn">Export report</button>`)}
-    <div class="kpis"><div class="kpi good" style="grid-column:span 2"><span class="lab">Cash available now · not yet spent</span><span class="val valbig">KD ${KD(cashOnHand)}</span><span class="bar"></span></div>${kpi("Payouts pending","KD "+KD(payPending),"bad")}</div>
-    <div class="kpis">${kpi("Collected","KD "+KD(cur.collected),"good",prev?delta(cur.collected,prev.collected,true):"")}${kpi("Billed","KD "+KD(cur.billed),"accent",prev?delta(cur.billed,prev.billed,true):"")}${kpi("Expenses","KD "+KD(cur.expenses),"warn",prev?delta(cur.expenses,prev.expenses,false):"")}${kpi("Salaries","KD "+KD(cur.salaries),"warn",prev?delta(cur.salaries,prev.salaries,false):"")}${kpi("Payouts","KD "+KD(cur.payouts),"warn",prev?delta(cur.payouts,prev.payouts,false):"")}${kpi("Net","KD "+KD(cur.net),"accent",prev?delta(cur.net,prev.net,true):"")}${kpi("Collection rate",rate+"%","good",prevRate!=null?delta(rate,prevRate,true):"")}</div>
+    <div class="kpis">
+      <div class="kpi ${bankCls}" style="grid-column:span 2"><span class="lab">Bank balance · money left after everything paid</span><span class="val valbig">KD ${KD(S.bankBalance)}</span><span class="bar"></span></div>
+      ${kpi("Still to collect","KD "+KD(S.toCollect),"warn")}${kpi("Still to pay out","KD "+KD(S.toPayOut),"bad")}
+    </div>
+    <div class="panel"><h2>Issued vs paid <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">· ${esc(R.from)} → ${esc(R.to==='9999-12-31'?'now':R.to)}</span></h2>
+      <div class="ivpwrap">
+        ${ivpRow("Invoices",S.perType.income.issued,S.perType.income.paid,true)}
+        ${ivpRow("Expenses",S.perType.expense.issued,S.perType.expense.paid,false)}
+        ${ivpRow("Salaries",S.perType.salary.issued,S.perType.salary.paid,false)}
+        ${ivpRow("Payouts",S.perType.payout.issued,S.perType.payout.paid,false)}
+      </div>
+      <div class="cashline">
+        <span><span class="muted">Money in</span> <b class="pos">KD ${KD(S.cashIn)}</b></span>
+        <span><span class="muted">Money out</span> <b class="neg">KD ${KD(S.cashOut)}</b></span>
+        <span><span class="muted">Cashflow this range</span> <b class="${S.cashflow<0?'neg':'pos'}">KD ${KD(S.cashflow)}</b>${P?delta(S.cashflow,P.cashflow,true):''}</span>
+      </div>
+    </div>
     <div class="panel"><h2>Billed over time</h2><div class="body">${series.length?vbars(series,'kd'):'<div class="muted">No income in range</div>'}</div></div>
     <div class="grid3">
       <div class="panel"><h2>Invoices to chase ${overdueInv?`<span class="flag-over" style="font-size:11px;font-weight:700">· ${overdueInv} overdue</span>`:""}</h2><div class="attn">${chase.length?chase.map(m=>{const od=m.due&&m.due<todayISO;return `<div class="r" data-goto="invoices" data-hl="${esc(m.id)}" style="cursor:pointer"><span class="t"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||m.id)}</button> <span class="muted">· ${esc(brandOf(m.acct))}</span></span><span class="${od?'flag-over':'flag-soon'}" style="white-space:nowrap">KD ${KD(m.amt)}${m.due?` · ${esc(m.due)}`:''}</span></div>`;}).join(""):'<div class="rowcount">All invoices settled.</div>'}</div><div class="rowcount">KD ${KD(chaseTot)} outstanding · ${unpaid.length} invoice${unpaid.length===1?'':'s'} (live, all dates)</div></div>
-      <div class="panel"><h2>Cash in range</h2><div class="body">${hbars([{l:"Collected",v:cur.collected,c:"var(--good)"},{l:"Billed",v:cur.billed,c:"var(--accent)"},{l:"Expenses",v:cur.expenses,c:"var(--warn)"}],'kd')}</div></div>
-      <div class="panel"><h2>Expenses by category</h2><div class="body">${topCat.length?hbars(topCat,'kd'):'<div class="muted">No expenses in range</div>'}</div></div>
+      <div class="panel"><h2>Expenses by category <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">· issued in range</span></h2><div class="body">${topCat.length?hbars(topCat,'kd'):'<div class="muted">No expenses in range</div>'}</div></div>
+      <div class="panel"><h2>Profit by brand <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">· collected − paid costs</span></h2><div class="attn">${marginRows.length?marginRows.map(r=>`<div class="r"><span class="t">${esc(r.l)}</span><span class="num ${r.v<0?'neg':'pos'}">KD ${KD(r.v)}</span></div>`).join(""):'<div class="rowcount">No data yet.</div>'}</div></div>
     </div>
-    <div class="grid2">
-      <div class="panel"><h2>Profit by brand <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">· collected − direct costs</span></h2><div class="attn">${marginRows.length?marginRows.map(r=>`<div class="r"><span class="t">${esc(r.l)}</span><span class="num ${r.v<0?'neg':'pos'}">KD ${KD(r.v)}</span></div>`).join(""):'<div class="rowcount">No data in range.</div>'}</div></div>
-      <div class="panel"><h2>Unpaid invoices by age</h2><div class="attn">
+    <div class="panel"><h2>Unpaid invoices by age</h2><div class="attn">
         <div class="r"><span class="t">Not due yet</span><span class="num">KD ${KD(age.cur)}</span></div>
         <div class="r"><span class="t">1-30 days overdue</span><span class="num flag-soon">KD ${KD(age.b30)}</span></div>
         <div class="r"><span class="t">31-60 days overdue</span><span class="num flag-soon">KD ${KD(age.b60)}</span></div>
         <div class="r"><span class="t">60+ days overdue</span><span class="num flag-over">KD ${KD(age.b60p)}</span></div>
       </div><div class="rowcount">KD ${KD(age.cur+age.b30+age.b60+age.b60p)} outstanding across all unpaid invoices</div></div>
-    </div></div>`;
+    </div>`;
   wireRange(renderMoneyDash);
   if($('repBtn'))$('repBtn').onclick=()=>openReport('money');
 }
@@ -475,7 +507,7 @@ function renderExpenses(){
   let M=sortBy(moneyF().filter(m=>m.dir==="Expense"&&(!F.status||m.status===F.status)),state.sortM.k,state.sortM.dir);
   const total=Math.abs(M.filter(m=>!voided(m)).reduce((a,m)=>a+(+m.amt||0),0));
   const paid=Math.abs(M.filter(m=>m.status==="Paid").reduce((a,m)=>a+(+m.amt||0),0));
-  const pending=Math.abs(M.filter(m=>owed(m)).reduce((a,m)=>a+(+m.amt||0),0));
+  const pending=Math.abs(M.filter(m=>owedOut(m)).reduce((a,m)=>a+(+m.amt||0),0));
   const cats={};M.filter(m=>!voided(m)).forEach(m=>{const k=m.cat||"Other";cats[k]=(cats[k]||0)+Math.abs(+m.amt||0);});
   const top=Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([l,v])=>({l,v}));
   const head=[["id","ID"],["date","Date"],["brand","Brand"],["cat","Category"],["desc","Description"],["amt","Amount"],["status","Status"],["",""]];
@@ -664,9 +696,9 @@ function renderAccounts(){
   let rows=store.accounts.map(a=>{
     const open=store.tasks.filter(t=>t.acct===a.id&&t.status!=="Done").length;
     const coll=store.money.filter(m=>m.acct===a.id&&m.dir==="Income"&&m.status==="Paid").reduce((s,m)=>s+(+m.amt||0),0);
-    const out=store.money.filter(m=>m.acct===a.id&&m.dir==="Income").reduce((s,m)=>s+(+m.amt||0),0)-coll;
+    const out=store.money.filter(m=>m.acct===a.id&&m.dir==="Income"&&!voided(m)).reduce((s,m)=>s+(+m.amt||0),0)-coll;
     const eng=store.engagements.filter(e=>e.acct===a.id).length;
-    const cost=Math.abs(store.money.filter(m=>m.acct===a.id&&(m.dir==="Expense"||m.dir==="Payout"||m.dir==="Salary")).reduce((s,m)=>s+(+m.amt||0),0));
+    const cost=Math.abs(store.money.filter(m=>m.acct===a.id&&(m.dir==="Expense"||m.dir==="Payout"||m.dir==="Salary")&&m.status==="Paid").reduce((s,m)=>s+(+m.amt||0),0));
     return Object.assign({open,coll,out,eng,cost,margin:coll-cost},a);
   }).filter(a=>(!F.brand||a.brand===F.brand)&&(!F.status||a.lifecycle===F.status)&&(!F.q||((a.id+" "+(a.brand||"")+" "+(a.country||"")+" "+(a.type||"")).toLowerCase().includes(F.q))));
   rows=sortBy(rows,state.sortA.k,state.sortA.dir);
@@ -1117,6 +1149,8 @@ function openExpenseNew(){
 }
 const SALARY_DEFAULTS=[{person:"Daoud",role:"Full-time",amt:500},{person:"Arafa",role:"Full-time",amt:500},{person:"Zawar",role:"Part-time",amt:100}];
 function endOfMonthISO(){const d=new Date();const e=new Date(d.getFullYear(),d.getMonth()+1,0);return e.toISOString().slice(0,10);}
+// current month on a given day (clamped to the month's last day), used as the default salary issue date
+function issueDayISO(day){const d=new Date();const y=d.getFullYear(),m=d.getMonth();const last=new Date(y,m+1,0).getDate();const dd=Math.min(day,last);return `${y}-${String(m+1).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;}
 function salRowHtml(r){r=r||{person:"",role:"",amt:""};return `<div class="slrow">
   <input class="sl_p" placeholder="Name" value="${esc(r.person||'')}">
   <select class="sl_r"><option value="">role</option>${opts(ROLES,r.role||"")}</select>
@@ -1127,7 +1161,7 @@ function openSalaryNew(){
   $('modal').innerHTML=`<div class="sheet">
     <div class="sheethead"><div><div class="id">Monthly salaries</div><h3>Add month's salaries</h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
     <div class="formgrid">
-      ${fld("Month (pay date)",`<input type="date" id="sl_date" value="${endOfMonthISO()}">`)}
+      ${fld("Pay date (day of issue)",`<input type="date" id="sl_date" value="${issueDayISO(24)}">`)}
       ${fld("Status",`<select id="sl_status">${opts(PAYOUT_STATUS,"Paid")}</select>`)}
     </div>
     <div class="formfull">
@@ -1306,11 +1340,11 @@ function openBrand(acctId){
   const tasks=store.tasks.filter(t=>t.acct===acctId);
   const openT=tasks.filter(t=>t.status!=="Done");
   const overdueT=openT.filter(t=>t.due&&t.due<todayISO).length;
-  const inc=store.money.filter(m=>m.acct===acctId&&m.dir==="Income");
+  const inc=store.money.filter(m=>m.acct===acctId&&m.dir==="Income"&&!voided(m));
   const coll=inc.filter(m=>m.status==="Paid").reduce((s,m)=>s+(+m.amt||0),0);
   const out=inc.reduce((s,m)=>s+(+m.amt||0),0)-coll;
-  const exp=Math.abs(store.money.filter(m=>m.acct===acctId&&m.dir==="Expense").reduce((s,m)=>s+(+m.amt||0),0));
-  const payo=Math.abs(store.money.filter(m=>m.acct===acctId&&m.dir==="Payout").reduce((s,m)=>s+(+m.amt||0),0));
+  const exp=Math.abs(store.money.filter(m=>m.acct===acctId&&m.dir==="Expense"&&m.status==="Paid").reduce((s,m)=>s+(+m.amt||0),0));
+  const payo=Math.abs(store.money.filter(m=>m.acct===acctId&&m.dir==="Payout"&&m.status==="Paid").reduce((s,m)=>s+(+m.amt||0),0));
   const parent=a.parent?AMAP[a.parent]:null;
   const children=store.accounts.filter(x=>x.parent===acctId);
   const topOpen=[...openT].sort((x,y)=>((x.due||"9999")+"").localeCompare((y.due||"9999")+"")).slice(0,8);
@@ -1326,7 +1360,7 @@ function openBrand(acctId){
       <label class="fld"><span style="display:flex;align-items:center;gap:8px"><span style="flex:1">Open tasks · ${openT.length}</span>${tasks.length?`<button class="linkmini" id="vaTasks">View all →</button>`:''}</span><div class="attn">${topOpen.length?topOpen.map(t=>{const[fl,fc]=flag(t);return `<div class="r"><span class="t"><button class="linkname" data-open="${esc(t.id)}">${esc(t.name||t.id)}</button></span><span class="${fc}" style="white-space:nowrap">${esc(t.due||'—')}</span></div>`;}).join(""):'<div class="rowcount">No open tasks.</div>'}</div></label>
       <label class="fld"><span style="display:flex;align-items:center;gap:8px"><span style="flex:1">Invoices · ${inc.length}</span>${inc.length?`<button class="linkmini" id="vaInv">View all →</button>`:''}</span><div class="attn">${recentInv.length?recentInv.map(m=>`<div class="r"><span class="t"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.inv_no||m.id)}</button> <span class="muted">· ${esc(m.desc||m.date||'')}</span></span><span style="display:flex;gap:8px;align-items:center;white-space:nowrap"><span class="num">KD ${KD(m.amt)}</span><span class="dchip ${m.status==='Paid'?'dchip-good':(owed(m)?'dchip-warn':'')}">${esc(m.status||'')}</span></span></div>`).join(""):'<div class="rowcount">No invoices.</div>'}</div></label>
     </div>
-    <div class="sheetfoot"><span class="muted">Costs: KD ${KD(exp+payo)}</span><span style="flex:1"></span>${canWrite?`<button class="ghost" id="mkBrandEdit">Edit</button>`:""}<button class="ghost" id="mkBrandExport">Export tasks</button></div>
+    <div class="sheetfoot"><span class="muted">Paid costs: KD ${KD(exp+payo)}</span><span style="flex:1"></span>${canWrite?`<button class="ghost" id="mkBrandEdit">Edit</button>`:""}<button class="ghost" id="mkBrandExport">Export tasks</button></div>
     </div>`;
   $('modal').classList.add('show');
   const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
