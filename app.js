@@ -42,7 +42,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v50 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v51 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -129,7 +129,7 @@ document.addEventListener('mousemove',e=>{const b=e.target.closest('[data-tip]')
 
 function fromDB(coll,r){ if(coll==='money'){const o=Object.assign({},r);o.desc=r.description;o.date=r.txn_date;return o;} if(coll==='templates'){const o=Object.assign({},r);o.dueDay=r.due_day;o.active=r.active?"Yes":"No";return o;} if(coll==='people'||coll==='services'){const o=Object.assign({},r);o.active=(r.active===false?"No":"Yes");return o;} return r; }
 function toDB(coll,obj){ const o=Object.assign({},obj);
-  if(coll==='money'){ if('desc' in o){o.description=o.desc;delete o.desc;} if('date' in o){o.txn_date=o.date||null;delete o.date;} ['due','paid','txn_date','acct','eng'].forEach(k=>{if(o[k]==='')o[k]=null;}); }
+  if(coll==='money'){ if('desc' in o){o.description=o.desc;delete o.desc;} if('date' in o){o.txn_date=o.date||null;delete o.date;} ['due','paid','txn_date','acct','eng','logged'].forEach(k=>{if(o[k]==='')o[k]=null;}); }
   if(coll==='tasks'){ ['logged','due','done','acct','eng','project','parent'].forEach(k=>{if(o[k]==='')o[k]=null;}); }
   if(coll==='templates'){ if('dueDay' in o){o.due_day=parseInt(o.dueDay)||1;delete o.dueDay;} if('active' in o){o.active=(o.active!=="No"&&o.active!==false);} }
   if(coll==='people'||coll==='services'){ if('active' in o){o.active=(o.active!=="No"&&o.active!==false);} }
@@ -585,7 +585,7 @@ function renderInvoices(){
   const collected=M.filter(m=>m.status==="Paid").reduce((a,m)=>a+(+m.amt||0),0);
   const billed=M.filter(m=>!voided(m)).reduce((a,m)=>a+(+m.amt||0),0);
   const overdue=M.filter(m=>owed(m)&&m.due&&m.due<todayISO).reduce((a,m)=>a+(+m.amt||0),0);
-  const head=[["inv_no","Invoice #"],["date","Date"],["brand","Brand"],["income_type","Type"],["desc","Title"],["amt","Amount"],["status","Status"],["due","Due"],["",""]];
+  const head=[["inv_no","Invoice #"],["date","Issued"],["brand","Brand"],["income_type","Type"],["desc","Title"],["amt","Amount"],["status","Status"],["due","Due"],["",""]];
   const ro=canWrite?"":"disabled";
   $('view').innerHTML=`<div class="view">
     <div class="kpis">${kpi("Billed","KD "+KD(billed),"accent")}${kpi("Collected","KD "+KD(collected),"good")}${kpi("Outstanding","KD "+KD(billed-collected),"bad")}${kpi("Overdue","KD "+KD(overdue),"warn")}</div>
@@ -858,7 +858,7 @@ async function generateRetainerInvoices(){
   if(!due.length){toast("No retainer invoices due");return;}
   let mx=0;store.money.forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});
   let inv=0;store.money.forEach(m=>{const g=String(m.inv_no||"").match(/INV-(\d+)/);if(g)inv=Math.max(inv,+g[1]);});
-  const rows=due.map((x,i)=>({id:"LDG-"+String(mx+1+i).padStart(4,"0"),date:x.date,acct:x.acct,eng:"",dir:"Income",cat:"Client Payment",income_type:"Retainer",desc:x.desc,amt:Math.abs(x.fee),status:"Unpaid",due:x.due,paid:"",inv_no:"INV-"+String(inv+1+i).padStart(4,"0"),notes:"auto // retainer"}));
+  const rows=due.map((x,i)=>({id:"LDG-"+String(mx+1+i).padStart(4,"0"),date:x.date,logged:x.svc+"-01",acct:x.acct,eng:"",dir:"Income",cat:"Client Payment",income_type:"Retainer",desc:x.desc,amt:Math.abs(x.fee),status:"Unpaid",due:x.due,paid:"",inv_no:"INV-"+String(inv+1+i).padStart(4,"0"),notes:"auto // retainer"}));
   await createMany("money",rows);
 }
 function renderRetainers(){
@@ -1216,7 +1216,8 @@ function openInvoiceNew(){
   $('modal').innerHTML=`<div class="sheet">
     <div class="sheethead"><div><div class="id">New invoice</div><h3>Add invoice</h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
     <div class="formgrid">
-      ${fld("Date",`<input type="date" id="mi_date" value="${todayISO}">`)}
+      ${fld("Logged · service month",`<input type="date" id="mi_logged" value="${todayISO}">`)}
+      ${fld("Issued",`<input type="date" id="mi_date" value="${todayISO}">`)}
       ${fld("Brand",`<select id="mi_acct">${brandOpts("")}</select>`)}
       ${fld("Amount (KD)",`<input type="number" step="0.001" id="mi_amt" placeholder="0.000">`)}
       ${fld("Status",`<select id="mi_status">${opts(PAY,"Unpaid")}</select>`)}
@@ -1227,12 +1228,13 @@ function openInvoiceNew(){
       ${fld("Description",`<input id="mi_desc" placeholder="e.g. October retainer">`)}
       ${fld("Note (optional)",`<textarea id="mi_notes" rows="2"></textarea>`)}
     </div>
+    <div class="muted" style="font-size:12px;padding:0 2px">Retainer: logged is the 1st of the service month, issued the 1st of the next month, due the 10th. Project: logged and issued are usually the same day.</div>
     <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Add invoice</button></div>
   </div>`;
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   $('mkSave').onclick=()=>{const g=f=>{const el=$('mi_'+f);return el?el.value:"";};const amt=parseFloat(g('amt'));if(isNaN(amt)){toast("Enter an amount");return;}
-    create("money",nextId("money","LDG-",4),{date:g('date')||todayISO,acct:g('acct'),eng:"",dir:"Income",cat:"Client Payment",income_type:g('income_type')||"Project",desc:g('desc'),amt:Math.abs(amt),status:g('status'),due:g('due'),paid:"",notes:g('notes'),inv_no:nextInvNo()});close();};
+    create("money",nextId("money","LDG-",4),{date:g('date')||todayISO,logged:(g('logged')||g('date')||todayISO),acct:g('acct'),eng:"",dir:"Income",cat:"Client Payment",income_type:g('income_type')||"Project",desc:g('desc'),amt:Math.abs(amt),status:g('status'),due:g('due'),paid:"",notes:g('notes'),inv_no:nextInvNo()});close();};
 }
 function nextInvNo(){let mx=0;store.money.forEach(m=>{const g=String(m.inv_no||'').match(/INV-(\d+)/);if(g)mx=Math.max(mx,+g[1]);});return "INV-"+String(mx+1).padStart(4,"0");}
 function openExpenseNew(){
@@ -1431,7 +1433,7 @@ function openMoney(id){
     <div class="sheethead"><div><div class="id">${esc(m.id)}</div><h3>${esc(m.desc||(isExp?'Expense':'Invoice'))} <span class="muted" style="font-weight:500">· ${esc(brandOf(m.acct))}</span></h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
     <div class="formgrid">
       ${fld("Type",`<select id="mm_dir" ${ro}>${opts(["Income","Expense","Salary","Payout"],m.dir||"Income")}</select>`)}
-      ${fld("Date",`<input type="date" id="mm_date" value="${esc(m.date||'')}" ${ro}>`)}
+      ${m.dir==="Income"?(fld("Logged · service month",`<input type="date" id="mm_logged" value="${esc(m.logged||'')}" ${ro}>`)+fld("Issued",`<input type="date" id="mm_date" value="${esc(m.date||'')}" ${ro}>`)):fld("Date",`<input type="date" id="mm_date" value="${esc(m.date||'')}" ${ro}>`)}
       ${m.dir==="Payout"?"":fld("Brand",`<select id="mm_acct" ${ro}>${brandOpts(m.acct)}</select>`)}
       ${m.dir==="Salary"?(fld("Person",`<input id="mm_partner" value="${esc(m.partner||'')}" ${ro}>`)+fld("Role",`<select id="mm_role" ${ro}><option value="">—</option>${opts(ROLES,m.role)}</select>`)):(m.dir==="Payout"?fld("Partner",`<input id="mm_partner" value="${esc(m.partner||'')}" ${ro}>`):fld("Category",`<input id="mm_cat" value="${esc(m.cat||'')}" ${ro}>`))}
       ${m.dir==="Income"?fld("Invoice type",`<select id="mm_income_type" ${ro}>${opts(INCOME_TYPES,m.income_type||"Project")}</select>`):""}
@@ -1459,7 +1461,7 @@ function openMoney(id){
     const patch={dir,date:g('date'),acct:g('acct'),amt,status:g('status'),due:g('due'),paid:g('paid'),desc:g('desc'),notes:g('notes')};
     if(dir==="Salary"){patch.partner=($('mm_partner')?$('mm_partner').value:(m.partner||""));patch.role=($('mm_role')?$('mm_role').value:(m.role||""));}
     else if(dir==="Payout"){patch.partner=($('mm_partner')?$('mm_partner').value:(m.partner||""));}
-    else{patch.cat=($('mm_cat')?$('mm_cat').value:(m.cat||""));if($('mm_income_type'))patch.income_type=$('mm_income_type').value;}
+    else{patch.cat=($('mm_cat')?$('mm_cat').value:(m.cat||""));if($('mm_income_type'))patch.income_type=$('mm_income_type').value;if($('mm_logged'))patch.logged=$('mm_logged').value;}
     await write("money",id,patch);logAct("edited","money",id,g('desc'));close();};
   if($('mkDelete'))$('mkDelete').onclick=()=>{close();remove("money",id);};
 }
