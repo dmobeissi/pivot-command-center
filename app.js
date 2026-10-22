@@ -42,7 +42,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v44 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v45 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -635,6 +635,7 @@ function renderSalaries(){
         <div class="poinfo" data-tog="sal:${esc(g.ym)}"><span class="pototal">KD ${KD(g.total)}</span><span class="muted"> · ${esc(monthLabel(g.ym))} · ${g.rows.length} ${g.rows.length===1?'person':'people'}</span></div>
         <div class="poact">
           <span class="pill ${g.status==='Paid'?'pill-good':(g.status==='Partial'?'pill-warn':'pill-bad')}">${g.status==='Paid'?'All sent':(g.status==='Partial'?('Partial · '+g.paidN+'/'+g.rows.length):'Pending')}</span>
+          ${ro?"":`<button class="ghost sledit" data-ym="${esc(g.ym)}" title="Edit this month, add or remove people, change amounts">Edit</button>`}
           ${ro?"":`<button class="ghost sltoggle" data-ym="${esc(g.ym)}" data-to="${g.status==='Paid'?'Pending':'Paid'}">Mark all ${g.status==='Paid'?'pending':'sent'}</button>`}
           ${ro?"":`<button class="ghost sldel" data-ym="${esc(g.ym)}" title="Delete this month">✕</button>`}
         </div>
@@ -653,6 +654,7 @@ function renderSalaries(){
   wireCollapse('sal',months.map(e=>e.ym));
   document.querySelectorAll('.sltoggle').forEach(b=>b.onclick=()=>{const g=months.find(e=>e.ym===b.dataset.ym);if(!g)return;const to=b.dataset.to;updateMany("money",g.ids,{status:to,paid:(to==='Paid'?(g.rows[0].date||todayISO):"")});});
   document.querySelectorAll('.slone').forEach(b=>b.onclick=()=>{const to=b.dataset.to;write("money",b.dataset.id,{status:to,paid:(to==='Paid'?(b.dataset.date||todayISO):"")});});
+  document.querySelectorAll('.sledit').forEach(b=>b.onclick=()=>{const g=months.find(e=>e.ym===b.dataset.ym);if(g)openSalaryEdit(g);});
   document.querySelectorAll('.sldel').forEach(b=>b.onclick=()=>{const g=months.find(e=>e.ym===b.dataset.ym);if(!g)return;removeMany("money",g.ids);});
 }
 function renderPayouts(){
@@ -1155,39 +1157,56 @@ const SALARY_DEFAULTS=[{person:"Daoud",role:"Full-time",amt:500},{person:"Arafa"
 function endOfMonthISO(){const d=new Date();const e=new Date(d.getFullYear(),d.getMonth()+1,0);return e.toISOString().slice(0,10);}
 // current month on a given day (clamped to the month's last day), used as the default salary issue date
 function issueDayISO(day){const d=new Date();const y=d.getFullYear(),m=d.getMonth();const last=new Date(y,m+1,0).getDate();const dd=Math.min(day,last);return `${y}-${String(m+1).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;}
-function salRowHtml(r){r=r||{person:"",role:"",amt:""};return `<div class="slrow">
+function salRowHtml(r){r=r||{person:"",role:"",amt:""};return `<div class="slrow" data-id="${esc(r.id||'')}" data-status="${esc(r.status||'')}">
   <input class="sl_p" placeholder="Name" value="${esc(r.person||'')}">
   <select class="sl_r"><option value="">role</option>${opts(ROLES,r.role||"")}</select>
   <input class="sl_a" type="number" step="0.001" placeholder="KD" value="${r.amt!==''&&r.amt!=null?esc(r.amt):''}">
   <button class="ghost slx" title="Remove">✕</button></div>`;}
-function openSalaryNew(){
+function openSalaryEdit(g){openSalaryNew(g);}
+function openSalaryNew(g){
   if(!canWrite){toast("Read-only access");return;}
+  const edit=!!(g&&g.rows&&g.rows.length);
+  const initRows=edit?g.rows.map(m=>({id:m.id,person:m.partner||'',role:m.role||'',amt:Math.abs(+m.amt||0),status:m.status})):SALARY_DEFAULTS;
+  const dateVal=edit?(g.rows[0].date||g.ym+"-24"):issueDayISO(24);
+  const notesVal=edit?(g.rows[0].notes||''):'';
   $('modal').innerHTML=`<div class="sheet">
-    <div class="sheethead"><div><div class="id">Monthly salaries</div><h3>Add month's salaries</h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
+    <div class="sheethead"><div><div class="id">${edit?esc(monthLabel(g.ym)):"Monthly salaries"}</div><h3>${edit?"Edit month's salaries":"Add month's salaries"}</h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
     <div class="formgrid">
-      ${fld("Pay date (day of issue)",`<input type="date" id="sl_date" value="${issueDayISO(24)}">`)}
-      ${fld("Status",`<select id="sl_status">${opts(PAYOUT_STATUS,"Paid")}</select>`)}
+      ${fld("Pay date (day of issue)",`<input type="date" id="sl_date" value="${esc(dateVal)}">`)}
+      ${fld(edit?"Status for people you add":"Status",`<select id="sl_status">${opts(PAYOUT_STATUS,edit?"Pending":"Paid")}</select>`)}
     </div>
     <div class="formfull">
-      ${fld("People paid this month",`<div id="sl_rows">${SALARY_DEFAULTS.map(salRowHtml).join("")}</div><button class="ghost" id="sl_addrow" style="margin-top:8px">+ Add person</button>`)}
+      ${fld(edit?"People this month":"People paid this month",`<div id="sl_rows">${initRows.map(salRowHtml).join("")}</div><button class="ghost" id="sl_addrow" style="margin-top:8px">+ Add person</button>`)}
+      ${edit?'<div class="muted" style="font-size:12px;margin:2px 0 0">People already here keep their own paid or pending status. Change those from the list with each person\'s button.</div>':''}
       <div class="muted" id="sl_preview" style="margin:8px 0 0;font-size:12px"></div>
-      ${fld("Note (optional)",`<textarea id="sl_notes" rows="2"></textarea>`)}
+      ${fld("Note (optional)",`<textarea id="sl_notes" rows="2">${esc(notesVal)}</textarea>`)}
     </div>
-    <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Add month</button></div></div>`;
+    <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">${edit?"Save month":"Add month"}</button></div></div>`;
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   const preview=()=>{let t=0;document.querySelectorAll('.sl_a').forEach(a=>t+=Math.abs(parseFloat(a.value)||0));$('sl_preview').textContent="Month total · KD "+KD(t);};
   const wireRows=()=>{document.querySelectorAll('.slx').forEach(b=>b.onclick=()=>{if(document.querySelectorAll('.slrow').length>1)b.closest('.slrow').remove();preview();});document.querySelectorAll('.sl_a').forEach(a=>a.oninput=preview);preview();};
   wireRows();
   $('sl_addrow').onclick=()=>{$('sl_rows').insertAdjacentHTML('beforeend',salRowHtml());wireRows();};
-  $('mkSave').onclick=()=>{const date=$('sl_date').value||endOfMonthISO();const st=$('sl_status').value;const notes=$('sl_notes').value;const paid=(st==='Paid'?date:"");
+  $('mkSave').onclick=async()=>{const date=$('sl_date').value||issueDayISO(24);const newSt=$('sl_status').value;const notes=$('sl_notes').value;
     const ml=monthLabel(date.slice(0,7));
     const rowsEl=Array.from(document.querySelectorAll('.slrow'));
-    const entries=rowsEl.map(r=>({person:r.querySelector('.sl_p').value.trim(),role:r.querySelector('.sl_r').value,amt:parseFloat(r.querySelector('.sl_a').value)})).filter(e=>e.person&&!isNaN(e.amt)&&e.amt>0);
+    const entries=rowsEl.map(r=>({id:r.dataset.id||'',status:r.dataset.status||'',person:r.querySelector('.sl_p').value.trim(),role:r.querySelector('.sl_r').value,amt:parseFloat(r.querySelector('.sl_a').value)})).filter(e=>e.person&&!isNaN(e.amt)&&e.amt>0);
     if(!entries.length){toast("Add at least one person with an amount");return;}
-    let mx=0;store.money.forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});
-    const rows=entries.map((e,i)=>({id:"LDG-"+String(mx+1+i).padStart(4,"0"),date,acct:"",eng:"",dir:"Salary",cat:(e.role==="Freelance"?"Freelancer":"Salary"),partner:e.person,role:e.role,desc:`${e.person} ${ml} salary`,amt:-Math.abs(e.amt),status:st,due:"",paid,notes}));
-    createMany("money",rows);close();};
+    const mkRow=(e,id,st)=>({id,date,acct:"",eng:"",dir:"Salary",cat:(e.role==="Freelance"?"Freelancer":"Salary"),partner:e.person,role:e.role,desc:`${e.person} ${ml} salary`,amt:-Math.abs(e.amt),status:st,due:"",paid:(st==='Paid'?date:""),notes});
+    if(edit){
+      for(const e of entries.filter(x=>x.id)){const st=e.status||newSt;await write("money",e.id,mkRow(e,e.id,st));}
+      const newOnes=entries.filter(e=>!e.id);
+      if(newOnes.length){let mx=0;store.money.forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});
+        await createMany("money",newOnes.map((e,i)=>mkRow(e,"LDG-"+String(mx+1+i).padStart(4,"0"),newSt)));}
+      const kept=entries.filter(e=>e.id).map(e=>e.id);
+      const removed=(g.ids||[]).filter(id=>!kept.includes(id));
+      if(removed.length)await removeMany("money",removed);
+    }else{
+      let mx=0;store.money.forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});
+      await createMany("money",entries.map((e,i)=>mkRow(e,"LDG-"+String(mx+1+i).padStart(4,"0"),newSt)));
+    }
+    close();};
 }
 function openPayoutNew(){
   if(!canWrite){toast("Read-only access");return;}
