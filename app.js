@@ -42,7 +42,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v46 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v47 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -129,8 +129,8 @@ document.addEventListener('mousemove',e=>{const b=e.target.closest('[data-tip]')
 
 function fromDB(coll,r){ if(coll==='money'){const o=Object.assign({},r);o.desc=r.description;o.date=r.txn_date;return o;} if(coll==='templates'){const o=Object.assign({},r);o.dueDay=r.due_day;o.active=r.active?"Yes":"No";return o;} if(coll==='people'||coll==='services'){const o=Object.assign({},r);o.active=(r.active===false?"No":"Yes");return o;} return r; }
 function toDB(coll,obj){ const o=Object.assign({},obj);
-  if(coll==='money'){ if('desc' in o){o.description=o.desc;delete o.desc;} if('date' in o){o.txn_date=o.date||null;delete o.date;} ['due','paid','txn_date'].forEach(k=>{if(o[k]==='')o[k]=null;}); }
-  if(coll==='tasks'){ ['logged','due','done'].forEach(k=>{if(o[k]==='')o[k]=null;}); }
+  if(coll==='money'){ if('desc' in o){o.description=o.desc;delete o.desc;} if('date' in o){o.txn_date=o.date||null;delete o.date;} ['due','paid','txn_date','acct','eng'].forEach(k=>{if(o[k]==='')o[k]=null;}); }
+  if(coll==='tasks'){ ['logged','due','done','acct','eng','project','parent'].forEach(k=>{if(o[k]==='')o[k]=null;}); }
   if(coll==='templates'){ if('dueDay' in o){o.due_day=parseInt(o.dueDay)||1;delete o.dueDay;} if('active' in o){o.active=(o.active!=="No"&&o.active!==false);} }
   if(coll==='people'||coll==='services'){ if('active' in o){o.active=(o.active!=="No"&&o.active!==false);} }
   if(coll==='deals'){ ['contract_date','signed_date','close_date'].forEach(k=>{if(o[k]==='')o[k]=null;}); }
@@ -386,6 +386,7 @@ function drillMoney(tok){
   else if(tok==='pay'){set=store.money.filter(owedOut);title='Still to pay out · all dates';}
   else if(tok==='cashin'){set=store.money.filter(m=>m.dir==='Income'&&inPaid(m));title='Money in · '+rng;view='invoices';vlabel='Invoices';}
   else if(tok==='cashout'){set=store.money.filter(m=>(m.dir==='Expense'||m.dir==='Salary'||m.dir==='Payout')&&inPaid(m));title='Money out · '+rng;}
+  else if(tok==='billedout'){set=store.money.filter(m=>(m.dir==='Expense'||m.dir==='Salary'||m.dir==='Payout')&&!voided(m)&&inIssue(m));title='Costs billed · '+rng;}
   else {const[type,mode]=tok.split(':');const dir=dirOf[type];if(!dir)return;const rows=store.money.filter(m=>m.dir===dir);
     if(mode==='paid'){set=rows.filter(inPaid);title=labelOf[type]+' '+(type==='invoices'?'collected':'paid')+' · '+rng;}
     else{set=rows.filter(m=>!voided(m)&&inIssue(m));title=labelOf[type]+' issued · '+rng;}
@@ -412,6 +413,7 @@ function renderMoneyDash(){
   unpaid.forEach(m=>{const amt=+m.amt||0;if(!m.due||m.due>=todayISO){age.cur+=amt;return;}const d=daysBetween(m.due,todayISO);if(d<=30)age.b30+=amt;else if(d<=60)age.b60+=amt;else age.b60p+=amt;});
   const bankCls=S.bankBalance<0?'bad':'good';
   const settled=S.bankBalance+S.toCollect-S.toPayOut;
+  const billedOut=S.perType.expense.issued+S.perType.salary.issued+S.perType.payout.issued;
   $('view').innerHTML=`<div class="view">
     ${rangeBar(`<button class="ghost" id="repBtn">Export report</button>`)}
     <div class="kpis">
@@ -425,10 +427,19 @@ function renderMoneyDash(){
         ${ivpRow("Salaries",S.perType.salary.issued,S.perType.salary.paid,false,"salaries")}
         ${ivpRow("Payouts",S.perType.payout.issued,S.perType.payout.paid,false,"payouts")}
       </div>
-      <div class="cashline">
-        <span class="dmlink" data-dm="cashin"><span class="muted">Money in</span> <b class="pos">KD ${KD(S.cashIn)}</b></span>
-        <span class="dmlink" data-dm="cashout"><span class="muted">Money out</span> <b class="neg">KD ${KD(S.cashOut)}</b></span>
-        <span><span class="muted">Cashflow this range</span> <b class="${S.cashflow<0?'neg':'pos'}">KD ${KD(S.cashflow)}</b>${P?delta(S.cashflow,P.cashflow,true):''}</span>
+      <div class="cashtwo">
+        <div class="cashgrp">
+          <div class="cashhd">This month · billed, paid or not</div>
+          <span class="dmlink" data-dm="invoices:issued"><span class="muted">In</span> <b class="pos">KD ${KD(S.perType.income.issued)}</b></span>
+          <span class="dmlink" data-dm="billedout"><span class="muted">Out</span> <b class="neg">KD ${KD(billedOut)}</b></span>
+          <span><span class="muted">Cashflow</span> <b class="${S.accrualNet<0?'neg':'pos'}">KD ${KD(S.accrualNet)}</b>${P?delta(S.accrualNet,P.accrualNet,true):''}</span>
+        </div>
+        <div class="cashgrp">
+          <div class="cashhd">Actually in the bank · cash moved</div>
+          <span class="dmlink" data-dm="cashin"><span class="muted">Collected</span> <b class="pos">KD ${KD(S.cashIn)}</b></span>
+          <span class="dmlink" data-dm="cashout"><span class="muted">Paid out</span> <b class="neg">KD ${KD(S.cashOut)}</b></span>
+          <span><span class="muted">To bank</span> <b class="${S.cashflow<0?'neg':'pos'}">KD ${KD(S.cashflow)}</b></span>
+        </div>
       </div>
     </div>
     <div class="panel"><h2>Billed over time</h2><div class="body">${series.length?vbars(series,'kd'):'<div class="muted">No income in range</div>'}</div></div>
@@ -768,7 +779,7 @@ function firstOfNextMonth(iso){return shiftMonths(iso.slice(0,7)+"-01",1);}
 function isRetainerInv(m){return m.dir==="Income"&&(m.income_type==="Retainer"||/support plan/i.test(m.desc||""));}
 function retainerInvoicesDue(){
   const due=[]; const curFirst=todayISO.slice(0,7)+"-01";
-  store.accounts.filter(a=>Math.abs(+a.retainer_fee||0)>0).forEach(a=>{
+  store.accounts.filter(a=>Math.abs(+a.retainer_fee||0)>0&&a.lifecycle!=="Churned"&&a.lifecycle!=="Lost").forEach(a=>{
     const fee=Math.abs(+a.retainer_fee);
     const rets=store.money.filter(m=>m.acct===a.id&&isRetainerInv(m));
     let d = rets.length ? firstOfNextMonth(rets.reduce((mx,m)=>((m.date||"")>mx?(m.date||""):mx),"")) : curFirst;
@@ -793,7 +804,7 @@ async function generateRetainerInvoices(){
 function renderRetainers(){
   const ym=todayISO.slice(0,7);
   const fee=a=>Math.abs(+a.retainer_fee||0);
-  const rets=store.accounts.filter(a=>fee(a)>0);
+  const rets=store.accounts.filter(a=>fee(a)>0&&a.lifecycle!=="Churned"&&a.lifecycle!=="Lost");
   const monthCost=id=>Math.abs(store.money.filter(m=>m.acct===id&&(m.dir==="Expense"||m.dir==="Salary"||m.dir==="Payout")&&(m.date||"").slice(0,7)===ym).reduce((s,m)=>s+(+m.amt||0),0));
   const monthColl=id=>store.money.filter(m=>m.acct===id&&m.dir==="Income"&&m.status==="Paid"&&(m.paid||m.date||"").slice(0,7)===ym).reduce((s,m)=>s+(+m.amt||0),0);
   const billedThis=id=>store.money.some(m=>m.acct===id&&m.dir==="Income"&&!voided(m)&&(m.date||"").slice(0,7)===ym);
