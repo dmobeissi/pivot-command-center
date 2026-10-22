@@ -42,7 +42,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v47 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v48 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -361,6 +361,34 @@ function ivpRow(label,issued,paid,collect,type){
     <div class="ivpfoot"><span class="muted">${pct}% ${collect?'collected':'paid'}</span><span class="muted">${left>0?('KD '+KD(left)+(collect?' to collect':' to pay')):'all settled'}</span></div>
   </div>`;
 }
+// cash-position waterfall: bank now, minus what's committed (pending out), the free cash that leaves,
+// plus what's expected in, and the projected balance. Floating bars, drillable where it makes sense.
+function cashWaterfall(items){
+  let run=0;const segs=[];
+  for(const it of items){
+    if(it.type==='start'){segs.push({l:it.l,from:0,to:it.v,v:it.v,k:'start',end:it.v,dm:it.dm});run=it.v;}
+    else if(it.type==='down'){const nx=run-Math.abs(it.v);segs.push({l:it.l,from:run,to:nx,v:-Math.abs(it.v),k:'down',end:nx,dm:it.dm});run=nx;}
+    else if(it.type==='up'){const nx=run+Math.abs(it.v);segs.push({l:it.l,from:run,to:nx,v:Math.abs(it.v),k:'up',end:nx,dm:it.dm});run=nx;}
+    else{segs.push({l:it.l,from:0,to:run,v:run,k:'total',end:run,dm:it.dm});}
+  }
+  const vals=segs.flatMap(s=>[s.from,s.to]);
+  const hi=Math.max(0,...vals),lo=Math.min(0,...vals),rng=(hi-lo)||1;
+  const n=segs.length,bw=54,gap=28,W=Math.max(300,n*bw+(n+1)*gap),H=150,pad=22;
+  const Y=v=>pad+(H-2*pad)*((hi-v)/rng);
+  const colFor={start:'var(--accent)',down:'var(--bad)',up:'var(--good)',total:'var(--muted)'};
+  let bars='',conn='',labs='';
+  segs.forEach((s,i)=>{
+    const x=gap+i*(bw+gap);
+    const yTop=Y(Math.max(s.from,s.to)),yBot=Y(Math.min(s.from,s.to)),h=Math.max(3,yBot-yTop);
+    const dm=s.dm?` class="dmlink" data-dm="${s.dm}"`:'';
+    bars+=`<rect${dm} x="${x}" y="${yTop}" width="${bw}" height="${h}" rx="3" fill="${colFor[s.k]}" opacity="${s.k==='total'?0.8:0.92}"/>`;
+    labs+=`<text x="${x+bw/2}" y="${yTop-6}" text-anchor="middle" font-size="11" font-weight="600" font-family="var(--mono)" fill="var(--ink)">${s.v<0?'-':(s.k==='up'?'+':'')}${kShort(Math.abs(s.v))}</text>`;
+    (s.l.split(' ').length>1?[s.l.split(' ').slice(0,2).join(' '),s.l.split(' ').slice(2).join(' ')]:[s.l]).filter(Boolean).forEach((ln,j)=>{labs+=`<text x="${x+bw/2}" y="${H+13+j*12}" text-anchor="middle" font-size="10" fill="var(--muted)">${esc(ln)}</text>`;});
+    if(i<n-1){const nx=gap+(i+1)*(bw+gap);conn+=`<line x1="${x+bw}" y1="${Y(s.end)}" x2="${nx}" y2="${Y(s.end)}" stroke="var(--line)" stroke-dasharray="3 3"/>`;}
+  });
+  return `<svg viewBox="0 0 ${W} ${H+34}" width="100%" preserveAspectRatio="xMidYMid meet" style="max-width:100%;height:auto">
+    <line x1="0" y1="${Y(0)}" x2="${W}" y2="${Y(0)}" stroke="var(--line)"/>${conn}${bars}${labs}</svg>`;
+}
 // popup listing the exact items behind a dashboard number, with a button into the full list
 function drillList(title,rows,viewKey,viewLabel){
   rows=[...rows].sort((a,b)=>(((b.paid||b.date||'')+'').localeCompare((a.paid||a.date||''))));
@@ -414,11 +442,24 @@ function renderMoneyDash(){
   const bankCls=S.bankBalance<0?'bad':'good';
   const settled=S.bankBalance+S.toCollect-S.toPayOut;
   const billedOut=S.perType.expense.issued+S.perType.salary.issued+S.perType.payout.issued;
+  const pendSal=Math.abs(store.money.filter(m=>m.dir==='Salary'&&m.status!=='Paid'&&!voided(m)).reduce((s,m)=>s+(+m.amt||0),0));
+  const pendOther=Math.max(0,S.toPayOut-pendSal);
+  const freeCash=S.bankBalance-S.toPayOut;
+  const wf=[{l:'In bank now',v:S.bankBalance,type:'start',dm:''}];
+  if(pendSal>0)wf.push({l:'Pending salaries',v:pendSal,type:'down',dm:'pay'});
+  if(pendOther>0)wf.push({l:'Pending other',v:pendOther,type:'down',dm:'pay'});
+  wf.push({l:'Free cash',type:'total'});
+  if(S.toCollect>0)wf.push({l:'To collect',v:S.toCollect,type:'up',dm:'collect'});
+  wf.push({l:'If all clears',type:'total'});
   $('view').innerHTML=`<div class="view">
     ${rangeBar(`<button class="ghost" id="repBtn">Export report</button>`)}
     <div class="kpis">
       <div class="kpi ${bankCls}" style="grid-column:span 2"><span class="lab">Bank balance · actual cash now</span><span class="val valbig">KD ${KD(S.bankBalance)}</span><span class="kdelta muted">If everything owed clears: KD ${KD(settled)}</span><span class="bar"></span></div>
       <div class="kpiclick" data-dm="collect">${kpi("Still to collect","KD "+KD(S.toCollect),"warn")}</div><div class="kpiclick" data-dm="pay">${kpi("Still to pay out","KD "+KD(S.toPayOut),"bad")}</div>
+    </div>
+    <div class="panel"><h2>Cash position <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">· what's in the bank and what's already spoken for</span></h2>
+      <div class="body" style="overflow-x:auto">${cashWaterfall(wf)}</div>
+      <div class="rowcount"><b class="${freeCash<0?'neg':'pos'}">KD ${KD(freeCash)}</b> free after pending salaries and bills${pendSal>0?` (KD ${KD(pendSal)} of salaries still to go out)`:''} · KD ${KD(S.toCollect)} expected in</div>
     </div>
     <div class="panel"><h2>Issued vs paid <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">· ${esc(R.from)} → ${esc(R.to==='9999-12-31'?'now':R.to)} · click a number to see which</span></h2>
       <div class="ivpwrap">
