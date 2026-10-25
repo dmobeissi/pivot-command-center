@@ -370,7 +370,9 @@ th.thsort:hover{color:var(--accent)}
 .colmenu .cmsearch{width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--ink);font-size:12px}
 .colmenu .cmall{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);padding:2px 4px}
 .colmenu .cmlist{max-height:200px;overflow:auto;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:8px;padding:4px}
-.colmenu .cmrow{display:flex;align-items:center;gap:7px;padding:4px 6px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.colmenu .cmrow{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:6px;cursor:pointer;min-height:28px;line-height:1.3}
+.colmenu .cmrow input{flex:0 0 auto}
+.colmenu .cmrowtxt{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .colmenu .cmrow:hover{background:var(--surface-2)}
 .colmenu .cmfoot{display:flex;align-items:center;gap:8px;padding-top:2px}
 .colmenu .cmfoot .btn{padding:6px 14px;font-size:12px}
