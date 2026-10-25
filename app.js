@@ -43,7 +43,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v59 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v60 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -137,7 +137,7 @@ document.addEventListener('mousemove',e=>{const b=e.target.closest('[data-tip]')
 
 function fromDB(coll,r){ if(coll==='money'){const o=Object.assign({},r);o.desc=r.description;o.date=r.txn_date;return o;} if(coll==='templates'){const o=Object.assign({},r);o.dueDay=r.due_day;o.active=r.active?"Yes":"No";return o;} if(coll==='people'||coll==='services'){const o=Object.assign({},r);o.active=(r.active===false?"No":"Yes");return o;} return r; }
 function toDB(coll,obj){ const o=Object.assign({},obj);
-  if(coll==='money'){ if('desc' in o){o.description=o.desc;delete o.desc;} if('date' in o){o.txn_date=o.date||null;delete o.date;} ['due','paid','txn_date','acct','eng','logged'].forEach(k=>{if(o[k]==='')o[k]=null;}); }
+  if(coll==='money'){ if('desc' in o){o.description=o.desc;delete o.desc;} if('date' in o){o.txn_date=o.date||null;delete o.date;} ['due','paid','txn_date','acct','eng','logged','proj_ref','inst_label'].forEach(k=>{if(o[k]==='')o[k]=null;}); ['inst_no','inst_count'].forEach(k=>{if(k in o)o[k]=(o[k]===''||o[k]==null)?null:(parseInt(o[k])||null);}); }
   if(coll==='tasks'){ ['logged','due','done','acct','eng','project','parent'].forEach(k=>{if(o[k]==='')o[k]=null;}); }
   if(coll==='templates'){ if('dueDay' in o){o.due_day=parseInt(o.dueDay)||1;delete o.dueDay;} if('active' in o){o.active=(o.active!=="No"&&o.active!==false);} }
   if(coll==='people'||coll==='services'){ if('active' in o){o.active=(o.active!=="No"&&o.active!==false);} }
@@ -1416,24 +1416,59 @@ function openInvoiceNew(){
       ${fld("Logged · service month",`<input type="date" id="mi_logged" value="${todayISO}">`)}
       ${fld("Issued",`<input type="date" id="mi_date" value="${todayISO}">`)}
       ${fld("Brand",`<select id="mi_acct">${brandOpts("")}</select>`)}
+      ${fld("Invoice type",`<select id="mi_income_type">${opts(INCOME_TYPES,"Project")}</select>`)}
       ${fld("Amount (KD)",`<input type="number" step="0.001" id="mi_amt" placeholder="0.000">`)}
       ${fld("Status",`<select id="mi_status">${opts(PAY,"Unpaid")}</select>`)}
       ${fld("Due",`<input type="date" id="mi_due">`)}
-      ${fld("Invoice type",`<select id="mi_income_type">${opts(INCOME_TYPES,"Project")}</select>`)}
     </div>
     <div class="formfull">
-      ${fld("Description",`<input id="mi_desc" placeholder="e.g. October retainer">`)}
+      ${fld("Description",`<input id="mi_desc" placeholder="e.g. Shopify setup // Product database">`)}
       ${fld("Note (optional)",`<textarea id="mi_notes" rows="2"></textarea>`)}
     </div>
-    <div class="muted" style="font-size:12px;padding:0 2px">Retainer: logged is the 1st of the service month, issued the 1st of the next month, due the 10th. Project: logged and issued are usually the same day.</div>
+    <label class="splittoggle"><input type="checkbox" id="mi_split"> <span>Split into installments</span> <span class="muted" style="font-weight:400">(projects paid in parts)</span></label>
+    <div id="mi_splitwrap" class="splitwrap" style="display:none">
+      <div class="muted" style="font-size:12px;margin-bottom:8px">Each part becomes its own linked invoice with its own number and paid date. The full schedule prints on every part.</div>
+      <div class="splitctrl">
+        <label>Project total (KD) <input type="number" step="0.001" id="mi_ptotal" placeholder="0.000"></label>
+        <label>Parts <select id="mi_parts"><option>2</option><option>3</option><option>4</option></select></label>
+        <button type="button" class="ghost" id="mi_even">Split evenly</button>
+      </div>
+      <div id="mi_partrows" class="partrows"></div>
+    </div>
+    <div class="muted" style="font-size:12px;padding:6px 2px 0">Retainer: logged is the 1st of the service month, issued the 1st of the next month, due the 10th. Project: logged and issued are usually the same day.</div>
     <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Add invoice</button></div>
   </div>`;
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
-  $('mkSave').onclick=()=>{const g=f=>{const el=$('mi_'+f);return el?el.value:"";};const amt=parseFloat(g('amt'));if(isNaN(amt)){toast("Enter an amount");return;}
-    create("money",nextId("money","LDG-",4),{date:g('date')||todayISO,logged:(g('logged')||g('date')||todayISO),acct:g('acct'),eng:"",dir:"Income",cat:"Client Payment",income_type:g('income_type')||"Project",desc:g('desc'),amt:Math.abs(amt),status:g('status'),due:g('due'),paid:"",notes:g('notes'),inv_no:nextInvNo()});close();};
+  const DEFLBL=["Advance","On delivery","Milestone 3","Milestone 4"];
+  const partRow=(i)=>`<div class="partrow">
+    <input class="pp_label" placeholder="${DEFLBL[i]||('Part '+(i+1))}" value="${DEFLBL[i]||('Part '+(i+1))}">
+    <input type="number" step="0.001" class="pp_amt" placeholder="0.000">
+    <input type="date" class="pp_due" title="Due date">
+    <select class="pp_status">${opts(PAY,"Unpaid")}</select>
+  </div>`;
+  const drawParts=()=>{const n=parseInt($('mi_parts').value)||2;$('mi_partrows').innerHTML=`<div class="partrow phead"><span>Label</span><span>Amount (KD)</span><span>Due</span><span>Status</span></div>`+Array.from({length:n},(_,i)=>partRow(i)).join("");};
+  const splitEvenly=()=>{const n=parseInt($('mi_parts').value)||2;const tot=Math.round((parseFloat($('mi_ptotal').value)||0)*1000);if(tot<=0)return;const base=Math.floor(tot/n);const amts=Array.from({length:n},(_,i)=>i===n-1?(tot-base*(n-1)):base);document.querySelectorAll('#mi_partrows .pp_amt').forEach((el,i)=>{el.value=(amts[i]/1000).toFixed(3);});};
+  $('mi_split').onchange=e=>{const on=e.target.checked;$('mi_splitwrap').style.display=on?'block':'none';$('mi_amt').disabled=on;$('mi_status').disabled=on;$('mi_due').disabled=on;if(on&&!$('mi_partrows').innerHTML)drawParts();};
+  $('mi_parts').onchange=drawParts;$('mi_even').onclick=splitEvenly;
+  $('mkSave').onclick=()=>{const g=f=>{const el=$('mi_'+f);return el?el.value:"";};
+    const common={logged:(g('logged')||g('date')||todayISO),acct:g('acct'),eng:"",dir:"Income",cat:"Client Payment",income_type:g('income_type')||"Project",desc:g('desc'),notes:g('notes')};
+    const issued=g('date')||todayISO;
+    if($('mi_split')&&$('mi_split').checked){
+      const rows=[...document.querySelectorAll('#mi_partrows .partrow:not(.phead)')].map(r=>({label:r.querySelector('.pp_label').value.trim(),amt:parseFloat(r.querySelector('.pp_amt').value),due:r.querySelector('.pp_due').value,status:r.querySelector('.pp_status').value}));
+      if(rows.some(r=>isNaN(r.amt)||r.amt<=0)){toast("Give every part an amount");return;}
+      const n=rows.length,ref=nextProjRef(),invs=nextInvNos(n),ids=nextIds("money","LDG-",4,n);
+      const payload=rows.map((r,i)=>Object.assign({},common,{id:ids[i],date:issued,amt:Math.abs(r.amt),status:r.status,due:r.due,paid:r.status==='Paid'?issued:"",inv_no:invs[i],proj_ref:ref,inst_no:i+1,inst_count:n,inst_label:r.label}));
+      createMany("money",payload);close();return;
+    }
+    const amt=parseFloat(g('amt'));if(isNaN(amt)){toast("Enter an amount");return;}
+    create("money",nextId("money","LDG-",4),Object.assign({},common,{date:issued,amt:Math.abs(amt),status:g('status'),due:g('due'),paid:g('status')==='Paid'?issued:""}));close();};
 }
 function nextInvNo(){let mx=0;store.money.forEach(m=>{const g=String(m.inv_no||'').match(/INV-(\d+)/);if(g)mx=Math.max(mx,+g[1]);});return "INV-"+String(mx+1).padStart(4,"0");}
+function nextInvNos(n){let mx=0;store.money.forEach(m=>{const g=String(m.inv_no||'').match(/INV-(\d+)/);if(g)mx=Math.max(mx,+g[1]);});return Array.from({length:n},(_,i)=>"INV-"+String(mx+1+i).padStart(4,"0"));}
+function nextIds(coll,prefix,pad,n){let mx=0;store[coll].forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});return Array.from({length:n},(_,i)=>prefix+String(mx+1+i).padStart(pad,"0"));}
+function nextProjRef(){let mx=0;store.money.forEach(m=>{const g=String(m.proj_ref||'').match(/PRJ-(\d+)/);if(g)mx=Math.max(mx,+g[1]);});return "PRJ-"+String(mx+1).padStart(4,"0");}
+function projSibs(m){return (m&&m.proj_ref)?store.money.filter(x=>x.proj_ref===m.proj_ref&&x.dir==='Income').sort((a,b)=>((+a.inst_no||0)-(+b.inst_no||0))||String(a.inv_no||'').localeCompare(String(b.inv_no||''))):[];}
 // ---------- invoice PDF (print to PDF, three templates by income type) ----------
 const PIVOT_CO={name:"The Pivot Strategy",tagline:"Shaping Tomorrow, Today",city:"Kuwait",email:"info@thepivotstrategy.com",web:"www.thepivotstrategy.com"};
 function fmtDate(iso){if(!iso)return"";const MM=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];const p=(iso||"").split("-");return p.length>=3?`${p[2]} ${MM[(+p[1]||1)-1]} ${p[0]}`:iso;}
@@ -1444,53 +1479,84 @@ function invoiceHTML(m,acct){
   const invno="PVT-"+(m.inv_no||m.id);
   const paid=m.status==="Paid";const amt=Math.abs(+m.amt||0);
   const svcMonth=m.logged?monthLabel(String(m.logged).slice(0,7)):"";
-  const typeLine={retainer:"Retainer"+(svcMonth?" / "+svcMonth:""),oneoff:"One-off work",project:"Project"}[tmpl];
+  // installment context (linked project parts)
+  const sibs=projSibs(m);const isInst=(sibs.length>1)&&(+m.inst_count>1);
+  const projTotal=isInst?sibs.reduce((a,s)=>a+Math.abs(+s.amt||0),0):amt;
+  const paidToDate=isInst?sibs.filter(s=>s.status==="Paid").reduce((a,s)=>a+Math.abs(+s.amt||0),0):(paid?amt:0);
+  const instTag=isInst?`Installment ${m.inst_no} of ${m.inst_count}`:"";
+  const typeLine=tmpl==="retainer"?("Retainer"+(svcMonth?" · "+svcMonth:""))
+    :tmpl==="oneoff"?"One-off work"
+    :("Project"+(isInst?" · "+instTag:""));
   let note;
   if(tmpl==="retainer")note=`This invoice is the monthly retainer fee${svcMonth?` for ${svcMonth}`:""}. Payment is due in full upon receipt.`;
+  else if(isInst)note=`This is ${instTag.toLowerCase()} for the project below, which totals KWD ${KD(projTotal)}. Payment for this installment is due upon receipt.`;
   else if(tmpl==="oneoff")note=`This invoice covers the one-off work listed below. Payment is due upon receipt.`;
   else note=`This invoice covers the project work listed below. Payment is due upon receipt.`;
   const parts=String(m.desc||type+" services").split("//").map(x=>x.trim()).filter(Boolean);
   const mainDesc=parts[0]||(type+" services");
   const subs=parts.slice(1);
   const addrHTML=String(acct.bill_addr||"").split(/\r?\n/).map(x=>x.trim()).filter(Boolean).map(esc).join("<br>");
-  const billed=`<b>${esc(acct.brand||"Client")}</b>`
+  const company=acct.bill_company||acct.brand||"Client";
+  const billed=`<b>${esc(company)}</b>`
     +(addrHTML?`<br>${addrHTML}`:"")
     +(acct.country?`<br>${esc(acct.country)}`:"")
     +(acct.bill_attn?`<br>Attn: ${esc(acct.bill_attn)}`:"")
-    +(acct.bill_tel?`<br>Tel: ${esc(acct.bill_tel)}`:"");
+    +(acct.bill_tel?`<br>Tel: ${esc(acct.bill_tel)}`:"")
+    +(acct.bill_email?`<br>${esc(acct.bill_email)}`:"")
+    +(acct.bill_reg?`<br>CR/Reg: ${esc(acct.bill_reg)}`:"");
+  const schedHTML=isInst?`<div class="sched">
+      <div class="k" style="margin-bottom:7px">Payment schedule</div>
+      <table class="schtab"><tbody>${sibs.map(s=>{const sp=s.status==="Paid";const cur=s.id===m.id;return `<tr class="${cur?'cur':''}">
+        <td class="n">${s.inst_no} &nbsp;${esc(s.inst_label||('Installment '+s.inst_no))}${cur?' <span class="thisone">this invoice</span>':''}</td>
+        <td class="dt">${sp?('Paid'+(s.paid?' '+esc(fmtDate(s.paid)):'')):(s.due?'Due '+esc(fmtDate(s.due)):'Due on receipt')}</td>
+        <td class="amt">KWD ${KD(Math.abs(+s.amt||0))}</td>
+        <td class="st"><span class="chip ${sp?'paid':'due'}">${sp?'PAID':'DUE'}</span></td></tr>`;}).join("")}</tbody></table>
+      <div class="schfoot">Project total <b>KWD ${KD(projTotal)}</b> &nbsp;·&nbsp; Paid to date KWD ${KD(paidToDate)} &nbsp;·&nbsp; Balance <b>KWD ${KD(projTotal-paidToDate)}</b></div>
+    </div>`:"";
+  const totalLabel=isInst?"Total due now":"Total due";
   const css=`@page{size:A4;margin:0}*{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'Helvetica Neue',Arial,sans-serif;color:#141414;font-size:12px;line-height:1.5;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .page{width:210mm;min-height:297mm;margin:0 auto;position:relative;padding-bottom:40mm}
   .hdr{background:#0b0b0d;color:#fff;padding:20mm 16mm 9mm;display:flex;justify-content:space-between;align-items:flex-end}
-  .hdr .inv{font-size:34px;font-weight:800;letter-spacing:1px}
+  .hdr .inv{font-size:34px;font-weight:800;letter-spacing:1px;display:flex;align-items:center;gap:14px}
+  .hchip{font-size:11px;font-weight:800;letter-spacing:.08em;padding:5px 13px;border-radius:999px}
+  .hchip.paid{background:#1aa14c;color:#fff}.hchip.due{background:transparent;color:#fff;border:1.5px solid rgba(255,255,255,.55)}
   .hdr .co{text-align:right;font-size:11px;opacity:.82;line-height:1.5}
   .hdr .co b{font-size:15px;display:block;letter-spacing:1px;opacity:1}
-  .meta{display:flex;margin:0 16mm;padding:10px 0;border-bottom:1px solid #e7e7ea}
+  .meta{display:flex;margin:0 16mm;padding:11px 0;border-bottom:1px solid #e7e7ea}
   .meta>div{flex:1;padding:0 14px;border-left:1px solid #ededf0}.meta>div:first-child{padding-left:0;border-left:0}
   .k{font-size:9px;letter-spacing:.09em;text-transform:uppercase;color:#8a8d94;font-weight:700}
-  .meta .v{font-size:13px;font-weight:600;font-style:italic;margin-top:3px}
-  .chip{display:inline-block;font-size:9.5px;font-weight:800;letter-spacing:.06em;padding:3px 10px;border-radius:999px;vertical-align:middle;margin-left:8px}
-  .chip.paid{background:#157F3C;color:#fff}.chip.due{background:#141414;color:#fff}
+  .meta .v{font-size:13px;font-weight:600;font-style:italic;margin-top:4px}
   .parties{display:flex;gap:14mm;margin:9mm 16mm 0}.parties .col{flex:1}
   .lbl{font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:800;border-bottom:1px solid #141414;padding-bottom:4px;margin-bottom:8px}
+  .party{line-height:1.6}
   .note{margin:8mm 16mm 0;background:#f4f4f6;border-left:3px solid #141414;padding:11px 14px;font-size:12px}
   table.items{width:calc(100% - 32mm);margin:8mm 16mm 0;border-collapse:collapse}
   table.items th{background:#141414;color:#fff;text-align:left;padding:9px 14px;font-size:10px;letter-spacing:.06em;text-transform:uppercase}
   table.items th.amt,table.items td.amt{text-align:right;white-space:nowrap}
   table.items td{padding:12px 14px;border-bottom:1px solid #ededf0;font-style:italic;color:#333;vertical-align:top}
   .subs{list-style:none;margin:5px 0 0;padding:0;font-size:10.5px;color:#777;font-style:normal}.subs li:before{content:"– "}
-  .totals{display:flex;justify-content:flex-end;margin:6mm 16mm 0}.totbox{width:74mm}
+  .sched{margin:7mm 16mm 0}
+  table.schtab{width:100%;border-collapse:collapse;font-size:11.5px}
+  table.schtab td{padding:8px 12px;border-bottom:1px solid #ededf0;vertical-align:middle}
+  table.schtab td.n{font-weight:600}table.schtab td.dt{color:#777}table.schtab td.amt{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}table.schtab td.st{text-align:right;width:70px}
+  table.schtab tr.cur td{background:#f4f4f6}
+  .thisone{display:inline-block;font-size:8.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#555;border:1px solid #cfcfd4;border-radius:999px;padding:1px 7px;margin-left:7px;vertical-align:middle}
+  .chip{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.06em;padding:3px 9px;border-radius:999px}
+  .chip.paid{background:#1aa14c;color:#fff}.chip.due{background:#141414;color:#fff}
+  .schfoot{margin-top:9px;font-size:11.5px;color:#444;text-align:right}
+  .totals{display:flex;justify-content:flex-end;margin:7mm 16mm 0}.totbox{width:78mm}
   .tr{display:flex;justify-content:space-between;padding:6px 14px;font-size:12px}
-  .tr.grand{background:#141414;color:#fff;font-weight:800;font-size:14px;margin-top:5px}
+  .tr.grand{background:#141414;color:#fff;font-weight:800;font-size:13.5px;margin-top:5px}
   .duedate{margin:7mm 16mm 0;font-size:12px;color:#444}
   .foot{position:absolute;bottom:0;left:0;right:0;padding:0 16mm}
   .thanks b{font-size:13px}.thanks p{color:#555;margin-top:2px}
   .botline{border-top:1px solid #141414;margin-top:7mm;padding:7px 0 9mm;text-align:center;font-size:9.5px;color:#9a9ca2;letter-spacing:.02em}`;
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(invno)} ${esc(acct.brand||"")}</title><style>${css}</style></head><body><div class="page">
-    <div class="hdr"><div class="inv">INVOICE</div><div class="co"><b>PIVOT</b>${esc(PIVOT_CO.name)}<br>${esc(PIVOT_CO.city)} · ${esc(PIVOT_CO.email)}</div></div>
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(invno)} ${esc(company)}</title><style>${css}</style></head><body><div class="page">
+    <div class="hdr"><div class="inv">INVOICE<span class="hchip ${paid?'paid':'due'}">${paid?'PAID':'DUE'}</span></div><div class="co"><b>PIVOT</b>${esc(PIVOT_CO.name)}<br>${esc(PIVOT_CO.city)} · ${esc(PIVOT_CO.email)}</div></div>
     <div class="meta">
-      <div><div class="k">Invoice No.</div><div class="v">${esc(invno)}<span class="chip ${paid?'paid':'due'}">${paid?'PAID':'DUE'}</span></div></div>
-      <div><div class="k">Issued</div><div class="v">${esc(fmtDate(m.date))}</div></div>
+      <div><div class="k">Invoice No.</div><div class="v">${esc(invno)}</div></div>
+      <div><div class="k">Issued</div><div class="v">${esc(m.date?fmtDate(m.date):'—')}</div></div>
       <div><div class="k">Due</div><div class="v">${esc(m.due?fmtDate(m.due):'On receipt')}</div></div>
       <div><div class="k">Type</div><div class="v">${esc(typeLine)}</div></div>
     </div>
@@ -1501,15 +1567,16 @@ function invoiceHTML(m,acct){
     <div class="note">${esc(note)}</div>
     <table class="items"><thead><tr><th>Description</th><th class="amt">Amount (KWD)</th></tr></thead>
       <tbody><tr><td>${esc(mainDesc)}${subs.length?`<ul class="subs">${subs.map(s=>`<li>${esc(s)}</li>`).join("")}</ul>`:""}</td><td class="amt">${KD(amt)}</td></tr></tbody></table>
+    ${schedHTML}
     <div class="totals"><div class="totbox">
       <div class="tr"><span>Subtotal</span><span>KWD ${KD(amt)}</span></div>
-      <div class="tr"><span>Sales tax</span><span>0% — 0.000</span></div>
-      <div class="tr grand"><span>Total due</span><span>KWD ${KD(amt)}</span></div>
+      <div class="tr"><span>Sales tax</span><span>0% · 0.000</span></div>
+      <div class="tr grand"><span>${esc(totalLabel)}</span><span>KWD ${KD(amt)}</span></div>
     </div></div>
-    <div class="duedate">${paid?`Paid${m.paid?` on ${esc(fmtDate(m.paid))}`:""}. Thank you.`:`Please settle by <b>${esc(m.due?fmtDate(m.due):'receipt')}</b>.`}</div>
+    <div class="duedate">${paid?`Paid${m.paid?` on ${esc(fmtDate(m.paid))}`:""}. Thank you.`:`Please settle ${isInst?'this installment ':''}by <b>${esc(m.due?fmtDate(m.due):'receipt')}</b>.`}</div>
     <div class="foot">
       <div class="thanks"><b>Thank you for choosing PIVOT.</b><p>We look forward to continuing to deliver results. Questions? ${esc(PIVOT_CO.email)}</p></div>
-      <div class="botline">${esc(PIVOT_CO.name)} — ${esc(PIVOT_CO.tagline)} · ${esc(PIVOT_CO.web)} · ${esc(PIVOT_CO.email)}</div>
+      <div class="botline">${esc(PIVOT_CO.name)} · ${esc(PIVOT_CO.tagline)} · ${esc(PIVOT_CO.web)} · ${esc(PIVOT_CO.email)}</div>
     </div>
   </div></body></html>`;
 }
@@ -1639,17 +1706,23 @@ function openAccountNew(){
       ${fld("Lifecycle",`<select id="ma_lifecycle">${opts(LIFE,"Lead")}</select>`)}
       ${fld("Parent account (optional)",`<select id="ma_parent">${accountOpts("","")}</select>`)}
       ${fld("Monthly retainer (KD, optional)",`<input type="number" step="0.001" id="ma_retainer_fee" placeholder="0 = not a retainer">`)}
-      ${fld("Billing contact (for invoices)",`<input id="ma_bill_attn" placeholder="e.g. Fadi Nicola">`)}
-      ${fld("Billing phone (for invoices)",`<input id="ma_bill_tel" placeholder="e.g. +965 6513 7513">`)}
     </div>
-    <div class="formfull">${fld("Billing address (for invoices)",`<textarea id="ma_bill_addr" rows="2" placeholder="Street, floor, area, city"></textarea>`)}</div>
+    <div class="secdiv">Billing details <span class="muted" style="font-weight:400">· printed on invoices</span></div>
+    <div class="formgrid">
+      ${fld("Company name on invoice",`<input id="ma_bill_company" placeholder="defaults to brand name">`)}
+      ${fld("Representative name",`<input id="ma_bill_attn" placeholder="e.g. Fadi Nicola">`)}
+      ${fld("Representative phone",`<input id="ma_bill_tel" placeholder="e.g. +965 6513 7513">`)}
+      ${fld("Representative email",`<input id="ma_bill_email" placeholder="e.g. fadi@client.com">`)}
+      ${fld("CR / registration no.",`<input id="ma_bill_reg" placeholder="optional">`)}
+    </div>
+    <div class="formfull">${fld("Company address",`<textarea id="ma_bill_addr" rows="2" placeholder="Street, floor, area, city"></textarea>`)}</div>
     <div class="formfull">${fld("Notes (optional)",`<textarea id="ma_notes" rows="2"></textarea>`)}</div>
     <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Add account</button></div>
   </div>`;
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   $('mkSave').onclick=()=>{const g=f=>{const el=$('ma_'+f);return el?el.value:"";};const brand=g('brand').trim();if(!brand){toast("Enter a brand name");return;}
-    create("accounts",nextId("accounts","ACC-",3),{brand,type:g('type'),country:g('country'),lifecycle:g('lifecycle'),parent:g('parent'),notes:g('notes'),date_added:todayISO,retainer_fee:Math.abs(parseFloat(g('retainer_fee'))||0),bill_addr:g('bill_addr'),bill_attn:g('bill_attn'),bill_tel:g('bill_tel')});close();};
+    create("accounts",nextId("accounts","ACC-",3),{brand,type:g('type'),country:g('country'),lifecycle:g('lifecycle'),parent:g('parent'),notes:g('notes'),date_added:todayISO,retainer_fee:Math.abs(parseFloat(g('retainer_fee'))||0),bill_company:g('bill_company'),bill_addr:g('bill_addr'),bill_attn:g('bill_attn'),bill_tel:g('bill_tel'),bill_email:g('bill_email'),bill_reg:g('bill_reg')});close();};
 }
 function openAccountEdit(id){
   const a=AMAP[id];if(!a)return;if(!canWrite){toast("Read-only access");return;}
@@ -1663,16 +1736,22 @@ function openAccountEdit(id){
       ${fld("Parent account",`<select id="ae_parent">${accountOpts(a.parent||"",a.id)}</select>`)}
       ${fld("Date added",`<input type="date" id="ae_date_added" value="${esc(a.date_added||'')}">`)}
       ${fld("Monthly retainer (KD)",`<input type="number" step="0.001" id="ae_retainer_fee" value="${a.retainer_fee!=null?esc(Math.abs(+a.retainer_fee)):''}" placeholder="0 = not a retainer">`)}
-      ${fld("Billing contact (for invoices)",`<input id="ae_bill_attn" value="${esc(a.bill_attn||'')}" placeholder="e.g. Fadi Nicola">`)}
-      ${fld("Billing phone (for invoices)",`<input id="ae_bill_tel" value="${esc(a.bill_tel||'')}" placeholder="e.g. +965 6513 7513">`)}
     </div>
-    <div class="formfull">${fld("Billing address (for invoices)",`<textarea id="ae_bill_addr" rows="2" placeholder="Street, floor, area, city">${esc(a.bill_addr||'')}</textarea>`)}</div>
+    <div class="secdiv">Billing details <span class="muted" style="font-weight:400">· printed on invoices</span></div>
+    <div class="formgrid">
+      ${fld("Company name on invoice",`<input id="ae_bill_company" value="${esc(a.bill_company||'')}" placeholder="defaults to brand name">`)}
+      ${fld("Representative name",`<input id="ae_bill_attn" value="${esc(a.bill_attn||'')}" placeholder="e.g. Fadi Nicola">`)}
+      ${fld("Representative phone",`<input id="ae_bill_tel" value="${esc(a.bill_tel||'')}" placeholder="e.g. +965 6513 7513">`)}
+      ${fld("Representative email",`<input id="ae_bill_email" value="${esc(a.bill_email||'')}" placeholder="e.g. fadi@client.com">`)}
+      ${fld("CR / registration no.",`<input id="ae_bill_reg" value="${esc(a.bill_reg||'')}" placeholder="optional">`)}
+    </div>
+    <div class="formfull">${fld("Company address",`<textarea id="ae_bill_addr" rows="2" placeholder="Street, floor, area, city">${esc(a.bill_addr||'')}</textarea>`)}</div>
     <div class="formfull">${fld("Notes",`<textarea id="ae_notes" rows="2">${esc(a.notes||'')}</textarea>`)}</div>
     <div class="sheetfoot">${canWrite?`<button class="ghost" id="mkDelete" style="color:var(--bad);border-color:var(--bad-soft)">Delete</button>`:""}<span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Save</button></div></div>`;
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   $('mkSave').onclick=async()=>{const g=f=>{const el=$('ae_'+f);return el?el.value:"";};
-    await write("accounts",id,{brand:g('brand'),type:g('type'),country:g('country'),lifecycle:g('lifecycle'),parent:g('parent'),date_added:g('date_added'),notes:g('notes'),retainer_fee:Math.abs(parseFloat(g('retainer_fee'))||0),bill_addr:g('bill_addr'),bill_attn:g('bill_attn'),bill_tel:g('bill_tel')});close();};
+    await write("accounts",id,{brand:g('brand'),type:g('type'),country:g('country'),lifecycle:g('lifecycle'),parent:g('parent'),date_added:g('date_added'),notes:g('notes'),retainer_fee:Math.abs(parseFloat(g('retainer_fee'))||0),bill_company:g('bill_company'),bill_addr:g('bill_addr'),bill_attn:g('bill_attn'),bill_tel:g('bill_tel'),bill_email:g('bill_email'),bill_reg:g('bill_reg')});close();};
   if($('mkDelete'))$('mkDelete').onclick=()=>{close();remove("accounts",id);};
 }
 function openReport(kind){

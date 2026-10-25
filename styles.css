@@ -385,3 +385,18 @@ th.thsort:hover{color:var(--accent)}
 .dgdot.bad{background:var(--bad)} .dgdot.warn{background:var(--warn)} .dgdot.good{background:var(--good)} .dgdot.muted{background:var(--muted)}
 .dgrow .t{display:flex;align-items:center}
 .dgrow:hover{background:var(--surface-2)}
+
+/* ---- invoice split helper + account section divider (v60) ---- */
+.secdiv{font-size:12px;font-weight:700;color:var(--ink);letter-spacing:.02em;margin:16px 0 10px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+.splittoggle{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink);font-weight:600;margin:14px 0 0;cursor:pointer}
+.splittoggle input{width:16px;height:16px;accent-color:var(--accent)}
+.splitwrap{margin-top:12px;background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:14px}
+.splitctrl{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px}
+.splitctrl label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);font-weight:600}
+.splitctrl input,.splitctrl select{font-family:var(--font);font-size:13px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-weight:400}
+.splitctrl #mi_even{align-self:flex-end}
+.partrows{display:flex;flex-direction:column;gap:8px}
+.partrow{display:grid;grid-template-columns:1.3fr 1fr 1fr 0.9fr;gap:8px;align-items:center}
+.partrow.phead{font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:700;gap:8px}
+.partrow input,.partrow select{font-family:var(--font);font-size:13px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-weight:400;min-width:0}
+@media(max-width:560px){.partrow{grid-template-columns:1fr 1fr}.partrow.phead{display:none}}
