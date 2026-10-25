@@ -34,7 +34,8 @@ const state={view:(()=>{try{return localStorage.getItem('pivot_view')||"dashboar
   cmp:(()=>{try{return localStorage.getItem('pivot_cmp')||'prev_period'}catch(e){return'prev_period'}})(),
   groups:(()=>{try{return JSON.parse(localStorage.getItem('pivot_nav2'))||{tasks:false,money:false}}catch(e){return{tasks:false,money:false}}})(),
   theme:(()=>{try{return localStorage.getItem('pivot_theme')||'system'}catch(e){return'system'}})(),
-  sortA:{k:"coll",dir:-1}};
+  sortA:{k:"coll",dir:-1},
+  msort:{},colF:{}};
 const todayISO=new Date().toISOString().slice(0,10);
 
 const $=id=>document.getElementById(id);
@@ -42,7 +43,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v53 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v54 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -600,12 +601,70 @@ function renderMoneyDash(){
 }
 
 function sortBy(arr,k,dir){return [...arr].sort((a,b)=>{let x=a[k],y=b[k];if(k==='amt'){x=+a.amt||0;y=+b.amt||0;}x=x==null?"":x;y=y==null?"":y;return x>y?dir:x<y?-dir:0;});}
-let _SS=null;
-function thhead(head){return head.map(h=>h[0]?`<th data-k="${h[0]}">${h[1]}${_SS&&_SS.k===h[0]?(_SS.dir>0?" \u25B2":" \u25BC"):""}</th>`:"<th></th>").join("");}
+// ---- data tables: nested multi-sort + per-column Excel-style filter ----
+// default sort per table: the date first, then the entry sequence number, so same-date rows read in order
+const DEFSORT={invoices:[{k:'date',dir:-1},{k:'seq',dir:-1}],expenses:[{k:'date',dir:-1},{k:'seq',dir:-1}],tasks:[{k:'due',dir:1},{k:'seq',dir:1}],accounts:[{k:'date_added',dir:-1},{k:'seq',dir:-1}]};
+const NUMCOLS=new Set(['amt','coll','out','cost','margin','eng','open','price','retainer_fee','value','seq']);
+function seqOf(r){const m=String(r.inv_no||r.id||'').match(/(\d+)(?!.*\d)/);return m?+m[1]:0;}
+function colVal(r,k){ if(k==='seq')return seqOf(r); if(k==='brand')return brandOf(r.acct)||''; let v=r[k]; if(NUMCOLS.has(k))return +v||0; return v==null?'':String(v); }
+function sortByMulti(arr,keys){ return [...arr].sort((a,b)=>{ for(const s of keys){let x=colVal(a,s.k),y=colVal(b,s.k); if(typeof x==='string'||typeof y==='string'){x=(''+x).toLowerCase();y=(''+y).toLowerCase();} if(x<y)return -s.dir; if(x>y)return s.dir;} return 0; }); }
+function effSort(tbl){const m=state.msort[tbl];return (m&&m.length)?m:(DEFSORT[tbl]||[]);}
+function tableFilter(rows,tbl){const f=state.colF[tbl];if(!f)return rows;const ks=Object.keys(f).filter(k=>f[k]&&f[k].length);if(!ks.length)return rows;return rows.filter(r=>ks.every(k=>f[k].includes(String(colVal(r,k)))));}
+function arrange(rows,tbl){_TBL=tbl;return sortByMulti(tableFilter(rows,tbl),effSort(tbl));}
+function applyColSort(tbl,k,dir){let m=state.msort[tbl];if(!Array.isArray(m)||!m.length){m=[{k,dir}];}else{const i=m.findIndex(s=>s.k===k);if(i>=0)m[i].dir=dir;else m.push({k,dir});}state.msort[tbl]=m;}
+function removeColSort(tbl,k){const m=state.msort[tbl];if(Array.isArray(m)){state.msort[tbl]=m.filter(s=>s.k!==k);}}
+function distinctVals(rows,tbl,k){const f=state.colF[tbl]||{};const other=Object.keys(f).filter(x=>x!==k&&f[x]&&f[x].length);
+  const base=other.length?rows.filter(r=>other.every(x=>f[x].includes(String(colVal(r,x))))):rows;
+  const set=new Set(base.map(r=>String(colVal(r,k))));
+  return [...set].sort((a,b)=>{const na=+a,nb=+b;if(a!==''&&b!==''&&!isNaN(na)&&!isNaN(nb))return na-nb;return a.localeCompare(b);});}
+let _TBL=null;
+function thhead(head,tbl){if(tbl)_TBL=tbl;const t=_TBL;const keys=effSort(t);const manual=!!(state.msort[t]&&state.msort[t].length);
+  return head.map(h=>{if(!h[0])return "<th></th>";
+    const i=keys.findIndex(s=>s.k===h[0]);const s=i>=0?keys[i]:null;
+    const arrow=s?(s.dir>0?' \u25B2':' \u25BC'):'';
+    const pri=(manual&&keys.length>1&&i>=0)?`<sup class="thpri">${i+1}</sup>`:'';
+    const filt=(state.colF[t]&&state.colF[t][h[0]]&&state.colF[t][h[0]].length)?' <span class="thfilt" title="Filtered">\u25BC</span>':'';
+    return `<th data-k="${esc(h[0])}" data-lbl="${esc(h[1])}" class="thsort">${h[1]}${arrow}${pri}${filt}</th>`;}).join("");}
+function bindTable(tbl,baseRows,rerender){_TBL=tbl;
+  document.querySelectorAll('thead th[data-k]').forEach(th=>{th.onclick=e=>{e.stopPropagation();openColMenu(th,th.dataset.k,th.dataset.lbl||th.dataset.k,baseRows,tbl,rerender);};});}
+function openColMenu(th,k,label,baseRows,tbl,rerender){
+  closeColMenu();
+  const vals=distinctVals(baseRows,tbl,k);
+  const allowed=(state.colF[tbl]&&state.colF[tbl][k])?state.colF[tbl][k]:null; // null = all
+  const isOn=v=>!allowed||allowed.includes(v);
+  const m=document.createElement('div');m.className='colmenu';m.id='colmenu';
+  m.innerHTML=`
+    <div class="cmhd">${esc(label)}</div>
+    <div class="cmsort"><button class="ghost" data-s="asc">\u25B2 Sort ascending</button><button class="ghost" data-s="desc">\u25BC Sort descending</button></div>
+    <button class="cmlink" data-s="remove">Remove from sort</button>
+    <div class="cmsep"></div>
+    <input type="search" id="cmSearch" placeholder="Filter values" class="cmsearch">
+    <label class="cmall"><input type="checkbox" id="cmAll" ${!allowed?'checked':''}> Select all</label>
+    <div class="cmlist" id="cmList">${vals.map((v,idx)=>`<label class="cmrow"><input type="checkbox" class="cmv" value="${esc(v)}" ${isOn(v)?'checked':''}> ${v===''?'<span class="muted">(blank)</span>':esc(v)}</label>`).join('')||'<div class="muted" style="padding:6px">No values</div>'}</div>
+    <div class="cmfoot"><button class="cmlink" data-s="clearf">Clear filter</button><span style="flex:1"></span><button class="btn" data-s="apply">Apply</button></div>`;
+  document.body.appendChild(m);
+  const r=th.getBoundingClientRect();const mw=250;let left=Math.min(r.left,window.innerWidth-mw-8);left=Math.max(8,left);
+  m.style.left=left+'px';m.style.top=(r.bottom+4)+'px';
+  const close=closeColMenu;
+  const doSort=dir=>{applyColSort(tbl,k,dir);close();rerender();};
+  m.querySelector('[data-s="asc"]').onclick=()=>doSort(1);
+  m.querySelector('[data-s="desc"]').onclick=()=>doSort(-1);
+  m.querySelector('[data-s="remove"]').onclick=()=>{removeColSort(tbl,k);close();rerender();};
+  m.querySelector('[data-s="clearf"]').onclick=()=>{if(state.colF[tbl])delete state.colF[tbl][k];close();rerender();};
+  m.querySelector('[data-s="apply"]').onclick=()=>{const boxes=[...m.querySelectorAll('.cmv')];const checked=boxes.filter(b=>b.checked).map(b=>b.value);
+    if(!state.colF[tbl])state.colF[tbl]={};
+    if(checked.length===boxes.length){delete state.colF[tbl][k];}else{state.colF[tbl][k]=checked;}
+    close();rerender();};
+  const all=m.querySelector('#cmAll');all.onchange=()=>{m.querySelectorAll('.cmrow').forEach(row=>{if(row.style.display!=='none'){const cb=row.querySelector('.cmv');cb.checked=all.checked;}});};
+  m.querySelector('#cmSearch').oninput=e=>{const q=e.target.value.toLowerCase();m.querySelectorAll('.cmrow').forEach(row=>{const v=row.querySelector('.cmv').value.toLowerCase();row.style.display=v.includes(q)?'':'none';});};
+  setTimeout(()=>document.addEventListener('mousedown',colMenuOutside),0);
+}
+function colMenuOutside(e){const m=document.getElementById('colmenu');if(m&&!m.contains(e.target))closeColMenu();}
+function closeColMenu(){const m=document.getElementById('colmenu');if(m)m.remove();document.removeEventListener('mousedown',colMenuOutside);}
 
 function renderTasks(){
-  _SS=state.sortT;
-  let T=sortBy(applyQuick(tasksF()),state.sortT.k,state.sortT.dir);
+  const _base=applyQuick(tasksF());
+  let T=arrange(_base,'tasks');
   const cap=T.length>350?350:T.length;
   const chips=[["","All"],["open","Open"],["overdue","Overdue"],["week","Due this week"],["unassigned","Unassigned"],["high","High priority"],["done","Done"]];
   const head=[["id","ID"],["brand","Brand"],["name","Task"],["owner","Owner"],["priority","Priority"],["due","Due"],["status","Status"],["flag","Flag"],["",""]];
@@ -635,7 +694,7 @@ function renderTasks(){
   $('ntAdd').onclick=openTaskNew;
   if($('ntImport'))$('ntImport').onclick=openImportTasks;
   $('tExport').onclick=()=>{const nm="PIVOT tasks"+(F.brand?" - "+F.brand:"")+(F.quick?" ("+F.quick+")":"")+" "+todayISO+".csv";exportTasksCSV(T,nm);};
-  bindSort('sortT',renderTasks);
+  bindTable('tasks',_base,renderTasks);
 }
 
 function renderMyTasks(){
@@ -662,8 +721,8 @@ function renderMyTasks(){
 }
 
 function renderInvoices(){
-  _SS=state.sortM;
-  let M=sortBy(moneyF().filter(m=>m.dir==="Income"&&(!F.status||m.status===F.status)),state.sortM.k,state.sortM.dir);
+  const _base=moneyF().filter(m=>m.dir==="Income"&&(!F.status||m.status===F.status));
+  let M=arrange(_base,'invoices');
   const collected=M.filter(m=>m.status==="Paid").reduce((a,m)=>a+(+m.amt||0),0);
   const billed=M.filter(m=>!voided(m)).reduce((a,m)=>a+(+m.amt||0),0);
   const overdue=M.filter(m=>owed(m)&&m.due&&m.due<todayISO).reduce((a,m)=>a+(+m.amt||0),0);
@@ -688,12 +747,12 @@ function renderInvoices(){
     </div></div>`;
   if(pendingHL){const el=$('mrow-'+pendingHL);pendingHL="";if(el){el.classList.add('hlrow');el.scrollIntoView({block:'center',behavior:'smooth'});setTimeout(()=>el.classList.remove('hlrow'),3000);}}
   $('niAdd').onclick=openInvoiceNew;
-  bindSort('sortM',renderInvoices);
+  bindTable('invoices',_base,renderInvoices);
 }
 
 function renderExpenses(){
-  _SS=state.sortM;
-  let M=sortBy(moneyF().filter(m=>m.dir==="Expense"&&(!F.status||m.status===F.status)),state.sortM.k,state.sortM.dir);
+  const _base=moneyF().filter(m=>m.dir==="Expense"&&(!F.status||m.status===F.status));
+  let M=arrange(_base,'expenses');
   const total=Math.abs(M.filter(m=>!voided(m)).reduce((a,m)=>a+(+m.amt||0),0));
   const paid=Math.abs(M.filter(m=>m.status==="Paid").reduce((a,m)=>a+(+m.amt||0),0));
   const pending=Math.abs(M.filter(m=>owedOut(m)).reduce((a,m)=>a+(+m.amt||0),0));
@@ -732,7 +791,7 @@ function renderExpenses(){
   if($('reAdd'))$('reAdd').onclick=()=>openExpTemplateNew();
   if($('reGen'))$('reGen').onclick=generateDueExpenses;
   document.querySelectorAll('[data-etpl]').forEach(b=>b.onclick=()=>openExpTemplateEdit(b.dataset.etpl));
-  bindSort('sortM',renderExpenses);
+  bindTable('expenses',_base,renderExpenses);
 }
 // ----- recurring expenses -----
 function isoOf(y,m0,dd){return new Date(Date.UTC(y,m0,dd)).toISOString().slice(0,10);}
@@ -885,7 +944,6 @@ function renderPayouts(){
   document.querySelectorAll('.pydel').forEach(b=>b.onclick=()=>{const g=events.find(e=>e.batch===b.dataset.batch);if(!g)return;removeMany("money",g.ids);});
 }
 function renderAccounts(){
-  _SS=state.sortA;
   let rows=store.accounts.map(a=>{
     const open=store.tasks.filter(t=>t.acct===a.id&&t.status!=="Done").length;
     const coll=store.money.filter(m=>m.acct===a.id&&m.dir==="Income"&&m.status==="Paid").reduce((s,m)=>s+(+m.amt||0),0);
@@ -894,7 +952,7 @@ function renderAccounts(){
     const cost=Math.abs(store.money.filter(m=>m.acct===a.id&&(m.dir==="Expense"||m.dir==="Payout"||m.dir==="Salary")&&m.status==="Paid").reduce((s,m)=>s+(+m.amt||0),0));
     return Object.assign({open,coll,out,eng,cost,margin:coll-cost},a);
   }).filter(a=>(!F.brand||a.brand===F.brand)&&(!F.status||a.lifecycle===F.status)&&(!F.q||((a.id+" "+(a.brand||"")+" "+(a.country||"")+" "+(a.type||"")).toLowerCase().includes(F.q))));
-  rows=sortBy(rows,state.sortA.k,state.sortA.dir);
+  const _base=rows; rows=arrange(_base,'accounts');
   const ro=canWrite?"":"disabled";
   const head=[["id","ID"],["brand","Brand"],["country","Country"],["type","Type"],["lifecycle","Lifecycle"],["eng","Engagements"],["open","Open"],["coll","Collected"],["out","Outstanding"],["cost","Costs"],["margin","Margin"],["date_added","Added"]];
   $('view').innerHTML=`<div class="view"><div class="panel">
@@ -913,7 +971,7 @@ function renderAccounts(){
       <td class="muted">${esc(a.date_added||'')}</td></tr>`).join("")}</tbody></table></div>
     <div class="rowcount">${rows.length} accounts</div></div></div>`;
   if($('acAdd'))$('acAdd').onclick=openAccountNew;
-  bindSort('sortA',renderAccounts);
+  bindTable('accounts',_base,renderAccounts);
 }
 
 // ----- retainer invoicing -----
@@ -1582,8 +1640,8 @@ function openBrand(acctId){
   if($('mkBrandEdit'))$('mkBrandEdit').onclick=()=>openAccountEdit(acctId);
   if($('mkBrandExport'))$('mkBrandExport').onclick=()=>exportTasksCSV(tasks,("PIVOT tasks - "+a.brand+" "+todayISO+".csv"));
   const goBrand=view=>{F.brand=a.brand;if($('fBrand'))$('fBrand').value=a.brand;state.view=view;try{localStorage.setItem('pivot_view',view);}catch(_){}close();render();};
-  if($('vaTasks'))$('vaTasks').onclick=()=>{state.sortT={k:'logged',dir:-1};goBrand('tasks');};
-  if($('vaInv'))$('vaInv').onclick=()=>{state.sortM={k:'date',dir:-1};goBrand('invoices');};
+  if($('vaTasks'))$('vaTasks').onclick=()=>{state.msort.tasks=[{k:'logged',dir:-1},{k:'seq',dir:-1}];goBrand('tasks');};
+  if($('vaInv'))$('vaInv').onclick=()=>{state.msort.invoices=[{k:'date',dir:-1},{k:'seq',dir:-1}];goBrand('invoices');};
 }
 function renderDigest(){
   let open=store.tasks.filter(t=>t.status!=="Done");
@@ -1717,7 +1775,7 @@ $('fBrand').onchange=e=>{F.brand=e.target.value;render();};
 $('fTeam').onchange=e=>{F.team=e.target.value;render();};
 $('fStatus').onchange=e=>{F.status=e.target.value;render();};
 $('fSearch').oninput=e=>{F.q=e.target.value.toLowerCase().trim();render();};
-if($('fClear'))$('fClear').onclick=()=>{F.brand="";F.team="";F.status="";F.q="";F.quick="";['fBrand','fTeam','fStatus','fSearch'].forEach(id=>{const el=$(id);if(el)el.value="";});render();};
+if($('fClear'))$('fClear').onclick=()=>{F.brand="";F.team="";F.status="";F.q="";F.quick="";state.colF={};['fBrand','fTeam','fStatus','fSearch'].forEach(id=>{const el=$(id);if(el)el.value="";});render();};
 document.addEventListener('keydown',e=>{if(e.key==='/'&&!/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName||'')&&!$('modal').classList.contains('show')){e.preventDefault();const s=$('fSearch');if(s)s.focus();}});
 document.addEventListener('change',e=>{const el=e.target;if(el.classList&&el.classList.contains('edit')&&el.dataset.c){
   if(el.dataset.color)el.setAttribute('style',cstyle(el.dataset.color,el.value));

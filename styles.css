@@ -354,3 +354,23 @@ svg:hover .pieslice{opacity:.5}
 
 /* v53 toasts: readable multi-line errors that stay long enough to read */
 .toast{max-width:min(90vw,520px);white-space:normal;text-align:center;line-height:1.35;border-radius:16px}
+
+/* v54 sortable/filterable column headers + Excel-style menu */
+th.thsort{cursor:pointer;user-select:none;white-space:nowrap}
+th.thsort:hover{color:var(--accent)}
+.thpri{font-size:9px;color:var(--accent);font-weight:700;margin-left:1px}
+.thfilt{color:var(--accent);font-size:9px}
+.colmenu{position:fixed;z-index:80;width:250px;max-width:92vw;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:8px;display:flex;flex-direction:column;gap:6px;font-size:13px}
+.colmenu .cmhd{font-weight:700;padding:2px 4px;color:var(--ink)}
+.colmenu .cmsort{display:flex;gap:6px}
+.colmenu .cmsort .ghost{flex:1;font-size:12px;padding:6px 8px;justify-content:center}
+.colmenu .cmlink{background:none;border:0;color:var(--muted);text-align:left;font-size:12px;cursor:pointer;padding:2px 4px}
+.colmenu .cmlink:hover{color:var(--accent)}
+.colmenu .cmsep{height:1px;background:var(--line);margin:2px 0}
+.colmenu .cmsearch{width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--ink);font-size:12px}
+.colmenu .cmall{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);padding:2px 4px}
+.colmenu .cmlist{max-height:200px;overflow:auto;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:8px;padding:4px}
+.colmenu .cmrow{display:flex;align-items:center;gap:7px;padding:4px 6px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.colmenu .cmrow:hover{background:var(--surface-2)}
+.colmenu .cmfoot{display:flex;align-items:center;gap:8px;padding-top:2px}
+.colmenu .cmfoot .btn{padding:6px 14px;font-size:12px}
