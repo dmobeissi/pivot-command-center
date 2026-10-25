@@ -400,3 +400,14 @@ th.thsort:hover{color:var(--accent)}
 .partrow.phead{font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:700;gap:8px}
 .partrow input,.partrow select{font-family:var(--font);font-size:13px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-weight:400;min-width:0}
 @media(max-width:560px){.partrow{grid-template-columns:1fr 1fr}.partrow.phead{display:none}}
+
+/* Horizontal bar charts: one shared label column sized to the longest label (capped), so names are not cut short */
+.hbars{display:grid;grid-template-columns:fit-content(45%) minmax(48px,1fr) auto;column-gap:10px;row-gap:8px;align-items:center}
+.hbar-row{display:contents}
+.hbar-lab{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.hbar-track{display:block;background:var(--surface-2);border-radius:6px;overflow:hidden;min-width:0}
+.hbar-fill{display:block;height:14px;background:var(--accent);border-radius:6px}
+.hbar-val{text-align:right;white-space:nowrap}
+.hbar-row.drill:hover>*{filter:brightness(1.06)}
+.hbar-row.drill:hover .hbar-lab{color:var(--ink)}
+@media (max-width:480px){.hbars{grid-template-columns:fit-content(40%) minmax(40px,1fr) auto}}

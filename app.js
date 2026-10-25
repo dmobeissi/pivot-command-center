@@ -43,7 +43,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v60 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v61 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -318,11 +318,11 @@ function donut(parts,size=150){const tot=parts.reduce((a,p)=>a+p.v,0)||1,R=size/
    xi1=R+r*Math.cos(a1),yi1=R+r*Math.sin(a1),xi0=R+r*Math.cos(a0),yi0=R+r*Math.sin(a0),big=fr>0.5?1:0;
    if(p.v>0)paths+=`<path class="pieslice" ${p.k?`data-drill="status" data-val="${esc(p.k)}" data-tip="${esc(p.k)}: ${p.v}"`:""} d="M${x0} ${y0} A${R} ${R} 0 ${big} 1 ${x1} ${y1} L${xi1} ${yi1} A${r} ${r} 0 ${big} 0 ${xi0} ${yi0} Z" fill="${p.c}"/>`;a0=a1;});
   return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">${paths}<text x="${R}" y="${R-2}" text-anchor="middle" font-size="22" font-weight="700" fill="var(--ink)" font-family="var(--mono)">${tot}</text><text x="${R}" y="${R+16}" text-anchor="middle" font-size="11" fill="var(--muted)">tasks</text></svg>`;}
-function hbars(items,unit,drill){const max=Math.max(1,...items.map(i=>i.v));return `<div style="display:flex;flex-direction:column;gap:8px">`+
-  items.map(i=>`<div ${drill?`class="drill" data-drill="${drill}" data-val="${esc(i.l)}"`:""} style="display:grid;grid-template-columns:92px 1fr auto;gap:8px;align-items:center${drill?';cursor:pointer':''}">
-   <span class="muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(i.l)}</span>
-   <span style="background:var(--surface-2);border-radius:6px;overflow:hidden"><span style="display:block;height:14px;width:${i.v/max*100}%;background:${i.c||'var(--accent)'}"></span></span>
-   <span class="num">${unit==='kd'?KD(i.v):i.v}</span></div>`).join("")+`</div>`;}
+function hbars(items,unit,drill){const max=Math.max(1,...items.map(i=>i.v));return `<div class="hbars">`+
+  items.map(i=>`<div class="hbar-row${drill?' drill':''}" ${drill?`data-drill="${drill}" data-val="${esc(i.l)}"`:""}>
+   <span class="hbar-lab muted" title="${esc(i.l)}">${esc(i.l)}</span>
+   <span class="hbar-track"><span class="hbar-fill" style="width:${Math.max(i.v>0?2:0,i.v/max*100)}%;${i.c?`background:${i.c}`:''}"></span></span>
+   <span class="num hbar-val">${unit==='kd'?KD(i.v):i.v}</span></div>`).join("")+`</div>`;}
 const kpi=(l,v,c,dh)=>`<div class="kpi ${c||''}"><span class="lab">${l}</span><span class="val">${v}</span>${dh?`<span class="kdelta">${dh}</span>`:''}<span class="bar"></span></div>`;
 function kShort(v){v=+v||0;const a=Math.abs(v);if(a>=1000)return (v/1000).toFixed(a>=10000?0:1).replace(/\.0$/,'')+'k';return Math.round(v);}
 function vbars(items,unit){const max=Math.max(1,...items.map(i=>i.v));return `<div style="display:flex;align-items:flex-end;gap:3px;height:148px;padding-top:18px">`+
