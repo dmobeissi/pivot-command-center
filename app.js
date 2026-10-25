@@ -42,7 +42,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v51 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v52 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -186,7 +186,85 @@ function exportTasksCSV(rows,fname){
   dl(fname,head+"\n"+body);
 }
 
-function rebuildBrandFilter(){const s=$('fBrand');const cur=s.value;s.length=1;[...new Set(store.accounts.map(a=>a.brand))].sort().forEach(b=>s.add(new Option(b,b)));s.value=cur;}
+// ---------- bulk import (tasks) ----------
+function parseCSV(text){
+  text=text.replace(/\r\n/g,"\n").replace(/\r/g,"\n");
+  const rows=[];let row=[],f="",q=false,i=0;
+  while(i<text.length){const c=text[i];
+    if(q){ if(c==='"'){ if(text[i+1]==='"'){f+='"';i+=2;continue;} q=false;i++;continue; } f+=c;i++;continue; }
+    if(c==='"'){q=true;i++;continue;}
+    if(c===","){row.push(f);f="";i++;continue;}
+    if(c==="\n"){row.push(f);rows.push(row);row=[];f="";i++;continue;}
+    f+=c;i++;
+  }
+  if(f!==""||row.length){row.push(f);rows.push(row);}
+  return rows.filter(r=>!(r.length===1&&r[0].trim()===""));
+}
+const TASK_IMPORT_COLS=["name","brand","owner","priority","due","status","details","tags"];
+function downloadTaskTemplate(){
+  const sample=[
+    ["Prepare October report","Weldon Group","Daoud","High","2026-11-05","To Do","Pull the numbers and format // send to client","reporting"],
+    ["Design new banner","","Arafa","Medium","","To Do","",""]
+  ];
+  const csv=[TASK_IMPORT_COLS.join(",")].concat(sample.map(r=>r.map(csvCell).join(","))).join("\n");
+  dl("pivot-tasks-template.csv",csv);
+}
+function rowsToTasks(rows){
+  if(!rows.length)return{out:[],warn:[],err:"The file is empty."};
+  const header=rows[0].map(h=>h.trim().toLowerCase());
+  if(header.indexOf("name")<0)return{out:[],warn:[],err:"No 'name' column found. Download the template and match the headers."};
+  const col={};TASK_IMPORT_COLS.forEach(c=>col[c]=header.indexOf(c));
+  const brandMap={};store.accounts.forEach(a=>{if(a.brand)brandMap[a.brand.toLowerCase().trim()]=a.id;});
+  const out=[],warn=new Set();
+  for(let i=1;i<rows.length;i++){const r=rows[i];const g=k=>col[k]>=0&&r[col[k]]!=null?String(r[col[k]]).trim():"";
+    const name=g("name");if(!name)continue;
+    let acct="";const brand=g("brand");if(brand){acct=brandMap[brand.toLowerCase()]||"";if(!acct)warn.add(brand);}
+    const pri=PRIOS.find(p=>p.toLowerCase()===g("priority").toLowerCase())||"Medium";
+    const st=STATUSES.find(s=>s.toLowerCase()===g("status").toLowerCase())||"To Do";
+    out.push({name,acct,owner:g("owner"),priority:pri,due:g("due"),status:st,details:g("details"),tags:g("tags")});
+  }
+  return {out,warn:[...warn],err:out.length?"":"No rows with a task name were found."};
+}
+function openImportTasks(){
+  if(!canWrite){toast("Read-only access");return;}
+  let parsed=null;
+  $('modal').innerHTML=`<div class="sheet">
+    <div class="sheethead"><div><div class="id">Bulk import</div><h3>Import tasks from CSV</h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
+    <div class="formfull">
+      <div id="impDrop" class="dropzone"><div class="muted" style="margin-bottom:8px">Drag and drop a CSV here, or</div><button class="btn" id="impPick" type="button">+ Choose file</button><input type="file" id="impFile" accept=".csv,text/csv" style="display:none"><div id="impName" class="muted" style="margin-top:10px;font-size:12px"></div></div>
+      <div style="margin-top:10px;font-size:12px"><a href="#" id="impTpl">Download template</a> <span class="muted">· columns: name, brand, owner, priority, due (YYYY-MM-DD), status, details, tags. Only name is required.</span></div>
+      <div id="impMsg" style="margin-top:10px;font-size:12px"></div>
+    </div>
+    <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="impGo" disabled>Import</button></div></div>`;
+  $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
+  $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
+  $('impTpl').onclick=e=>{e.preventDefault();downloadTaskTemplate();};
+  const handleFile=file=>{if(!file)return;$('impName').textContent=file.name;
+    const rd=new FileReader();rd.onload=()=>{try{const rows=parseCSV(String(rd.result));parsed=rowsToTasks(rows);
+        if(parsed.err){$('impMsg').innerHTML=`<span style="color:var(--bad)">${esc(parsed.err)}</span>`;$('impGo').disabled=true;return;}
+        const w=parsed.warn.length?` <span style="color:var(--warn)">${parsed.warn.length} brand name${parsed.warn.length===1?'':'s'} not matched (left blank): ${esc(parsed.warn.slice(0,5).join(', '))}${parsed.warn.length>5?'…':''}</span>`:'';
+        $('impMsg').innerHTML=`<b>${parsed.out.length}</b> task${parsed.out.length===1?'':'s'} ready to import.${w}`;$('impGo').disabled=!parsed.out.length;
+      }catch(err){$('impMsg').innerHTML=`<span style="color:var(--bad)">Could not read that file.</span>`;$('impGo').disabled=true;}};
+    rd.readAsText(file);};
+  $('impPick').onclick=()=>$('impFile').click();
+  $('impFile').onchange=e=>handleFile(e.target.files&&e.target.files[0]);
+  const dz=$('impDrop');
+  ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('over');}));
+  ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('over');}));
+  dz.addEventListener('drop',e=>{const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];handleFile(f);});
+  $('impGo').onclick=async()=>{if(!parsed||!parsed.out.length)return;$('impGo').disabled=true;$('impGo').textContent="Importing…";
+    let base=0;store.tasks.forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)base=Math.max(base,+m[1]);});
+    const rows=parsed.out.map((e,i)=>({id:"TSK-"+String(base+1+i).padStart(4,"0"),acct:e.acct,eng:"",name:e.name,details:e.details,owner:e.owner,priority:e.priority,reqby:"Import",logged:todayISO,due:e.due,done:(e.status==="Done"?todayISO:""),status:e.status,output:"",notes:"",tags:e.tags,project:"",parent:""}));
+    await createMany("tasks",rows);close();};
+}
+function rebuildBrandFilter(){const s=$('fBrand');if(!s)return;const cur=s.value;s.length=1;
+  const life={};store.accounts.forEach(a=>{if(a.brand&&!(a.brand in life))life[a.brand]=a.lifecycle||"";});
+  const names=Object.keys(life).sort();
+  const active=names.filter(b=>life[b]==="Active");
+  const other=names.filter(b=>life[b]!=="Active");
+  const grp=(label,arr)=>{if(!arr.length)return;const og=document.createElement('optgroup');og.label=label;arr.forEach(b=>og.appendChild(new Option(b,b)));s.appendChild(og);};
+  grp("Active",active);grp("Other",other);
+  s.value=cur;}
 function rebuildTeamFilter(){const s=$('fTeam');const cur=s.value;s.length=1;TEAM.slice().sort().forEach(t=>s.add(new Option(t,t)));s.value=cur;}
 function tasksF(){return store.tasks.filter(t=>{
   if(F.brand&&brandOf(t.acct)!==F.brand)return false;
@@ -534,6 +612,7 @@ function renderTasks(){
     <div class="panel">
       <div class="addbar">
         <button class="btn" id="ntAdd"${canWrite?"":" disabled"}>+ Add task</button>
+        <button class="ghost" id="ntImport"${canWrite?"":" disabled"}>Bulk import</button>
         <span style="flex:1"></span>
         <button class="ghost" id="tExport" title="Download a client-safe CSV of the tasks shown (no internal notes)">Export (client-safe)</button>
       </div>
@@ -552,13 +631,14 @@ function renderTasks(){
       <div class="rowcount">${T.length>cap?`Showing first ${cap} of ${T.length}. Narrow with filters.`:`${T.length} tasks`}</div>
     </div></div>`;
   $('ntAdd').onclick=openTaskNew;
+  if($('ntImport'))$('ntImport').onclick=openImportTasks;
   $('tExport').onclick=()=>{const nm="PIVOT tasks"+(F.brand?" - "+F.brand:"")+(F.quick?" ("+F.quick+")":"")+" "+todayISO+".csv";exportTasksCSV(T,nm);};
   bindSort('sortT',renderTasks);
 }
 
 function renderMyTasks(){
   const me=state.me||"";
-  const mine=me?store.tasks.filter(t=>t.owner===me):[];
+  const mine=me?store.tasks.filter(t=>t.owner===me&&(!F.brand||brandOf(t.acct)===F.brand)&&(!F.q||((t.id+" "+(t.name||"")+" "+brandOf(t.acct)+" "+(t.tags||"")).toLowerCase().includes(F.q)))):[];
   const open=mine.filter(t=>t.status!=="Done");
   const byDue=(a,b)=>((a.due||"9999-99")+"").localeCompare((b.due||"9999-99")+"");
   const overdue=open.filter(t=>t.due&&t.due<todayISO).sort(byDue);
@@ -628,7 +708,7 @@ function renderExpenses(){
       <div class="panel"><h2>By category</h2><div class="body">${top.length?hbars(top,'kd'):'<div class="muted">No expenses</div>'}</div></div>
       <div class="panel"><h2>Recurring expenses</h2>
         <div class="poevents" style="margin-bottom:10px">${rtHtml}</div>
-        <div class="addbar"><button class="ghost" id="reAdd"${canWrite?"":" disabled"}>+ Create recurring</button><button class="btn" id="reGen"${canWrite&&dueCount?"":" disabled"}>Generate due${dueCount?` (${dueCount})`:""}</button></div>
+        <div class="addbar"><button class="ghost" id="reAdd"${canWrite?"":" disabled"}>+ Create recurring</button><button class="btn" id="reGen"${canWrite?"":" disabled"}>Generate due${dueCount?` (${dueCount})`:""}</button></div>
         <div class="muted" style="font-size:12px;margin-top:6px">Generated lines land as pending until you mark them paid; past-dated ones that already auto-charged come in as paid.</div>
       </div>
     </div>
@@ -647,7 +727,7 @@ function renderExpenses(){
     </div></div>`;
   if(pendingHL){const el=$('mrow-'+pendingHL);pendingHL="";if(el){el.classList.add('hlrow');el.scrollIntoView({block:'center',behavior:'smooth'});setTimeout(()=>el.classList.remove('hlrow'),3000);}}
   $('neAdd').onclick=openExpenseNew;
-  if($('reAdd'))$('reAdd').onclick=openExpTemplateNew;
+  if($('reAdd'))$('reAdd').onclick=()=>openExpTemplateNew();
   if($('reGen'))$('reGen').onclick=generateDueExpenses;
   document.querySelectorAll('[data-etpl]').forEach(b=>b.onclick=()=>openExpTemplateEdit(b.dataset.etpl));
   bindSort('sortM',renderExpenses);
@@ -1091,7 +1171,7 @@ function bindSort(key,rerender){document.querySelectorAll('thead th[data-k]').fo
 // each view's own filters; brand + team carry across views, status options are per view
 const VIEWFILTERS={
   tasks:{team:true,status:STATUSES},
-  mytasks:{team:true,status:STATUSES},
+  mytasks:{},
   invoices:{status:PAY},
   expenses:{status:PAY},
   salaries:{status:PAYOUT_STATUS},
@@ -1635,6 +1715,7 @@ $('fBrand').onchange=e=>{F.brand=e.target.value;render();};
 $('fTeam').onchange=e=>{F.team=e.target.value;render();};
 $('fStatus').onchange=e=>{F.status=e.target.value;render();};
 $('fSearch').oninput=e=>{F.q=e.target.value.toLowerCase().trim();render();};
+if($('fClear'))$('fClear').onclick=()=>{F.brand="";F.team="";F.status="";F.q="";F.quick="";['fBrand','fTeam','fStatus','fSearch'].forEach(id=>{const el=$(id);if(el)el.value="";});render();};
 document.addEventListener('keydown',e=>{if(e.key==='/'&&!/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName||'')&&!$('modal').classList.contains('show')){e.preventDefault();const s=$('fSearch');if(s)s.focus();}});
 document.addEventListener('change',e=>{const el=e.target;if(el.classList&&el.classList.contains('edit')&&el.dataset.c){
   if(el.dataset.color)el.setAttribute('style',cstyle(el.dataset.color,el.value));

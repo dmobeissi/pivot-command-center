@@ -347,3 +347,7 @@ svg:hover .pieslice{opacity:.5}
 .cashgrp .cashhd{flex:1 1 100%;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:2px}
 .cashgrp span{font-size:13px}
 .cashgrp b{font-family:var(--mono)}
+
+/* v52 bulk import dropzone */
+.dropzone{border:2px dashed var(--line);border-radius:14px;padding:28px 16px;text-align:center;background:var(--surface-2);transition:border-color .15s,background .15s}
+.dropzone.over{border-color:var(--accent);background:var(--accent-soft)}
