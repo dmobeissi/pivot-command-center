@@ -35,7 +35,7 @@ const state={view:(()=>{try{return localStorage.getItem('pivot_view')||"dashboar
   groups:(()=>{try{return JSON.parse(localStorage.getItem('pivot_nav2'))||{tasks:false,money:false}}catch(e){return{tasks:false,money:false}}})(),
   theme:(()=>{try{return localStorage.getItem('pivot_theme')||'system'}catch(e){return'system'}})(),
   sortA:{k:"coll",dir:-1},
-  msort:{},colF:{}};
+  msort:{},colF:{},colRange:{}};
 const todayISO=new Date().toISOString().slice(0,10);
 
 const $=id=>document.getElementById(id);
@@ -43,7 +43,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v54 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v55 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -605,11 +605,19 @@ function sortBy(arr,k,dir){return [...arr].sort((a,b)=>{let x=a[k],y=b[k];if(k==
 // default sort per table: the date first, then the entry sequence number, so same-date rows read in order
 const DEFSORT={invoices:[{k:'date',dir:-1},{k:'seq',dir:-1}],expenses:[{k:'date',dir:-1},{k:'seq',dir:-1}],tasks:[{k:'due',dir:1},{k:'seq',dir:1}],accounts:[{k:'date_added',dir:-1},{k:'seq',dir:-1}]};
 const NUMCOLS=new Set(['amt','coll','out','cost','margin','eng','open','price','retainer_fee','value','seq']);
+const DATECOLS=new Set(['date','due','logged','paid','date_added','start_date','due_date','signed_date','contract_date','close_date']);
 function seqOf(r){const m=String(r.inv_no||r.id||'').match(/(\d+)(?!.*\d)/);return m?+m[1]:0;}
 function colVal(r,k){ if(k==='seq')return seqOf(r); if(k==='brand')return brandOf(r.acct)||''; let v=r[k]; if(NUMCOLS.has(k))return +v||0; return v==null?'':String(v); }
 function sortByMulti(arr,keys){ return [...arr].sort((a,b)=>{ for(const s of keys){let x=colVal(a,s.k),y=colVal(b,s.k); if(typeof x==='string'||typeof y==='string'){x=(''+x).toLowerCase();y=(''+y).toLowerCase();} if(x<y)return -s.dir; if(x>y)return s.dir;} return 0; }); }
 function effSort(tbl){const m=state.msort[tbl];return (m&&m.length)?m:(DEFSORT[tbl]||[]);}
-function tableFilter(rows,tbl){const f=state.colF[tbl];if(!f)return rows;const ks=Object.keys(f).filter(k=>f[k]&&f[k].length);if(!ks.length)return rows;return rows.filter(r=>ks.every(k=>f[k].includes(String(colVal(r,k)))));}
+function tableFilter(rows,tbl){const f=state.colF[tbl]||{};const rng=state.colRange[tbl]||{};
+  const fks=Object.keys(f).filter(k=>f[k]&&f[k].length);
+  const rks=Object.keys(rng).filter(k=>rng[k]&&(rng[k].from||rng[k].to));
+  if(!fks.length&&!rks.length)return rows;
+  return rows.filter(r=>{
+    for(const k of fks){if(!f[k].includes(String(colVal(r,k))))return false;}
+    for(const k of rks){const v=String(colVal(r,k)||'');const cr=rng[k];if(!v)return false;if(cr.from&&v<cr.from)return false;if(cr.to&&v>cr.to)return false;}
+    return true;});}
 function arrange(rows,tbl){_TBL=tbl;return sortByMulti(tableFilter(rows,tbl),effSort(tbl));}
 function applyColSort(tbl,k,dir){let m=state.msort[tbl];if(!Array.isArray(m)||!m.length){m=[{k,dir}];}else{const i=m.findIndex(s=>s.k===k);if(i>=0)m[i].dir=dir;else m.push({k,dir});}state.msort[tbl]=m;}
 function removeColSort(tbl,k){const m=state.msort[tbl];if(Array.isArray(m)){state.msort[tbl]=m.filter(s=>s.k!==k);}}
@@ -623,25 +631,38 @@ function thhead(head,tbl){if(tbl)_TBL=tbl;const t=_TBL;const keys=effSort(t);con
     const i=keys.findIndex(s=>s.k===h[0]);const s=i>=0?keys[i]:null;
     const arrow=s?(s.dir>0?' \u25B2':' \u25BC'):'';
     const pri=(manual&&keys.length>1&&i>=0)?`<sup class="thpri">${i+1}</sup>`:'';
-    const filt=(state.colF[t]&&state.colF[t][h[0]]&&state.colF[t][h[0]].length)?' <span class="thfilt" title="Filtered">\u25BC</span>':'';
+    const rngOn=state.colRange[t]&&state.colRange[t][h[0]]&&(state.colRange[t][h[0]].from||state.colRange[t][h[0]].to);
+    const filt=((state.colF[t]&&state.colF[t][h[0]]&&state.colF[t][h[0]].length)||rngOn)?' <span class="thfilt" title="Filtered">\u25BC</span>':'';
     return `<th data-k="${esc(h[0])}" data-lbl="${esc(h[1])}" class="thsort">${h[1]}${arrow}${pri}${filt}</th>`;}).join("");}
 function bindTable(tbl,baseRows,rerender){_TBL=tbl;
   document.querySelectorAll('thead th[data-k]').forEach(th=>{th.onclick=e=>{e.stopPropagation();openColMenu(th,th.dataset.k,th.dataset.lbl||th.dataset.k,baseRows,tbl,rerender);};});}
+const DATEPRESETS=[['all','All dates'],['today','Today'],['yesterday','Yesterday'],['last7','Last 7 days'],['last30','Last 30 days'],['last90','Last 90 days'],['wtd','Week to date'],['mtd','Month to date'],['qtd','Quarter to date'],['ytd','Year to date'],['lastmonth','Last month'],['custom','Custom range']];
 function openColMenu(th,k,label,baseRows,tbl,rerender){
   closeColMenu();
-  const vals=distinctVals(baseRows,tbl,k);
-  const allowed=(state.colF[tbl]&&state.colF[tbl][k])?state.colF[tbl][k]:null; // null = all
-  const isOn=v=>!allowed||allowed.includes(v);
+  const isDate=DATECOLS.has(k);
   const m=document.createElement('div');m.className='colmenu';m.id='colmenu';
-  m.innerHTML=`
+  const sortHtml=`
     <div class="cmhd">${esc(label)}</div>
     <div class="cmsort"><button class="ghost" data-s="asc">\u25B2 Sort ascending</button><button class="ghost" data-s="desc">\u25BC Sort descending</button></div>
     <button class="cmlink" data-s="remove">Remove from sort</button>
-    <div class="cmsep"></div>
-    <input type="search" id="cmSearch" placeholder="Filter values" class="cmsearch">
-    <label class="cmall"><input type="checkbox" id="cmAll" ${!allowed?'checked':''}> Select all</label>
-    <div class="cmlist" id="cmList">${vals.map((v,idx)=>`<label class="cmrow"><input type="checkbox" class="cmv" value="${esc(v)}" ${isOn(v)?'checked':''}> ${v===''?'<span class="muted">(blank)</span>':esc(v)}</label>`).join('')||'<div class="muted" style="padding:6px">No values</div>'}</div>
-    <div class="cmfoot"><button class="cmlink" data-s="clearf">Clear filter</button><span style="flex:1"></span><button class="btn" data-s="apply">Apply</button></div>`;
+    <div class="cmsep"></div>`;
+  let filterHtml;
+  if(isDate){
+    const cr=(state.colRange[tbl]&&state.colRange[tbl][k])||{preset:'all',from:'',to:''};
+    filterHtml=`<select id="cmPreset" class="cmsearch">${DATEPRESETS.map(p=>`<option value="${p[0]}"${cr.preset===p[0]?' selected':''}>${p[1]}</option>`).join('')}</select>
+      <div id="cmCustom" style="display:${cr.preset==='custom'?'flex':'none'};gap:6px;margin-top:6px">
+        <input type="date" id="cmFrom" value="${esc(cr.from||'')}" class="cmsearch" style="flex:1">
+        <input type="date" id="cmTo" value="${esc(cr.to||'')}" class="cmsearch" style="flex:1">
+      </div>`;
+  }else{
+    const vals=distinctVals(baseRows,tbl,k);
+    const allowed=(state.colF[tbl]&&state.colF[tbl][k])?state.colF[tbl][k]:null;
+    const isOn=v=>!allowed||allowed.includes(v);
+    filterHtml=`<input type="search" id="cmSearch" placeholder="Filter values" class="cmsearch">
+      <label class="cmall"><input type="checkbox" id="cmAll" ${!allowed?'checked':''}> Select all</label>
+      <div class="cmlist" id="cmList">${vals.map(v=>`<label class="cmrow"><input type="checkbox" class="cmv" value="${esc(v)}" ${isOn(v)?'checked':''}> ${v===''?'<span class="muted">(blank)</span>':esc(v)}</label>`).join('')||'<div class="muted" style="padding:6px">No values</div>'}</div>`;
+  }
+  m.innerHTML=sortHtml+filterHtml+`<div class="cmfoot"><button class="cmlink" data-s="clearf">Clear filter</button><span style="flex:1"></span><button class="btn" data-s="apply">Apply</button></div>`;
   document.body.appendChild(m);
   const r=th.getBoundingClientRect();const mw=250;let left=Math.min(r.left,window.innerWidth-mw-8);left=Math.max(8,left);
   m.style.left=left+'px';m.style.top=(r.bottom+4)+'px';
@@ -650,13 +671,25 @@ function openColMenu(th,k,label,baseRows,tbl,rerender){
   m.querySelector('[data-s="asc"]').onclick=()=>doSort(1);
   m.querySelector('[data-s="desc"]').onclick=()=>doSort(-1);
   m.querySelector('[data-s="remove"]').onclick=()=>{removeColSort(tbl,k);close();rerender();};
-  m.querySelector('[data-s="clearf"]').onclick=()=>{if(state.colF[tbl])delete state.colF[tbl][k];close();rerender();};
-  m.querySelector('[data-s="apply"]').onclick=()=>{const boxes=[...m.querySelectorAll('.cmv')];const checked=boxes.filter(b=>b.checked).map(b=>b.value);
-    if(!state.colF[tbl])state.colF[tbl]={};
-    if(checked.length===boxes.length){delete state.colF[tbl][k];}else{state.colF[tbl][k]=checked;}
-    close();rerender();};
-  const all=m.querySelector('#cmAll');all.onchange=()=>{m.querySelectorAll('.cmrow').forEach(row=>{if(row.style.display!=='none'){const cb=row.querySelector('.cmv');cb.checked=all.checked;}});};
-  m.querySelector('#cmSearch').oninput=e=>{const q=e.target.value.toLowerCase();m.querySelectorAll('.cmrow').forEach(row=>{const v=row.querySelector('.cmv').value.toLowerCase();row.style.display=v.includes(q)?'':'none';});};
+  if(isDate){
+    const ps=m.querySelector('#cmPreset');
+    ps.onchange=()=>{m.querySelector('#cmCustom').style.display=ps.value==='custom'?'flex':'none';};
+    m.querySelector('[data-s="clearf"]').onclick=()=>{if(state.colRange[tbl])delete state.colRange[tbl][k];close();rerender();};
+    m.querySelector('[data-s="apply"]').onclick=()=>{const p=ps.value;let from='',to='';
+      if(p==='custom'){from=m.querySelector('#cmFrom').value;to=m.querySelector('#cmTo').value;}
+      else if(p!=='all'){const rr=rangeFor(p);from=rr.from;to=rr.to;}
+      if(!state.colRange[tbl])state.colRange[tbl]={};
+      if(p==='all'&&!from&&!to){delete state.colRange[tbl][k];}else{state.colRange[tbl][k]={preset:p,from,to};}
+      close();rerender();};
+  }else{
+    m.querySelector('[data-s="clearf"]').onclick=()=>{if(state.colF[tbl])delete state.colF[tbl][k];close();rerender();};
+    m.querySelector('[data-s="apply"]').onclick=()=>{const boxes=[...m.querySelectorAll('.cmv')];const checked=boxes.filter(b=>b.checked).map(b=>b.value);
+      if(!state.colF[tbl])state.colF[tbl]={};
+      if(checked.length===boxes.length){delete state.colF[tbl][k];}else{state.colF[tbl][k]=checked;}
+      close();rerender();};
+    const all=m.querySelector('#cmAll');all.onchange=()=>{m.querySelectorAll('.cmrow').forEach(row=>{if(row.style.display!=='none'){row.querySelector('.cmv').checked=all.checked;}});};
+    m.querySelector('#cmSearch').oninput=e=>{const q=e.target.value.toLowerCase();m.querySelectorAll('.cmrow').forEach(row=>{row.style.display=row.querySelector('.cmv').value.toLowerCase().includes(q)?'':'none';});};
+  }
   setTimeout(()=>document.addEventListener('mousedown',colMenuOutside),0);
 }
 function colMenuOutside(e){const m=document.getElementById('colmenu');if(m&&!m.contains(e.target))closeColMenu();}
@@ -1775,7 +1808,7 @@ $('fBrand').onchange=e=>{F.brand=e.target.value;render();};
 $('fTeam').onchange=e=>{F.team=e.target.value;render();};
 $('fStatus').onchange=e=>{F.status=e.target.value;render();};
 $('fSearch').oninput=e=>{F.q=e.target.value.toLowerCase().trim();render();};
-if($('fClear'))$('fClear').onclick=()=>{F.brand="";F.team="";F.status="";F.q="";F.quick="";state.colF={};['fBrand','fTeam','fStatus','fSearch'].forEach(id=>{const el=$(id);if(el)el.value="";});render();};
+if($('fClear'))$('fClear').onclick=()=>{F.brand="";F.team="";F.status="";F.q="";F.quick="";state.colF={};state.colRange={};['fBrand','fTeam','fStatus','fSearch'].forEach(id=>{const el=$(id);if(el)el.value="";});render();};
 document.addEventListener('keydown',e=>{if(e.key==='/'&&!/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName||'')&&!$('modal').classList.contains('show')){e.preventDefault();const s=$('fSearch');if(s)s.focus();}});
 document.addEventListener('change',e=>{const el=e.target;if(el.classList&&el.classList.contains('edit')&&el.dataset.c){
   if(el.dataset.color)el.setAttribute('style',cstyle(el.dataset.color,el.value));
