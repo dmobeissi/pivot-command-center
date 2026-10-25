@@ -43,7 +43,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v58 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v59 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -121,12 +121,14 @@ document.addEventListener('click',e=>{const d=e.target.closest('[data-menu]');
   if(d){e.stopPropagation();closeRowMenu();const parts=d.dataset.menu.split(':');const coll=parts[0],id=parts.slice(1).join(':');const r=d.getBoundingClientRect();
     rowMenuEl=document.createElement('div');rowMenuEl.className='rowmenu';
     const canOpen=(coll==='tasks'||coll==='money');
-    rowMenuEl.innerHTML=`${canOpen?'<button data-mi="open">Open</button>':''}<button data-mi="del" class="danger">Delete</button>`;
+    const mRow=coll==='money'?store.money.find(x=>x.id===id):null;
+    const canInv=!!(mRow&&mRow.dir==='Income');
+    rowMenuEl.innerHTML=`${canOpen?'<button data-mi="open">Open</button>':''}${canInv?'<button data-mi="inv">Invoice PDF</button>':''}<button data-mi="del" class="danger">Delete</button>`;
     document.body.appendChild(rowMenuEl);
     const w=160,left=Math.min(window.innerWidth-w-8,Math.max(8,r.right-w));
     rowMenuEl.style.top=(r.bottom+4)+'px';rowMenuEl.style.left=left+'px';
     rowMenuEl.onclick=ev=>{const b=ev.target.closest('[data-mi]');if(!b)return;const mi=b.dataset.mi;closeRowMenu();
-      if(mi==='del')remove(coll,id);else if(mi==='open'){if(coll==='tasks')openTask(id);else if(coll==='money')openMoney(id);}};
+      if(mi==='del')remove(coll,id);else if(mi==='inv')downloadInvoicePDF(id);else if(mi==='open'){if(coll==='tasks')openTask(id);else if(coll==='money')openMoney(id);}};
     return;}
   if(!e.target.closest('.rowmenu'))closeRowMenu();});
 window.addEventListener('scroll',()=>closeRowMenu(),true);
@@ -1432,6 +1434,92 @@ function openInvoiceNew(){
     create("money",nextId("money","LDG-",4),{date:g('date')||todayISO,logged:(g('logged')||g('date')||todayISO),acct:g('acct'),eng:"",dir:"Income",cat:"Client Payment",income_type:g('income_type')||"Project",desc:g('desc'),amt:Math.abs(amt),status:g('status'),due:g('due'),paid:"",notes:g('notes'),inv_no:nextInvNo()});close();};
 }
 function nextInvNo(){let mx=0;store.money.forEach(m=>{const g=String(m.inv_no||'').match(/INV-(\d+)/);if(g)mx=Math.max(mx,+g[1]);});return "INV-"+String(mx+1).padStart(4,"0");}
+// ---------- invoice PDF (print to PDF, three templates by income type) ----------
+const PIVOT_CO={name:"The Pivot Strategy",tagline:"Shaping Tomorrow, Today",city:"Kuwait",email:"info@thepivotstrategy.com",web:"www.thepivotstrategy.com"};
+function fmtDate(iso){if(!iso)return"";const MM=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];const p=(iso||"").split("-");return p.length>=3?`${p[2]} ${MM[(+p[1]||1)-1]} ${p[0]}`:iso;}
+function invoiceHTML(m,acct){
+  acct=acct||{};
+  const type=m.income_type||"Project";
+  const tmpl=type==="Retainer"?"retainer":(type==="One-time"?"oneoff":"project");
+  const invno="PVT-"+(m.inv_no||m.id);
+  const paid=m.status==="Paid";const amt=Math.abs(+m.amt||0);
+  const svcMonth=m.logged?monthLabel(String(m.logged).slice(0,7)):"";
+  const typeLine={retainer:"Retainer"+(svcMonth?" / "+svcMonth:""),oneoff:"One-off work",project:"Project"}[tmpl];
+  let note;
+  if(tmpl==="retainer")note=`This invoice is the monthly retainer fee${svcMonth?` for ${svcMonth}`:""}. Payment is due in full upon receipt.`;
+  else if(tmpl==="oneoff")note=`This invoice covers the one-off work listed below. Payment is due upon receipt.`;
+  else note=`This invoice covers the project work listed below. Payment is due upon receipt.`;
+  const parts=String(m.desc||type+" services").split("//").map(x=>x.trim()).filter(Boolean);
+  const mainDesc=parts[0]||(type+" services");
+  const subs=parts.slice(1);
+  const addrHTML=String(acct.bill_addr||"").split(/\r?\n/).map(x=>x.trim()).filter(Boolean).map(esc).join("<br>");
+  const billed=`<b>${esc(acct.brand||"Client")}</b>`
+    +(addrHTML?`<br>${addrHTML}`:"")
+    +(acct.country?`<br>${esc(acct.country)}`:"")
+    +(acct.bill_attn?`<br>Attn: ${esc(acct.bill_attn)}`:"")
+    +(acct.bill_tel?`<br>Tel: ${esc(acct.bill_tel)}`:"");
+  const css=`@page{size:A4;margin:0}*{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Helvetica Neue',Arial,sans-serif;color:#141414;font-size:12px;line-height:1.5;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .page{width:210mm;min-height:297mm;margin:0 auto;position:relative;padding-bottom:40mm}
+  .hdr{background:#0b0b0d;color:#fff;padding:20mm 16mm 9mm;display:flex;justify-content:space-between;align-items:flex-end}
+  .hdr .inv{font-size:34px;font-weight:800;letter-spacing:1px}
+  .hdr .co{text-align:right;font-size:11px;opacity:.82;line-height:1.5}
+  .hdr .co b{font-size:15px;display:block;letter-spacing:1px;opacity:1}
+  .meta{display:flex;margin:0 16mm;padding:10px 0;border-bottom:1px solid #e7e7ea}
+  .meta>div{flex:1;padding:0 14px;border-left:1px solid #ededf0}.meta>div:first-child{padding-left:0;border-left:0}
+  .k{font-size:9px;letter-spacing:.09em;text-transform:uppercase;color:#8a8d94;font-weight:700}
+  .meta .v{font-size:13px;font-weight:600;font-style:italic;margin-top:3px}
+  .chip{display:inline-block;font-size:9.5px;font-weight:800;letter-spacing:.06em;padding:3px 10px;border-radius:999px;vertical-align:middle;margin-left:8px}
+  .chip.paid{background:#157F3C;color:#fff}.chip.due{background:#141414;color:#fff}
+  .parties{display:flex;gap:14mm;margin:9mm 16mm 0}.parties .col{flex:1}
+  .lbl{font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:800;border-bottom:1px solid #141414;padding-bottom:4px;margin-bottom:8px}
+  .note{margin:8mm 16mm 0;background:#f4f4f6;border-left:3px solid #141414;padding:11px 14px;font-size:12px}
+  table.items{width:calc(100% - 32mm);margin:8mm 16mm 0;border-collapse:collapse}
+  table.items th{background:#141414;color:#fff;text-align:left;padding:9px 14px;font-size:10px;letter-spacing:.06em;text-transform:uppercase}
+  table.items th.amt,table.items td.amt{text-align:right;white-space:nowrap}
+  table.items td{padding:12px 14px;border-bottom:1px solid #ededf0;font-style:italic;color:#333;vertical-align:top}
+  .subs{list-style:none;margin:5px 0 0;padding:0;font-size:10.5px;color:#777;font-style:normal}.subs li:before{content:"– "}
+  .totals{display:flex;justify-content:flex-end;margin:6mm 16mm 0}.totbox{width:74mm}
+  .tr{display:flex;justify-content:space-between;padding:6px 14px;font-size:12px}
+  .tr.grand{background:#141414;color:#fff;font-weight:800;font-size:14px;margin-top:5px}
+  .duedate{margin:7mm 16mm 0;font-size:12px;color:#444}
+  .foot{position:absolute;bottom:0;left:0;right:0;padding:0 16mm}
+  .thanks b{font-size:13px}.thanks p{color:#555;margin-top:2px}
+  .botline{border-top:1px solid #141414;margin-top:7mm;padding:7px 0 9mm;text-align:center;font-size:9.5px;color:#9a9ca2;letter-spacing:.02em}`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(invno)} ${esc(acct.brand||"")}</title><style>${css}</style></head><body><div class="page">
+    <div class="hdr"><div class="inv">INVOICE</div><div class="co"><b>PIVOT</b>${esc(PIVOT_CO.name)}<br>${esc(PIVOT_CO.city)} · ${esc(PIVOT_CO.email)}</div></div>
+    <div class="meta">
+      <div><div class="k">Invoice No.</div><div class="v">${esc(invno)}<span class="chip ${paid?'paid':'due'}">${paid?'PAID':'DUE'}</span></div></div>
+      <div><div class="k">Issued</div><div class="v">${esc(fmtDate(m.date))}</div></div>
+      <div><div class="k">Due</div><div class="v">${esc(m.due?fmtDate(m.due):'On receipt')}</div></div>
+      <div><div class="k">Type</div><div class="v">${esc(typeLine)}</div></div>
+    </div>
+    <div class="parties">
+      <div class="col"><div class="lbl">Billed to</div><div class="party">${billed}</div></div>
+      <div class="col"><div class="lbl">From</div><div class="party"><b>${esc(PIVOT_CO.name)}</b><br>${esc(PIVOT_CO.city)}<br>${esc(PIVOT_CO.email)}<br>${esc(PIVOT_CO.web)}</div></div>
+    </div>
+    <div class="note">${esc(note)}</div>
+    <table class="items"><thead><tr><th>Description</th><th class="amt">Amount (KWD)</th></tr></thead>
+      <tbody><tr><td>${esc(mainDesc)}${subs.length?`<ul class="subs">${subs.map(s=>`<li>${esc(s)}</li>`).join("")}</ul>`:""}</td><td class="amt">${KD(amt)}</td></tr></tbody></table>
+    <div class="totals"><div class="totbox">
+      <div class="tr"><span>Subtotal</span><span>KWD ${KD(amt)}</span></div>
+      <div class="tr"><span>Sales tax</span><span>0% — 0.000</span></div>
+      <div class="tr grand"><span>Total due</span><span>KWD ${KD(amt)}</span></div>
+    </div></div>
+    <div class="duedate">${paid?`Paid${m.paid?` on ${esc(fmtDate(m.paid))}`:""}. Thank you.`:`Please settle by <b>${esc(m.due?fmtDate(m.due):'receipt')}</b>.`}</div>
+    <div class="foot">
+      <div class="thanks"><b>Thank you for choosing PIVOT.</b><p>We look forward to continuing to deliver results. Questions? ${esc(PIVOT_CO.email)}</p></div>
+      <div class="botline">${esc(PIVOT_CO.name)} — ${esc(PIVOT_CO.tagline)} · ${esc(PIVOT_CO.web)} · ${esc(PIVOT_CO.email)}</div>
+    </div>
+  </div></body></html>`;
+}
+function downloadInvoicePDF(id){
+  const m=store.money.find(x=>x.id===id);if(!m||m.dir!=="Income"){toast("Only invoices can be exported");return;}
+  const w=window.open('','_blank');if(!w){toast("Allow pop-ups to download the invoice");return;}
+  w.document.write(invoiceHTML(m,AMAP[m.acct]));w.document.close();
+  const go=()=>{try{w.focus();w.print();}catch(_){}};
+  if(w.document.readyState==='complete')setTimeout(go,250);else w.onload=()=>setTimeout(go,250);
+}
 function openExpenseNew(){
   if(!canWrite){toast("Read-only access");return;}
   $('modal').innerHTML=`<div class="sheet">
@@ -1551,14 +1639,17 @@ function openAccountNew(){
       ${fld("Lifecycle",`<select id="ma_lifecycle">${opts(LIFE,"Lead")}</select>`)}
       ${fld("Parent account (optional)",`<select id="ma_parent">${accountOpts("","")}</select>`)}
       ${fld("Monthly retainer (KD, optional)",`<input type="number" step="0.001" id="ma_retainer_fee" placeholder="0 = not a retainer">`)}
+      ${fld("Billing contact (for invoices)",`<input id="ma_bill_attn" placeholder="e.g. Fadi Nicola">`)}
+      ${fld("Billing phone (for invoices)",`<input id="ma_bill_tel" placeholder="e.g. +965 6513 7513">`)}
     </div>
+    <div class="formfull">${fld("Billing address (for invoices)",`<textarea id="ma_bill_addr" rows="2" placeholder="Street, floor, area, city"></textarea>`)}</div>
     <div class="formfull">${fld("Notes (optional)",`<textarea id="ma_notes" rows="2"></textarea>`)}</div>
     <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Add account</button></div>
   </div>`;
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   $('mkSave').onclick=()=>{const g=f=>{const el=$('ma_'+f);return el?el.value:"";};const brand=g('brand').trim();if(!brand){toast("Enter a brand name");return;}
-    create("accounts",nextId("accounts","ACC-",3),{brand,type:g('type'),country:g('country'),lifecycle:g('lifecycle'),parent:g('parent'),notes:g('notes'),date_added:todayISO,retainer_fee:Math.abs(parseFloat(g('retainer_fee'))||0)});close();};
+    create("accounts",nextId("accounts","ACC-",3),{brand,type:g('type'),country:g('country'),lifecycle:g('lifecycle'),parent:g('parent'),notes:g('notes'),date_added:todayISO,retainer_fee:Math.abs(parseFloat(g('retainer_fee'))||0),bill_addr:g('bill_addr'),bill_attn:g('bill_attn'),bill_tel:g('bill_tel')});close();};
 }
 function openAccountEdit(id){
   const a=AMAP[id];if(!a)return;if(!canWrite){toast("Read-only access");return;}
@@ -1572,13 +1663,16 @@ function openAccountEdit(id){
       ${fld("Parent account",`<select id="ae_parent">${accountOpts(a.parent||"",a.id)}</select>`)}
       ${fld("Date added",`<input type="date" id="ae_date_added" value="${esc(a.date_added||'')}">`)}
       ${fld("Monthly retainer (KD)",`<input type="number" step="0.001" id="ae_retainer_fee" value="${a.retainer_fee!=null?esc(Math.abs(+a.retainer_fee)):''}" placeholder="0 = not a retainer">`)}
+      ${fld("Billing contact (for invoices)",`<input id="ae_bill_attn" value="${esc(a.bill_attn||'')}" placeholder="e.g. Fadi Nicola">`)}
+      ${fld("Billing phone (for invoices)",`<input id="ae_bill_tel" value="${esc(a.bill_tel||'')}" placeholder="e.g. +965 6513 7513">`)}
     </div>
+    <div class="formfull">${fld("Billing address (for invoices)",`<textarea id="ae_bill_addr" rows="2" placeholder="Street, floor, area, city">${esc(a.bill_addr||'')}</textarea>`)}</div>
     <div class="formfull">${fld("Notes",`<textarea id="ae_notes" rows="2">${esc(a.notes||'')}</textarea>`)}</div>
     <div class="sheetfoot">${canWrite?`<button class="ghost" id="mkDelete" style="color:var(--bad);border-color:var(--bad-soft)">Delete</button>`:""}<span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Save</button></div></div>`;
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   $('mkSave').onclick=async()=>{const g=f=>{const el=$('ae_'+f);return el?el.value:"";};
-    await write("accounts",id,{brand:g('brand'),type:g('type'),country:g('country'),lifecycle:g('lifecycle'),parent:g('parent'),date_added:g('date_added'),notes:g('notes'),retainer_fee:Math.abs(parseFloat(g('retainer_fee'))||0)});close();};
+    await write("accounts",id,{brand:g('brand'),type:g('type'),country:g('country'),lifecycle:g('lifecycle'),parent:g('parent'),date_added:g('date_added'),notes:g('notes'),retainer_fee:Math.abs(parseFloat(g('retainer_fee'))||0),bill_addr:g('bill_addr'),bill_attn:g('bill_attn'),bill_tel:g('bill_tel')});close();};
   if($('mkDelete'))$('mkDelete').onclick=()=>{close();remove("accounts",id);};
 }
 function openReport(kind){
