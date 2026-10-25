@@ -94,6 +94,9 @@ tbody tr:hover{background:var(--surface-2)}
 .edit:focus{outline:none;border-color:var(--accent);background:var(--surface)}
 select.edit{cursor:pointer}
 td.editname .edit{width:100%;min-width:160px}
+/* compact inline date cells so two date columns fit without crowding the name column (v62) */
+td input[type=date].edit{width:132px;padding:5px 6px;font-size:12px}
+tbody td:has(> input[type=date].edit){padding-left:6px;padding-right:6px}
 .del{all:unset;cursor:pointer;color:var(--muted);font-size:14px;padding:2px 6px;border-radius:6px}
 .del:hover{color:var(--bad);background:var(--bad-soft)}
 .addbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--surface-2)}

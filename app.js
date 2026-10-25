@@ -43,7 +43,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v61 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v62 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -612,7 +612,7 @@ function sortBy(arr,k,dir){return [...arr].sort((a,b)=>{let x=a[k],y=b[k];if(k==
 // default sort per table: the date first, then the entry sequence number, so same-date rows read in order
 const DEFSORT={invoices:[{k:'date',dir:-1},{k:'seq',dir:-1}],expenses:[{k:'date',dir:-1},{k:'seq',dir:-1}],tasks:[{k:'due',dir:1},{k:'seq',dir:1}],accounts:[{k:'date_added',dir:-1},{k:'seq',dir:-1}],services:[{k:'active',dir:-1},{k:'name',dir:1}]};
 const NUMCOLS=new Set(['amt','coll','out','cost','margin','eng','open','price','retainer_fee','value','seq']);
-const DATECOLS=new Set(['date','due','logged','paid','date_added','start_date','due_date','signed_date','contract_date','close_date']);
+const DATECOLS=new Set(['date','due','done','logged','paid','date_added','start_date','due_date','signed_date','contract_date','close_date']);
 const TEXTCOLS=new Set(['inv_no','id','desc','name','notes','output','details','title']);       // sort + text search
 const CATCOLS=new Set(['brand','income_type','status','owner','priority','country','type','lifecycle','cat','tags','active','stage','role','reqby','unit']); // sort + value checklist
 function seqOf(r){const m=String(r.inv_no||r.id||'').match(/(\d+)(?!.*\d)/);return m?+m[1]:0;}
@@ -723,7 +723,7 @@ function renderTasks(){
   let T=arrange(_base,'tasks');
   const cap=T.length>350?350:T.length;
   const chips=[["","All"],["open","Open"],["overdue","Overdue"],["week","Due this week"],["unassigned","Unassigned"],["high","High priority"],["done","Done"]];
-  const head=[["id","ID"],["brand","Brand"],["name","Task"],["owner","Owner"],["priority","Priority"],["due","Due"],["status","Status"],["flag","Flag"],["",""]];
+  const head=[["id","ID"],["brand","Brand"],["name","Task"],["owner","Owner"],["priority","Priority"],["due","Due"],["status","Status"],["done","Done"],["flag","Flag"],["",""]];
   $('view').innerHTML=`<div class="view">
     <div class="kpis">${kpi("Shown",T.length,"accent")}${kpi("Open",T.filter(t=>t.status!=="Done").length,"")}${kpi("Overdue",T.filter(t=>t.status!=="Done"&&t.due&&t.due<todayISO).length,"bad")}${kpi("High open",T.filter(t=>t.status!=="Done"&&t.priority==="High").length,"warn")}</div>
     <div class="panel">
@@ -743,6 +743,7 @@ function renderTasks(){
         <td>${csel("priority","tasks",t.id,"priority",t.priority,PRIOS,ro)}</td>
         <td><input type="date" class="edit" data-c="tasks" data-id="${esc(t.id)}" data-f="due" value="${esc(t.due||'')}" ${ro}></td>
         <td>${csel("status","tasks",t.id,"status",t.status,STATUSES,ro)}</td>
+        <td><input type="date" class="edit" data-c="tasks" data-id="${esc(t.id)}" data-f="done" value="${esc(t.done||'')}" ${ro}></td>
         <td class="${fc}">${fl}</td>
         <td>${canWrite?rowMenu("tasks",t.id):""}</td></tr>`;}).join("")}</tbody></table></div>
       <div class="rowcount">${T.length>cap?`Showing first ${cap} of ${T.length}. Narrow with filters.`:`${T.length} tasks`}</div>
@@ -830,6 +831,7 @@ function renderExpenses(){
       </div>
     </div>
     <div class="panel">
+      <div class="addbar"><button class="btn" id="neAdd"${canWrite?"":" disabled"}>+ Add expense</button><span class="muted" style="font-size:12px">Click a field to edit it. Recurring lines stay pending until marked paid.</span></div>
       <div class="tablewrap"><table><thead><tr>${thhead(head)}</tr></thead>
       <tbody>${M.map(m=>`<tr id="mrow-${esc(m.id)}">
         <td class="id">${esc(m.id)}</td>
@@ -2012,7 +2014,7 @@ document.addEventListener('change',e=>{const el=e.target;if(el.classList&&el.cla
   if(el.dataset.color)el.setAttribute('style',cstyle(el.dataset.color,el.value));
   let v=el.value;if(el.dataset.f==='amt')v=parseFloat(v)||0;
   const patch={[el.dataset.f]:v};
-  if(el.dataset.c==='tasks'&&el.dataset.f==='status'&&v==='Done'){const t=store.tasks.find(x=>x.id===el.dataset.id);if(t&&!t.done)patch.done=todayISO;}
+  if(el.dataset.c==='tasks'&&el.dataset.f==='status'&&v==='Done'){const t=store.tasks.find(x=>x.id===el.dataset.id);if(t&&!t.done){patch.done=todayISO;const row=el.closest('tr');const dIn=row&&row.querySelector('input[data-f="done"]');if(dIn)dIn.value=todayISO;}}
   write(el.dataset.c,el.dataset.id,patch);
   logAct(el.dataset.f==='status'?("set status → "+el.value):("edited "+el.dataset.f),el.dataset.c,el.dataset.id,"");}});
 document.addEventListener('click',e=>{const d=e.target.closest('[data-drill]');if(d){const k=d.dataset.drill,v=d.dataset.val;
