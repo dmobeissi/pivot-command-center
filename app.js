@@ -29,7 +29,7 @@ let AMAP={}, canWrite=false, booted=false, myName="Someone", PEOPLE={};
 let sb=null, session=null;
 const ALLCOLLS=["accounts","engagements","tasks","money","templates","people","services","deals","projects"];
 const F={brand:"",team:"",status:"",q:"",quick:""};
-const state={view:(()=>{try{return localStorage.getItem('pivot_view')||"dashboard"}catch(e){return"dashboard"}})(),sortT:{k:"due",dir:1},sortM:{k:"date",dir:-1},me:(()=>{try{return localStorage.getItem('pivot_me')||""}catch(e){return""}})(),
+const state={view:(()=>{try{return localStorage.getItem('pivot_view')||"digest"}catch(e){return"digest"}})(),sortT:{k:"due",dir:1},sortM:{k:"date",dir:-1},me:(()=>{try{return localStorage.getItem('pivot_me')||""}catch(e){return""}})(),
   range:(()=>{try{return JSON.parse(localStorage.getItem('pivot_range'))||{preset:'mtd',from:'',to:''}}catch(e){return{preset:'mtd',from:'',to:''}}})(),
   cmp:(()=>{try{return localStorage.getItem('pivot_cmp')||'prev_period'}catch(e){return'prev_period'}})(),
   groups:(()=>{try{return JSON.parse(localStorage.getItem('pivot_nav2'))||{tasks:false,money:false}}catch(e){return{tasks:false,money:false}}})(),
@@ -43,7 +43,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v57 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v58 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -55,6 +55,11 @@ function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;
   startApp();
 })();
 function nameFromEmail(e){ if(!e)return "Someone"; const p=e.split("@")[0].replace(/[._-]/g," ").trim(); return p.charAt(0).toUpperCase()+p.slice(1); }
+// a little personality, internal only
+const QUIPS=["Grabbing coffee, one sec…","Catching butterflies…","Warming up the numbers…","Counting the dinars…","Herding the invoices…","Shuffling the deck…","Chasing decimals…","Polishing the pixels…","Summoning the data…","Doing the math, carrying the one…","Untangling the spreadsheets…","Feeding the hamsters…"];
+function quip(){return QUIPS[Math.floor(Math.random()*QUIPS.length)];}
+function firstName(){return (myName&&myName!=="Someone")?String(myName).split(' ')[0]:"there";}
+function dayPick(arr){return arr[Math.floor(Date.now()/864e5)%arr.length];}
 function showLogin(){
   const w=$('loginwrap'); w.classList.add('show');
   w.innerHTML=`<div class="loginbox">
@@ -1306,8 +1311,8 @@ function render(){
   if(!booted||!ready())return;
   if(rafP)return; rafP=true;
   requestAnimationFrame(()=>{rafP=false;
-    const TITLES={tasksdash:"Tasks overview",moneydash:"Money overview",mytasks:"My Tasks",tasks:"All Tasks",recurring:"Recurring Tasks",invoices:"Invoices",expenses:"Expenses",salaries:"Salaries",payouts:"Payouts",retainers:"Retainers",accounts:"Accounts",services:"Services",activity:"Activity Log",setup:"Settings"};
-    const VIEWS={tasksdash:renderTasksDash,moneydash:renderMoneyDash,mytasks:renderMyTasks,tasks:renderTasks,recurring:renderRecurring,invoices:renderInvoices,expenses:renderExpenses,salaries:renderSalaries,payouts:renderPayouts,retainers:renderRetainers,accounts:renderAccounts,services:renderServices,activity:renderActivity,setup:renderSetup};
+    const TITLES={digest:"Home",tasksdash:"Tasks overview",moneydash:"Money overview",mytasks:"My Tasks",tasks:"All Tasks",recurring:"Recurring Tasks",invoices:"Invoices",expenses:"Expenses",salaries:"Salaries",payouts:"Payouts",retainers:"Retainers",accounts:"Accounts",services:"Services",activity:"Activity Log",setup:"Settings"};
+    const VIEWS={digest:renderDigest,tasksdash:renderTasksDash,moneydash:renderMoneyDash,mytasks:renderMyTasks,tasks:renderTasks,recurring:renderRecurring,invoices:renderInvoices,expenses:renderExpenses,salaries:renderSalaries,payouts:renderPayouts,retainers:renderRetainers,accounts:renderAccounts,services:renderServices,activity:renderActivity,setup:renderSetup};
     if(!VIEWS[state.view])state.view="tasksdash";
     setupFilters(state.view);
     $('viewtitle').textContent=TITLES[state.view];
@@ -1694,34 +1699,37 @@ function openBrand(acctId){
   if($('vaInv'))$('vaInv').onclick=()=>{state.msort.invoices=[{k:'date',dir:-1},{k:'seq',dir:-1}];goBrand('invoices');};
 }
 function renderDigest(){
-  let open=store.tasks.filter(t=>t.status!=="Done");
-  if(F.brand)open=open.filter(t=>brandOf(t.acct)===F.brand);
-  if(F.team)open=open.filter(t=>(t.owner||"Unassigned")===F.team);
-  const byDue=(a,b)=>((a.due||"9999-99-99")+"").localeCompare((b.due||"9999-99-99")+"");
-  const isOv=t=>t.due&&t.due<todayISO;
-  const isWk=t=>t.due&&t.due>=todayISO&&(new Date(t.due)-new Date(todayISO))<=7*864e5;
-  const totOv=open.filter(isOv).length,totWk=open.filter(isWk).length;
-  const names=[...new Set(open.map(t=>t.owner||"Unassigned"))].sort((a,b)=>{
-    const oa=open.filter(t=>(t.owner||"Unassigned")===a&&isOv(t)).length;
-    const ob=open.filter(t=>(t.owner||"Unassigned")===b&&isOv(t)).length;return ob-oa||a.localeCompare(b);});
-  const line=t=>`<div class="r"><span class="t"><button class="linkname" data-open="${esc(t.id)}">${esc(t.name||t.id)}</button> <span class="muted">· ${esc(brandOf(t.acct))}</span></span><span style="display:flex;gap:6px;align-items:center;flex:0 0 auto"><span style="font-size:10px;${cstyle('priority',t.priority)};padding:1px 7px;border-radius:5px">${esc(t.priority||'')}</span><span class="${flag(t)[1]}" style="white-space:nowrap">${esc(t.due||'')}</span></span></div>`;
-  const sections=names.map(n=>{
-    const ov=open.filter(t=>(t.owner||"Unassigned")===n&&isOv(t)).sort(byDue);
-    const wk=open.filter(t=>(t.owner||"Unassigned")===n&&isWk(t)).sort(byDue);
-    if(!ov.length&&!wk.length)return"";
-    return `<div class="panel"><h2>${esc(n)} <span class="muted" style="font-weight:500">· ${ov.length} overdue · ${wk.length} due this week</span></h2><div class="attn">${ov.length?`<div class="rowcount" style="color:var(--bad);font-weight:700">Overdue</div>`+ov.map(line).join(""):""}${wk.length?`<div class="rowcount" style="color:var(--warn);font-weight:700">Due this week</div>`+wk.map(line).join(""):""}</div></div>`;
-  }).filter(Boolean).join("");
-  const brandSel=`<select id="dgBrand"><option value="">All brands</option>${store.accounts.filter(a=>a.lifecycle!=="Churned"&&a.lifecycle!=="Lost").slice().sort((x,y)=>(x.brand||'').localeCompare(y.brand||'')).map(a=>`<option value="${esc(a.brand)}"${F.brand===a.brand?' selected':''}>${esc(a.brand)}</option>`).join("")}</select>`;
-  const ownerSel=`<select id="dgOwner"><option value="">All people</option>${[...teamActive(),"Unassigned"].map(n=>`<option value="${esc(n)}"${F.team===n?' selected':''}>${esc(n)}</option>`).join("")}</select>`;
-  const kL=(l,v,c,q)=>`<div class="kpiclick" data-dq="${q}">${kpi(l,v,c)}</div>`;
+  const h=new Date().getHours();
+  const hello=h<5?"Burning the midnight oil":h<12?"Good morning":h<17?"Good afternoon":h<22?"Good evening":"Still up";
+  const subs=["Here's what actually needs you.","Coffee first, then conquer.","Let's clear the deck.","Small shop, big moves.","The numbers missed you.","Let's make today count.","One clean pass and you're done."];
+  const S=moneyStats(store.money,'0000-01-01','9999-12-31');
+  const retDue=retainerInvoicesDue();const retSum=retDue.reduce((s,x)=>s+Math.abs(+x.fee||0),0);
+  const ovInv=store.money.filter(m=>owed(m)&&m.due&&m.due<todayISO);const ovInvSum=ovInv.reduce((s,m)=>s+(+m.amt||0),0);
+  const pendPay=store.money.filter(m=>(m.dir==='Salary'||m.dir==='Payout')&&m.status!=='Paid'&&!voided(m));const pendPaySum=Math.abs(pendPay.reduce((s,m)=>s+(+m.amt||0),0));
+  const pendExp=store.money.filter(m=>m.dir==='Expense'&&m.status!=='Paid'&&!voided(m));const pendExpSum=Math.abs(pendExp.reduce((s,m)=>s+(+m.amt||0),0));
+  const ovTasks=store.tasks.filter(t=>t.status!=='Done'&&t.due&&t.due<todayISO);
+  const dueToday=store.tasks.filter(t=>t.status!=='Done'&&t.due===todayISO);
+  const plural=(n,w)=>n+' '+w+(n===1?'':'s');
+  const items=[];
+  if(retDue.length)items.push({cls:'warn',goto:'retainers',txt:`Bill <b>${plural(retDue.length,'retainer')}</b> for last month · <b>KD ${KD(retSum)}</b>`,sub:'due the 10th'});
+  if(ovInv.length)items.push({cls:'bad',dm:'collect',txt:`<b>${plural(ovInv.length,'invoice')}</b> overdue · <b>KD ${KD(ovInvSum)}</b> to collect`});
+  if(pendPay.length)items.push({cls:'bad',goto:'salaries',txt:`<b>${plural(pendPay.length,'payment')}</b> pending to the team · <b>KD ${KD(pendPaySum)}</b>`});
+  if(ovTasks.length)items.push({cls:'bad',dq:'overdue',txt:`<b>${plural(ovTasks.length,'task')}</b> overdue`});
+  if(dueToday.length)items.push({cls:'warn',dq:'week',txt:`<b>${plural(dueToday.length,'task')}</b> due today`});
+  if(pendExp.length)items.push({cls:'muted',goto:'expenses',txt:`<b>${plural(pendExp.length,'bill')}</b> unpaid · <b>KD ${KD(pendExpSum)}</b>`});
+  const row=it=>`<div class="r dgrow" style="cursor:pointer"${it.goto?` data-goto="${it.goto}"`:''}${it.dq?` data-dq="${it.dq}"`:''}${it.dm?` data-dm="${it.dm}"`:''}><span class="t"><span class="dgdot ${it.cls}"></span>${it.txt}${it.sub?` <span class="muted">· ${it.sub}</span>`:''}</span><span class="muted" style="flex:0 0 auto">›</span></div>`;
+  const clear=dayPick(["Nothing's on fire. Go build something.","All clear. The rare quiet morning.","Clean slate. Nothing needs you right now.","Inbox-zero energy. Enjoy it while it lasts.","Nothing overdue, nothing owed. Breathe."]);
+  const bankCls=S.bankBalance<0?'bad':'good';
   $('view').innerHTML=`<div class="view">
-    <div class="rangebar">${brandSel}${ownerSel}${(F.brand||F.team)?`<button class="ghost" id="dgClear">Clear</button>`:''}<span style="flex:1"></span><span class="muted" style="font-size:12px">Click a number to open those tasks</span></div>
-    <div class="kpis">${kL("Overdue",totOv,"bad","overdue")}${kL("Due this week",totWk,"warn","week")}${kL("Open total",open.length,"accent","open")}${kpi("People",names.length,"")}</div>
-    ${sections||'<div class="center"><h2>Nothing overdue or due this week</h2><p>Everyone is clear for the next 7 days.</p></div>'}
+    <div class="dghero"><h1>${hello}, ${esc(firstName())}</h1><p class="muted">${esc(dayPick(subs))}</p></div>
+    <div class="panel"><h2>Needs you${items.length?` · ${items.length}`:''}</h2>
+      <div class="attn">${items.length?items.map(row).join(""):`<div class="center" style="padding:26px"><h2 style="border:0">${esc(clear)}</h2></div>`}</div></div>
+    <div class="kpis">
+      <div class="kpi ${bankCls} kpiclick" data-dm="cashpos"><span class="lab">In the bank now</span><span class="val valbig">KD ${KD(S.bankBalance)}</span><span class="bar"></span></div>
+      <div class="kpiclick" data-dm="collect">${kpi("Still to collect","KD "+KD(S.toCollect),"warn")}</div>
+      <div class="kpiclick" data-dm="pay">${kpi("Still to pay out","KD "+KD(S.toPayOut),"bad")}</div>
+    </div>
   </div>`;
-  if($('dgBrand'))$('dgBrand').onchange=e=>{F.brand=e.target.value;render();};
-  if($('dgOwner'))$('dgOwner').onchange=e=>{F.team=e.target.value;render();};
-  if($('dgClear'))$('dgClear').onclick=()=>{F.brand="";F.team="";render();};
 }
 async function generateMonthly(){
   if(!canWrite){toast("Read-only access");return;}
@@ -1800,7 +1808,7 @@ async function hardRefresh(){
   location.replace(base+'?fresh='+Date.now());
 }
 async function renderActivity(){
-  $('view').innerHTML='<div class="view"><div class="panel"><h2>Recent activity</h2><div class="center" style="padding:30px"><div class="spin"></div></div></div></div>';
+  $('view').innerHTML=`<div class="view"><div class="panel"><h2>Recent activity</h2><div class="center" style="padding:30px"><div class="spin"></div><div class="muted">${esc(quip())}</div></div></div></div>`;
   let items=[];try{const {data}=await sb.from('activity').select('*').order('at',{ascending:false}).limit(120);items=(data||[]).map(r=>({t:r.at,who:r.who,act:r.action,coll:r.coll,id:r.doc_id,label:r.label}));}catch(e){}
   const rows=items.slice(0,120).map(a=>`<div class="r"><span class="t"><b>${esc(a.who||'Someone')}</b> ${esc(a.act)} <span class="muted">${esc(a.coll)}/${esc(a.id)}</span>${a.label?` <span class="muted">· ${esc(a.label)}</span>`:''}</span><span class="muted" style="white-space:nowrap">${esc((a.t||'').replace('T',' ').slice(0,16))}</span></div>`).join("");
   $('view').innerHTML=`<div class="view"><div class="panel"><h2>Recent activity</h2><div class="attn">${items.length?rows:'<div class="rowcount">No activity logged yet. New tasks, edits and deletions will appear here with who made them and when.</div>'}</div></div></div>`;

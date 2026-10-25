@@ -21,7 +21,7 @@ async function all(table) {
 
 const today = new Date().toISOString().slice(0, 10);
 const [accounts, money, templates] = await Promise.all([all("accounts"), all("money"), all("templates")]);
-const brand = (id) => (accounts.find((a) => a.id === id) || {}).name || id || "—";
+const brand = (id) => (accounts.find((a) => a.id === id) || {}).brand || id || "—";
 const abs = (n) => Math.abs(+n || 0);
 const KD = (n) => (+n || 0).toLocaleString("en-US", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 const owed = (m) => m.dir === "Income" && !["Paid", "Voided", "Cancelled"].includes(m.status);
@@ -40,9 +40,17 @@ const unpaid = money.filter(owed);
 const outstanding = unpaid.reduce((a, m) => a + (+m.amt || 0), 0);
 const overdue = unpaid.filter((m) => m.due && m.due < today).sort((a, b) => (a.due || "").localeCompare(b.due || ""));
 
-const pendSal = money.filter((m) => m.dir === "Salary" && m.status !== "Paid");
+const pendSal = money.filter((m) => (m.dir === "Salary" || m.dir === "Payout") && m.status !== "Paid");
 const pendExp = money.filter((m) => m.dir === "Expense" && owedExp(m));
 function owedExp(m) { return !["Paid", "Voided", "Cancelled"].includes(m.status); }
+
+// retainers to bill: active retainer accounts with no support-plan invoice logged this month
+const retainerDue = accounts.filter((a) => abs(a.retainer_fee) > 0 && !["Churned", "Lost"].includes(a.lifecycle))
+  .filter((a) => !money.some((m) => m.acct === a.id && m.dir === "Income" && (m.income_type === "Retainer" || /support plan/i.test(m.description || "")) && (m.txn_date || "").slice(0, 7) === ym));
+const retainerDueSum = retainerDue.reduce((a, x) => a + abs(x.retainer_fee), 0);
+
+const greetSubs = ["Here's what needs you today.", "Coffee first, then conquer.", "Let's clear the deck.", "The numbers are ready for you.", "One clean pass and you're done."];
+const greetSub = greetSubs[Math.floor(Date.now() / 864e5) % greetSubs.length];
 
 // recurring templates whose current period isn't logged yet
 const dueRecurring = templates.filter((t) => t.kind === "expense" && t.active !== false).filter((t) => {
@@ -57,13 +65,21 @@ const rowline = (l, r) => `<tr><td style="padding:7px 0;border-bottom:1px solid 
 
 let html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:0 auto;color:#111">
   <div style="font-size:12px;color:#8a8d94;font-family:ui-monospace,Menlo,monospace">${today}</div>
-  <h1 style="font-size:22px;margin:2px 0 14px">PIVOT daily digest</h1>
+  <h1 style="font-size:22px;margin:2px 0 2px">Good morning</h1>
+  <div style="font-size:14px;color:#8a8d94;margin:0 0 14px">${greetSub}</div>
   <table style="width:100%;border-collapse:separate;border-spacing:0 0"><tr>
     ${card("Cash on hand", money3(cash), cash < 0 ? "#C22A1B" : "#157F3C")}
     ${card("Outstanding", money3(outstanding), "#C22A1B")}
     ${card("Collected (mo)", money3(collectedM), "#157F3C")}
     ${card("Billed (mo)", money3(billedM))}
   </tr></table>`;
+
+if (retainerDue.length) {
+  html += section(`Retainers to bill (${retainerDue.length}) · ${money3(retainerDueSum)}`,
+    `<table style="width:100%;border-collapse:collapse;font-size:14px">${retainerDue.map((a) =>
+      rowline(`${a.brand} <span style="color:#8a8d94">· support plan</span>`, `<b>KD ${KD(a.retainer_fee)}</b>`)).join("")}</table>
+    <div style="font-size:12px;color:#8a8d94;margin-top:6px">Bill last month on the 1st, due the 10th. App → Retainers → Generate.</div>`);
+}
 
 if (overdue.length) {
   html += section(`⚠️ Overdue invoices (${overdue.length})`,
@@ -101,10 +117,14 @@ const facts = [
   { title: "Billed (mo)", value: money3(billedM) },
 ];
 const body = [
-  { type: "TextBlock", text: "PIVOT daily digest", weight: "Bolder", size: "Large", wrap: true },
-  { type: "TextBlock", text: today, isSubtle: true, spacing: "None", wrap: true },
+  { type: "TextBlock", text: "Good morning", weight: "Bolder", size: "Large", wrap: true },
+  { type: "TextBlock", text: `${greetSub} · ${today}`, isSubtle: true, spacing: "None", wrap: true },
   { type: "FactSet", facts },
 ];
+if (retainerDue.length) {
+  body.push({ type: "TextBlock", text: `Retainers to bill (${retainerDue.length}) · KD ${KD(retainerDueSum)}`, weight: "Bolder", wrap: true, spacing: "Medium" });
+  body.push({ type: "TextBlock", wrap: true, text: retainerDue.map((a) => `- ${a.brand} · **KD ${KD(a.retainer_fee)}**`).join("\n") });
+}
 if (overdue.length) {
   body.push({ type: "TextBlock", text: `⚠️ Overdue invoices (${overdue.length})`, weight: "Bolder", wrap: true, spacing: "Medium" });
   body.push({ type: "TextBlock", wrap: true, text: overdue.slice(0, 10).map((m) => `- ${m.description || m.id} · ${brand(m.acct)} · **KD ${KD(m.amt)}** · ${days(m.due, today)}d`).join("\n") });

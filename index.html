@@ -3,7 +3,7 @@
 <title>PIVOT Command Center</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=57">
+<link rel="stylesheet" href="styles.css?v=58">
 </head><body>
 <div id="loginwrap"></div>
 
@@ -12,6 +12,7 @@
   <aside class="rail">
     <div class="brand"><span class="dot"></span><b>PIVOT</b></div>
     <nav class="nav" id="nav">
+      <button data-view="digest">Home</button>
       <button class="grp" data-view="tasksdash" data-group="tasks" aria-current="true">Tasks<span class="arw">⌄</span></button>
       <button class="sub" data-group="tasks" data-view="tasks">All Tasks</button>
       <button class="sub" data-group="tasks" data-view="recurring">Recurring Tasks</button>
@@ -57,7 +58,7 @@
         <button class="theme" id="theme" title="Toggle theme">◐</button>
       </div>
     </header>
-    <main class="main"><div id="view"><div class="center"><div class="spin"></div><div>Loading your workspace…</div></div></div></main>
+    <main class="main"><div id="view"><div class="center"><div class="spin"></div><div>Brewing your workspace…</div></div></div></main>
   </div>
 </div>
 <div class="modal" id="modal"></div>
@@ -65,5 +66,5 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=57"></script>
+<script src="app.js?v=58"></script>
 </body></html>

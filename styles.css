@@ -376,3 +376,12 @@ th.thsort:hover{color:var(--accent)}
 .colmenu .cmrow:hover{background:var(--surface-2)}
 .colmenu .cmfoot{display:flex;align-items:center;gap:8px;padding-top:2px}
 .colmenu .cmfoot .btn{padding:6px 14px;font-size:12px}
+
+/* v58 digest home: greeting hero + action rows */
+.dghero{padding:4px 2px 2px}
+.dghero h1{font-size:26px;margin:0;color:var(--ink)}
+.dghero p{margin:3px 0 0;font-size:14px}
+.dgdot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:9px;vertical-align:middle;background:var(--muted);flex:0 0 auto}
+.dgdot.bad{background:var(--bad)} .dgdot.warn{background:var(--warn)} .dgdot.good{background:var(--good)} .dgdot.muted{background:var(--muted)}
+.dgrow .t{display:flex;align-items:center}
+.dgrow:hover{background:var(--surface-2)}
