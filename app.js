@@ -43,7 +43,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v56 · Supabase";
+let saveStateText="connecting…",pendingHL="";const APPVER="v57 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -603,11 +603,11 @@ function renderMoneyDash(){
 function sortBy(arr,k,dir){return [...arr].sort((a,b)=>{let x=a[k],y=b[k];if(k==='amt'){x=+a.amt||0;y=+b.amt||0;}x=x==null?"":x;y=y==null?"":y;return x>y?dir:x<y?-dir:0;});}
 // ---- data tables: nested multi-sort + per-column Excel-style filter ----
 // default sort per table: the date first, then the entry sequence number, so same-date rows read in order
-const DEFSORT={invoices:[{k:'date',dir:-1},{k:'seq',dir:-1}],expenses:[{k:'date',dir:-1},{k:'seq',dir:-1}],tasks:[{k:'due',dir:1},{k:'seq',dir:1}],accounts:[{k:'date_added',dir:-1},{k:'seq',dir:-1}]};
+const DEFSORT={invoices:[{k:'date',dir:-1},{k:'seq',dir:-1}],expenses:[{k:'date',dir:-1},{k:'seq',dir:-1}],tasks:[{k:'due',dir:1},{k:'seq',dir:1}],accounts:[{k:'date_added',dir:-1},{k:'seq',dir:-1}],services:[{k:'active',dir:-1},{k:'name',dir:1}]};
 const NUMCOLS=new Set(['amt','coll','out','cost','margin','eng','open','price','retainer_fee','value','seq']);
 const DATECOLS=new Set(['date','due','logged','paid','date_added','start_date','due_date','signed_date','contract_date','close_date']);
 const TEXTCOLS=new Set(['inv_no','id','desc','name','notes','output','details','title']);       // sort + text search
-const CATCOLS=new Set(['brand','income_type','status','owner','priority','country','type','lifecycle','cat','tags','active','stage','role','reqby']); // sort + value checklist
+const CATCOLS=new Set(['brand','income_type','status','owner','priority','country','type','lifecycle','cat','tags','active','stage','role','reqby','unit']); // sort + value checklist
 function seqOf(r){const m=String(r.inv_no||r.id||'').match(/(\d+)(?!.*\d)/);return m?+m[1]:0;}
 function colVal(r,k){ if(k==='seq')return seqOf(r); if(k==='brand')return brandOf(r.acct)||''; let v=r[k]; if(NUMCOLS.has(k))return +v||0; return v==null?'':String(v); }
 function sortByMulti(arr,keys){ return [...arr].sort((a,b)=>{ for(const s of keys){let x=colVal(a,s.k),y=colVal(b,s.k); if(typeof x==='string'||typeof y==='string'){x=(''+x).toLowerCase();y=(''+y).toLowerCase();} if(x<y)return -s.dir; if(x>y)return s.dir;} return 0; }); }
@@ -631,7 +631,7 @@ function distinctVals(rows,tbl,k){const f=state.colF[tbl]||{};const other=Object
   return [...set].sort((a,b)=>{const na=+a,nb=+b;if(a!==''&&b!==''&&!isNaN(na)&&!isNaN(nb))return na-nb;return a.localeCompare(b);});}
 let _TBL=null;
 function thhead(head,tbl){if(tbl)_TBL=tbl;const t=_TBL;const keys=effSort(t);const manual=!!(state.msort[t]&&state.msort[t].length);
-  return head.map(h=>{if(!h[0])return "<th></th>";
+  return head.map(h=>{if(!h[0])return h[1]?`<th>${h[1]}</th>`:"<th></th>";
     const i=keys.findIndex(s=>s.k===h[0]);const s=i>=0?keys[i]:null;
     const arrow=s?(s.dir>0?' \u25B2':' \u25BC'):'';
     const pri=(manual&&keys.length>1&&i>=0)?`<sup class="thpri">${i+1}</sup>`:'';
@@ -1143,7 +1143,9 @@ const SVC_TYPES=["Retainer","Project"];
 function renderServices(){
   const ro=canWrite?"":"disabled";
   const svcMatch=s=>{if(F.status==="Active"&&s.active==="No")return false;if(F.status==="Retired"&&s.active!=="No")return false;if(F.q&&!((s.id+" "+(s.name||"")+" "+(s.type||"")+" "+(s.notes||"")).toLowerCase().includes(F.q)))return false;return true;};
-  const svc=(store.services||[]).filter(svcMatch).slice().sort((a,b)=>((a.active==="No")-(b.active==="No"))||(a.name||'').localeCompare(b.name||''));
+  const _base=(store.services||[]).filter(svcMatch);
+  const head=[["id","ID"],["name","Service"],["type","Type"],["price","Price (KD)"],["unit","Unit"],["notes","Notes"],["","Checklist"],["active","Status"],["",""]];
+  const svc=arrange(_base,'services');
   const rows=svc.length?svc.map(s=>`<tr>
     <td class="id">${esc(s.id)}</td>
     <td><input class="edit" style="min-width:150px" data-c="services" data-id="${esc(s.id)}" data-f="name" value="${esc(s.name||'')}" ${ro}></td>
@@ -1153,13 +1155,14 @@ function renderServices(){
     <td><input class="edit" style="min-width:160px" data-c="services" data-id="${esc(s.id)}" data-f="notes" value="${esc(s.notes||'')}" ${ro} placeholder="What it covers"></td>
     <td><button class="linkmini" data-svopen="${esc(s.id)}">${((s.tasks||'').split('\n').map(x=>x.trim()).filter(Boolean)).length||0} tasks ›</button></td>
     <td><select class="edit" data-c="services" data-id="${esc(s.id)}" data-f="active" ${ro}><option value="Yes"${s.active!=="No"?" selected":""}>Active</option><option value="No"${s.active==="No"?" selected":""}>Retired</option></select></td>
-    <td>${canWrite?rowMenu("services",s.id):""}</td></tr>`).join(""):'<tr><td colspan="9" class="rowcount">No services yet. Add the things PIVOT sells (retainers and projects) so deals and invoices can use them.</td></tr>';
+    <td>${canWrite?rowMenu("services",s.id):""}</td></tr>`).join(""):'<tr><td colspan="9" class="rowcount">No services yet. Add the things PIVOT sells so invoices can use them.</td></tr>';
   $('view').innerHTML=`<div class="view"><div class="panel">
-    <div class="addbar"><button class="btn" id="svAdd"${canWrite?"":" disabled"}>+ Add service</button><span class="muted" style="font-size:12px">The catalogue of what PIVOT offers. Retainers bill monthly; projects are one-off.</span></div>
-    <div class="tablewrap"><table><thead><tr><th>ID</th><th>Service</th><th>Type</th><th>Price (KD)</th><th>Unit</th><th>Notes</th><th>Checklist</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="rowcount">${svc.filter(s=>s.active!=="No").length} active services · click the checklist to set the tasks a project deploys with</div>
+    <div class="addbar"><button class="btn" id="svAdd"${canWrite?"":" disabled"}>+ Add service</button><span class="muted" style="font-size:12px">The catalogue of what PIVOT offers. Retainers bill monthly; one-off work is a project. Click a heading to sort or filter.</span></div>
+    <div class="tablewrap"><table><thead><tr>${thhead(head,'services')}</tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="rowcount">${svc.filter(s=>s.active!=="No").length} active services · click the checklist to set the default tasks for a service</div>
   </div></div>`;
   if($('svAdd'))$('svAdd').onclick=openServiceNew;
+  bindTable('services',_base,renderServices);
 }
 function openServiceNew(){
   if(!canWrite){toast("Read-only access");return;}
@@ -1286,8 +1289,6 @@ const VIEWFILTERS={
   salaries:{status:PAYOUT_STATUS},
   payouts:{status:PAYOUT_STATUS},
   accounts:{status:LIFE,statusLabel:"All lifecycle"},
-  pipeline:{status:DEAL_STAGES,statusLabel:"All stages"},
-  projects:{status:PROJ_STATUS,statusLabel:"All statuses"},
   services:{brand:false,status:["Active","Retired"]}
 };
 function setupFilters(view){
@@ -1305,8 +1306,8 @@ function render(){
   if(!booted||!ready())return;
   if(rafP)return; rafP=true;
   requestAnimationFrame(()=>{rafP=false;
-    const TITLES={tasksdash:"Tasks overview",moneydash:"Money overview",mytasks:"My Tasks",digest:"Digest",tasks:"All Tasks",recurring:"Recurring Tasks",invoices:"Invoices",expenses:"Expenses",salaries:"Salaries",payouts:"Payouts",retainers:"Retainers",accounts:"Accounts",pipeline:"Pipeline",projects:"Projects",services:"Services",activity:"Activity Log",setup:"Settings"};
-    const VIEWS={tasksdash:renderTasksDash,moneydash:renderMoneyDash,mytasks:renderMyTasks,digest:renderDigest,tasks:renderTasks,recurring:renderRecurring,invoices:renderInvoices,expenses:renderExpenses,salaries:renderSalaries,payouts:renderPayouts,retainers:renderRetainers,accounts:renderAccounts,pipeline:renderPipeline,projects:renderProjects,services:renderServices,activity:renderActivity,setup:renderSetup};
+    const TITLES={tasksdash:"Tasks overview",moneydash:"Money overview",mytasks:"My Tasks",tasks:"All Tasks",recurring:"Recurring Tasks",invoices:"Invoices",expenses:"Expenses",salaries:"Salaries",payouts:"Payouts",retainers:"Retainers",accounts:"Accounts",services:"Services",activity:"Activity Log",setup:"Settings"};
+    const VIEWS={tasksdash:renderTasksDash,moneydash:renderMoneyDash,mytasks:renderMyTasks,tasks:renderTasks,recurring:renderRecurring,invoices:renderInvoices,expenses:renderExpenses,salaries:renderSalaries,payouts:renderPayouts,retainers:renderRetainers,accounts:renderAccounts,services:renderServices,activity:renderActivity,setup:renderSetup};
     if(!VIEWS[state.view])state.view="tasksdash";
     setupFilters(state.view);
     $('viewtitle').textContent=TITLES[state.view];
