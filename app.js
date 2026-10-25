@@ -41,8 +41,8 @@ const $=id=>document.getElementById(id);
 const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
-function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1400);}
-let saveStateText="connecting…",pendingHL="";const APPVER="v52 · Supabase";
+function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
+let saveStateText="connecting…",pendingHL="";const APPVER="v53 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -133,6 +133,7 @@ function toDB(coll,obj){ const o=Object.assign({},obj);
   if(coll==='tasks'){ ['logged','due','done','acct','eng','project','parent'].forEach(k=>{if(o[k]==='')o[k]=null;}); }
   if(coll==='templates'){ if('dueDay' in o){o.due_day=parseInt(o.dueDay)||1;delete o.dueDay;} if('active' in o){o.active=(o.active!=="No"&&o.active!==false);} }
   if(coll==='people'||coll==='services'){ if('active' in o){o.active=(o.active!=="No"&&o.active!==false);} }
+  if(coll==='accounts'){ if(o.parent==='')o.parent=null; }
   if(coll==='deals'){ ['contract_date','signed_date','close_date'].forEach(k=>{if(o[k]==='')o[k]=null;}); }
   if(coll==='projects'){ ['start_date','due_date'].forEach(k=>{if(o[k]==='')o[k]=null;}); }
   return o; }
@@ -257,7 +258,8 @@ function openImportTasks(){
     const rows=parsed.out.map((e,i)=>({id:"TSK-"+String(base+1+i).padStart(4,"0"),acct:e.acct,eng:"",name:e.name,details:e.details,owner:e.owner,priority:e.priority,reqby:"Import",logged:todayISO,due:e.due,done:(e.status==="Done"?todayISO:""),status:e.status,output:"",notes:"",tags:e.tags,project:"",parent:""}));
     await createMany("tasks",rows);close();};
 }
-function rebuildBrandFilter(){const s=$('fBrand');if(!s)return;const cur=s.value;s.length=1;
+function rebuildBrandFilter(){const s=$('fBrand');if(!s)return;const cur=s.value;
+  while(s.children.length>1)s.removeChild(s.lastChild);   // keep the "All brands" option, drop old optgroups
   const life={};store.accounts.forEach(a=>{if(a.brand&&!(a.brand in life))life[a.brand]=a.lifecycle||"";});
   const names=Object.keys(life).sort();
   const active=names.filter(b=>life[b]==="Active");
