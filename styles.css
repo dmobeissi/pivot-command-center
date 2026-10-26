@@ -191,6 +191,7 @@ svg:hover .pieslice{opacity:.5}
   .nav .grp .arw{display:none}
   .navfoot{display:contents}
   .navuser{flex:0 0 auto;margin-left:4px}
+  .usermenu{position:fixed;bottom:auto;left:auto;right:8px;min-width:170px;z-index:60} /* nav is a scrolling top bar here: float below the dots (top set in JS) so it is not clipped */
   .topbar h1{width:100%}
   .filters{margin-left:0;width:100%}
   .filters select,.filters input[type=search]{flex:1;min-width:120px}
@@ -391,7 +392,7 @@ th.thsort:hover{color:var(--accent)}
 .dghero p{margin:3px 0 0;font-size:14px}
 .dgdot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:9px;vertical-align:middle;background:var(--muted);flex:0 0 auto}
 .dgdot.bad{background:var(--bad)} .dgdot.warn{background:var(--warn)} .dgdot.good{background:var(--good)} .dgdot.muted{background:var(--muted)}
-.dgrow .t{display:flex;align-items:center}
+.dgrow .t{display:block} /* block, not flex: flex dropped the spaces around the bold parts (v65) */
 .dgrow:hover{background:var(--surface-2)}
 
 /* ---- invoice split helper + account section divider (v60) ---- */
@@ -419,3 +420,8 @@ th.thsort:hover{color:var(--accent)}
 .hbar-row.drill:hover>*{filter:brightness(1.06)}
 .hbar-row.drill:hover .hbar-lab{color:var(--ink)}
 @media (max-width:480px){.hbars{grid-template-columns:fit-content(40%) minmax(40px,1fr) auto}}
+/* KPI values shrink with their card so the full figure always shows, never "KD 2,150…" (v65).
+   ~13 mono chars (KD 20,943.000) fit at 9.5% of the card width. */
+.kpi{container-type:inline-size}
+.kpi .val{font-size:min(19px,9.5cqw)}
+.kpi .val.valbig{font-size:min(24px,9.5cqw)}

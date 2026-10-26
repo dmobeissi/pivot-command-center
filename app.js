@@ -43,7 +43,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v64 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v65 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -91,10 +91,12 @@ function renderUserChip(){
   const nu=$('navuser'); if(!nu)return;
   const initials=((myName||'U').trim()[0]||'U').toUpperCase();
   nu.innerHTML=`<div class="ua">${esc(initials)}</div><div class="un" title="${esc(session.user.email||'')}">${esc(myName)}</div><button class="udots" id="uDots" title="Account">⋯</button>
-    <div class="usermenu" id="uMenu"><button id="uPass">Change password</button><button class="danger" id="uOut">Sign out</button></div>`;
-  $('uDots').onclick=e=>{e.stopPropagation();$('uMenu').classList.toggle('show');};
+    <div class="usermenu" id="uMenu"><button id="uRefresh" title="Reload the latest data and app version">Refresh data</button><button id="uPass">Change password</button><button class="danger" id="uOut">Sign out</button></div>`;
+  $('uDots').onclick=e=>{e.stopPropagation();const m=$('uMenu');m.classList.toggle('show');
+    m.style.top=(getComputedStyle(m).position==='fixed')?(e.currentTarget.getBoundingClientRect().bottom+6)+'px':'';};
   $('uOut').onclick=signOut;
   $('uPass').onclick=openChangePassword;
+  $('uRefresh').onclick=hardRefresh;
 }
 document.addEventListener('click',e=>{ if($('uMenu')&&!e.target.closest('#navuser'))$('uMenu').classList.remove('show'); });
 function openChangePassword(){
@@ -1997,17 +1999,16 @@ function renderSetup(){
     </div>
     <div class="panel"><h2>Appearance</h2><div class="body"><div class="themeseg"><button data-theme="system">System</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></div></div></div>
     <div class="panel"><h2>About</h2><div class="body" style="display:flex;flex-direction:column;gap:10px">
-      <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center"><div><span class="muted">Build</span> &nbsp; <b>PIVOT Command Center ${APPVER}</b></div><div><span class="muted">Status</span> &nbsp; <span id="savestate">${esc(saveStateText)}</span></div><span style="flex:1"></span><button class="btn" id="hardRef">Hard refresh</button></div>
-      <div class="rowcount" style="padding-left:0">Hard refresh clears the cache and reloads the newest version. Use it if the app looks unstyled or an update hasn't shown up. Data lives in your Supabase database; a nightly backup pushes to a private repo and a daily digest posts to Teams.</div>
+      <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center"><div><span class="muted">Build</span> &nbsp; <b>PIVOT Command Center ${APPVER}</b></div><div><span class="muted">Status</span> &nbsp; <span id="savestate">${esc(saveStateText)}</span></div></div>
+      <div class="rowcount" style="padding-left:0">If the app looks unstyled or an update hasn't shown up, use Refresh data in the ⋯ menu beside your name. It clears the cache and reloads the newest data and version. Data lives in your Supabase database; a nightly backup pushes to a private repo and a daily digest posts to Teams.</div>
     </div></div>
   </div>`;
   document.querySelectorAll('.themeseg button').forEach(b=>b.onclick=()=>setTheme(b.dataset.theme));
   applyTheme();
   if($('tmAdd'))$('tmAdd').onclick=openMemberNew;
-  if($('hardRef'))$('hardRef').onclick=hardRefresh;
 }
 async function hardRefresh(){
-  const b=$('hardRef');if(b){b.disabled=true;b.textContent='Refreshing…';}
+  const b=$('uRefresh');if(b){b.disabled=true;b.textContent='Refreshing…';}
   try{if(window.caches){const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)));}}catch(_){}
   try{if(navigator.serviceWorker){const rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(r=>r.unregister()));}}catch(_){}
   // re-download the core assets bypassing the HTTP cache, then reload on a fresh document URL
