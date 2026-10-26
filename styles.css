@@ -249,6 +249,11 @@ svg:hover .pieslice{opacity:.5}
 .sheet-report{overflow:hidden}
 .reportbody{display:flex;flex-direction:column;gap:12px;overflow:auto;min-height:0;flex:1}
 .sheet-report .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+.reportbody>*{flex-shrink:0}
+.sheet-report td:first-child{white-space:nowrap}
+@media (max-width:560px){.sheet-report .kpis{grid-template-columns:1fr}}
+.rephd{margin:4px 0 -4px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.sheet-report tr.totrow td{border-top:1px solid var(--line);font-weight:600}
 .kpi .val{white-space:nowrap}
 
 /* undo toast */

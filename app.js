@@ -43,7 +43,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v63 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v64 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -1761,24 +1761,53 @@ function openAccountEdit(id){
   if($('mkDelete'))$('mkDelete').onclick=()=>{close();remove("accounts",id);};
 }
 function openReport(kind){
-  const R=activeRange();const lbl=`${R.from} → ${R.to==='9999-12-31'?'now':R.to}`;let title,html,csv,fname;
+  const R=activeRange();const lbl=R.from==='2000-01-01'?'All time':`${R.from} → ${R.to==='9999-12-31'?'now':R.to}`;let title,html,csv,fname;
   if(kind==='money'){
-    const Mall=moneyF();const inR=m=>{const dt=m.date||'';return dt>=R.from&&dt<=R.to;};
-    const inv=Mall.filter(m=>m.dir==='Income'&&inR(m)&&!voided(m));
-    const exp=Mall.filter(m=>m.dir==='Expense'&&inR(m));
-    const collected=inv.filter(m=>m.status==='Paid').reduce((a,m)=>a+(+m.amt||0),0);
-    const billed=inv.reduce((a,m)=>a+(+m.amt||0),0);
-    const expenses=Math.abs(exp.reduce((a,m)=>a+(+m.amt||0),0));
-    const byB={};inv.forEach(m=>{const b=brandOf(m.acct);byB[b]=(byB[b]||0)+(+m.amt||0);});
-    const rows=Object.entries(byB).sort((a,b)=>b[1]-a[1]);
+    // Same set and same maths as the Money dashboard (all brands, moneyStats), so every figure here matches it.
+    const Mall=store.money;const S=moneyStats(Mall,R.from,R.to);const rng=R.to==='9999-12-31'?'now':R.to;
+    const dOf=m=>m.date||'';const pOf=m=>m.paid||m.date||'';
+    const inIssue=m=>dOf(m)>=R.from&&dOf(m)<=R.to;const inPaid=m=>m.status==='Paid'&&pOf(m)>=R.from&&pOf(m)<=R.to;
+    const abs=m=>Math.abs(+m.amt||0);const sum=a=>a.reduce((t,m)=>t+abs(m),0);
+    const TYPES=[["Income","In · Income"],["Expense","Out · Expense"],["Salary","Out · Salary"],["Payout","Out · Payout"]];
+    const typeRows=TYPES.map(([d,l])=>{const iss=Mall.filter(m=>m.dir===d&&!voided(m)&&inIssue(m));
+      return {l,iss:sum(iss),paid:sum(Mall.filter(m=>m.dir===d&&inPaid(m))),open:sum(iss.filter(m=>m.status!=='Paid')),n:iss.length};});
+    const outPaid=Mall.filter(m=>m.dir!=='Income'&&inPaid(m));
+    const byCat={};outPaid.forEach(m=>{const k=m.dir+" · "+(m.cat||"Uncategorised");byCat[k]=(byCat[k]||0)+abs(m);});
+    const catRows=Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
+    const byB={};const bb=b=>byB[b]||(byB[b]={billed:0,coll:0,cost:0});
+    Mall.forEach(m=>{const b=brandOf(m.acct)||"No brand";
+      if(m.dir==='Income'){if(!voided(m)&&inIssue(m))bb(b).billed+=abs(m);if(inPaid(m))bb(b).coll+=abs(m);}
+      else if(inPaid(m))bb(b).cost+=abs(m);});
+    const brandRows=Object.entries(byB).filter(([,o])=>o.billed||o.coll||o.cost).sort((a,b)=>(b[1].coll-b[1].cost)-(a[1].coll-a[1].cost));
+    const byP={};outPaid.filter(m=>m.dir==='Salary'||m.dir==='Payout').forEach(m=>{const k=m.partner||"Unnamed";const o=byP[k]||(byP[k]={sal:0,po:0});if(m.dir==='Salary')o.sal+=abs(m);else o.po+=abs(m);});
+    const personRows=Object.entries(byP).sort((a,b)=>(b[1].sal+b[1].po)-(a[1].sal+a[1].po));
+    const vd=Mall.filter(m=>voided(m)&&inIssue(m));
+    const tbl=(head,body,empty)=>`<div class="tablewrap"><table><thead><tr>${head.map((h,i)=>`<th${i?' class="num"':''}>${h}</th>`).join("")}</tr></thead><tbody>${body||`<tr><td colspan="${head.length}" class="rowcount">${empty}</td></tr>`}</tbody></table></div>`;
+    const td=v=>`<td class="num">${KD(v)}</td>`;
+    // ledger: every row issued or paid in range, all types and statuses, with a running bank balance over all time
+    const led=Mall.filter(m=>inIssue(m)||(m.paid&&m.paid>=R.from&&m.paid<=R.to));
+    const runBal={};let rb=0;[...Mall].filter(m=>m.status==='Paid').sort((a,b)=>(pOf(a)+a.id).localeCompare(pOf(b)+b.id)).forEach(m=>{rb+=(m.dir==='Income'?1:-1)*abs(m);runBal[m.id]=rb;});
     title="Financial report";
-    html=`<div class="kpis">${kpi("Billed","KD "+KD(billed),"accent")}${kpi("Collected","KD "+KD(collected),"good")}${kpi("Expenses","KD "+KD(expenses),"warn")}${kpi("Net","KD "+KD(collected-expenses),"accent")}</div>
-      <div class="tablewrap"><table><thead><tr><th>Brand</th><th>Billed (KD)</th></tr></thead><tbody>${rows.length?rows.map(r=>`<tr><td>${esc(r[0])}</td><td class="num">${KD(r[1])}</td></tr>`).join(""):'<tr><td colspan="2" class="rowcount">No income in range</td></tr>'}</tbody></table></div>`;
-    fname=`PIVOT financial report ${R.from}_${R.to==='9999-12-31'?'now':R.to}.csv`;
-    csv=()=>{const lines=[["Ledger ID","Date","Brand","Type","Description","Amount","Status","Due"].map(csvCell).join(",")];
-      [...inv,...exp].sort((a,b)=>((a.date||'')+"").localeCompare(b.date||'')).forEach(m=>lines.push([m.id,m.date,brandOf(m.acct),m.dir,m.desc,m.amt,m.status,m.due].map(csvCell).join(",")));
-      lines.push("");
-      [["Billed",billed],["Collected",collected],["Expenses",expenses],["Net",collected-expenses]].forEach(p=>lines.push(["","","","",p[0],p[1],"",""].map(csvCell).join(",")));
+    html=`<div class="muted" style="font-size:12px">${esc(lbl)} · all brands · issued by issue date, paid by paid date · cancelled and voided left out of totals</div>
+      <div class="kpis">${kpi("Billed","KD "+KD(S.perType.income.issued),"accent")}${kpi("Collected","KD "+KD(S.cashIn),"good")}${kpi("Paid out","KD "+KD(S.cashOut),"bad")}${kpi("Cash moved (collected − paid out)","KD "+KD(S.cashflow),S.cashflow<0?"bad":"good")}</div>
+      <div class="kpis">${kpi("In the bank now · all time","KD "+KD(S.bankBalance),S.bankBalance<0?"bad":"accent")}${kpi("Still to collect","KD "+KD(S.toCollect),"warn")}${kpi("Still to pay out","KD "+KD(S.toPayOut),"bad")}${kpi("If everything clears","KD "+KD(S.bankBalance+S.toCollect-S.toPayOut),"")}</div>
+      <h4 class="rephd">In and out by type</h4>
+      ${tbl(["Type","Issued","Paid","Still open","Lines"],typeRows.map(r=>`<tr><td>${r.l}</td>${td(r.iss)}${td(r.paid)}${td(r.open)}<td class="num">${r.n}</td></tr>`).join("")+`<tr class="totrow"><td><b>Total out</b></td>${td(typeRows.slice(1).reduce((t,r)=>t+r.iss,0))}${td(S.cashOut)}${td(typeRows.slice(1).reduce((t,r)=>t+r.open,0))}<td class="num">${typeRows.slice(1).reduce((t,r)=>t+r.n,0)}</td></tr>`,"")}
+      <h4 class="rephd">Paid out by category</h4>
+      ${tbl(["Category","Paid (KD)"],catRows.map(r=>`<tr><td>${esc(r[0])}</td>${td(r[1])}</tr>`).join(""),"Nothing paid out in range")}
+      <h4 class="rephd">By brand · collected minus paid costs</h4>
+      ${tbl(["Brand","Billed","Collected","Costs paid","Net"],brandRows.map(([b,o])=>`<tr><td>${esc(b)}</td>${td(o.billed)}${td(o.coll)}${td(o.cost)}<td class="num ${o.coll-o.cost<0?'neg':''}">${KD(o.coll-o.cost)}</td></tr>`).join(""),"No activity in range")}
+      <h4 class="rephd">Paid to people</h4>
+      ${tbl(["Person","Salary","Payout","Total"],personRows.map(([p,o])=>`<tr><td>${esc(p)}</td>${td(o.sal)}${td(o.po)}${td(o.sal+o.po)}</tr>`).join(""),"No salaries or payouts paid in range")}
+      ${vd.length?`<div class="muted" style="font-size:12px">${vd.length} cancelled or voided line${vd.length>1?'s':''} in range (KD ${KD(sum(vd))}), left out of the totals above but included in the CSV.</div>`:""}
+      <div class="muted" style="font-size:12px">Ledger CSV: ${led.length} lines, every type and status issued or paid in range.${state.range.preset!=='all'?' For a full audit set the range to All time.':''}</div>`;
+    fname=`PIVOT ledger ${R.from==='2000-01-01'?'all time':R.from+'_'+rng} (exported ${todayISO}).csv`;
+    csv=()=>{const f3=v=>v==null||v===''?'':(+v).toFixed(3);
+      const H=["Ledger ID","Direction","Type","Category","Brand","Account ID","Person","Role","Invoice no","Invoice type","Description","Issued","Service month","Due","Paid on","Status","Counts in totals","Amount (signed KD)","In (KD)","Out (KD)","Cash moved","Running bank balance (KD)","Payout batch","Project ref","Installment","Template","Notes","Created at"];
+      const lines=[H.map(csvCell).join(",")];
+      led.sort((a,b)=>((a.status==='Paid'?pOf(a):dOf(a))+a.id).localeCompare((b.status==='Paid'?pOf(b):dOf(b))+b.id)).forEach(m=>{const inc=m.dir==='Income';const a=abs(m);
+        lines.push([m.id,inc?"In":"Out",m.dir,m.cat,brandOf(m.acct),m.acct,m.partner,m.role,m.inv_no,m.income_type,m.desc,m.date,m.logged,m.due,m.paid,m.status,voided(m)?"No":"Yes",
+          f3(inc?a:-a),inc?f3(a):"",inc?"":f3(a),m.status==='Paid'?"Yes":"No",m.status==='Paid'?f3(runBal[m.id]):"",m.batch,m.proj_ref,m.inst_no?(m.inst_no+" of "+(m.inst_count||"?")):"",m.tpl,m.notes,m.created_at].map(csvCell).join(","));});
       dl(fname,lines.join("\n"));};
   } else {
     const T=tasksF();const inR=v=>v&&v>=R.from&&v<=R.to;
@@ -1795,7 +1824,7 @@ function openReport(kind){
   $('modal').innerHTML=`<div class="sheet sheet-report" style="max-width:720px">
     <div class="sheethead"><div><div class="id">${esc(lbl)}</div><h3>${title}</h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
     <div class="reportbody">${html}</div>
-    <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Close</button><button class="btn" id="mkCsv">Download CSV</button></div>
+    <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Close</button><button class="btn" id="mkCsv">${kind==='money'?'Download full ledger (CSV)':'Download CSV'}</button></div>
   </div>`;
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
