@@ -43,7 +43,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v62 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v63 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -1325,6 +1325,7 @@ function render(){
   });
 }
 
+function autoDone(){const st=$('mk_status'),dn=$('mk_done');if(st&&dn)st.addEventListener('change',()=>{if(st.value==='Done'&&!dn.value)dn.value=todayISO;});}
 function fld(label,inner){return `<label class="fld"><span>${label}</span>${inner}</label>`;}
 function openTask(id){
   const t=store.tasks.find(x=>x.id===id);if(!t)return;const ro=canWrite?"":"disabled";
@@ -1354,6 +1355,7 @@ function openTask(id){
       ${canWrite?`<button class="btn" id="mkSave">Save</button>`:""}
     </div></div>`;
   $('modal').classList.add('show');
+  if(canWrite)autoDone();
   const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;
   $('modal').onclick=e=>{if(e.target===$('modal'))close();};
@@ -1376,6 +1378,7 @@ function openTaskNew(preset){
       ${fld("Requested by",`<select id="mk_reqby">${opts(["PIVOT","Client"],"PIVOT")}</select>`)}
       ${fld("Logged",`<input type="date" id="mk_logged" value="${todayISO}">`)}
       ${fld("Due",`<input type="date" id="mk_due">`)}
+      ${fld("Done",`<input type="date" id="mk_done">`)}
       ${fld("Tags (comma-separated)",`<input id="mk_tags" placeholder="e.g. dev, waiting-on-client">`)}
     </div>
     <div class="formfull">${fld("Description",`<textarea id="mk_details" rows="3"></textarea>`)}</div>
@@ -1384,8 +1387,9 @@ function openTaskNew(preset){
   $('modal').classList.add('show');
   const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
+  autoDone();
   $('mkSave').onclick=()=>{const g=f=>{const el=$('mk_'+f);return el?el.value:"";};const name=g('name').trim();if(!name){toast("Enter a task name");return;}
-    const st=g('status');const dn=st==='Done'?todayISO:"";
+    const st=g('status');let dn=g('done');if(st==='Done'&&!dn)dn=todayISO;
     create("tasks",nextId("tasks","TSK-",4),{acct:g('acct'),eng:"",name,details:g('details'),owner:g('owner'),priority:g('priority'),reqby:g('reqby'),logged:g('logged')||todayISO,due:g('due'),done:dn,status:st,output:"",notes:"",tags:g('tags'),project:preset.project||"",parent:preset.parent||""});close();};
 }
 function openTemplateNew(){
