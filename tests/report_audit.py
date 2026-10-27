@@ -33,13 +33,13 @@ with sync_playwright() as p:
       with pg.expect_download() as d: pg.click('#mkCsv')
       path=d.value.path();name=d.value.suggested_filename;print("file:",name)
       rows=list(csv.DictReader(io.open(path,encoding='utf-8-sig')))
-      chk(f"CSV has every ledger row ({len(rows)} of {len(M)})", len(rows)==len(M) and {r['Ledger ID'] for r in rows}=={m['id'] for m in M})
+      chk(f"CSV has every ledger row ({len(rows)} of {len(M)})", len(rows)==len(M) and {r['ID'] for r in rows}=={m['id'] for m in M})
       cin=sum(float(r['In (KD)']) for r in rows if r['Cash moved']=='Yes' and r['In (KD)'])
       cout=sum(float(r['Out (KD)']) for r in rows if r['Cash moved']=='Yes' and r['Out (KD)'])
       chk(f"CSV paid in - paid out = bank ({cin-cout:.3f})", abs(cin-cout-bank)<0.0015)
       last=[r for r in rows if r['Running bank balance (KD)']][-1]
       chk(f"last running balance = bank ({last['Running bank balance (KD)']})", abs(float(last['Running bank balance (KD)'])-bank)<0.0015)
-      chk("signed amount matches stored amount", all(abs(float(r['Amount (signed KD)'])-float(next(m['amt'] for m in M if m['id']==r['Ledger ID'])))<0.0015 for r in rows))
+      chk("signed amount matches stored amount", all(abs(float(r['Amount (signed KD)'])-float(next(m['amt'] for m in M if m['id']==r['ID'])))<0.0015 for r in rows))
       chk("cancelled rows flagged", all((r['Counts in totals']=='No')==(r['Status'] in('Cancelled','Voided')) for r in rows))
       print("dirs:",{d:sum(1 for r in rows if r['Type']==d) for d in('Income','Expense','Salary','Payout')})
       # range check: last month

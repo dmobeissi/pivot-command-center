@@ -559,3 +559,6 @@ th.thsort:hover{color:var(--accent)}
   .view>.kpis:has(>:nth-child(3):last-child){grid-template-columns:repeat(2,minmax(0,1fr))}
   .view>.kpis:has(>:nth-child(3):last-child)>:first-child{grid-column:1/-1}
 }
+.incbtn{all:unset;cursor:pointer;display:flex;flex-wrap:wrap;gap:4px;max-width:340px}
+.incbtn:hover .tag{background:var(--line)}
+.porperson .id{margin-right:2px}

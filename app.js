@@ -43,7 +43,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v66 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v67 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -612,7 +612,7 @@ function renderMoneyDash(){
 function sortBy(arr,k,dir){return [...arr].sort((a,b)=>{let x=a[k],y=b[k];if(k==='amt'){x=+a.amt||0;y=+b.amt||0;}x=x==null?"":x;y=y==null?"":y;return x>y?dir:x<y?-dir:0;});}
 // ---- data tables: nested multi-sort + per-column Excel-style filter ----
 // default sort per table: the date first, then the entry sequence number, so same-date rows read in order
-const DEFSORT={invoices:[{k:'date',dir:-1},{k:'seq',dir:-1}],expenses:[{k:'date',dir:-1},{k:'seq',dir:-1}],tasks:[{k:'due',dir:1},{k:'seq',dir:1}],accounts:[{k:'date_added',dir:-1},{k:'seq',dir:-1}],services:[{k:'active',dir:-1},{k:'name',dir:1}]};
+const DEFSORT={invoices:[{k:'date',dir:-1},{k:'seq',dir:-1}],expenses:[{k:'date',dir:-1},{k:'seq',dir:-1}],tasks:[{k:'due',dir:1},{k:'seq',dir:1}],accounts:[{k:'date_added',dir:-1},{k:'seq',dir:-1}],services:[{k:'active',dir:-1},{k:'name',dir:1}],svc_build:[{k:'id',dir:1}],svc_run:[{k:'id',dir:1}],svc_prog:[{k:'price',dir:1}]};
 const NUMCOLS=new Set(['amt','coll','out','cost','margin','eng','open','price','retainer_fee','value','seq']);
 const DATECOLS=new Set(['date','due','done','logged','paid','date_added','start_date','due_date','signed_date','contract_date','close_date']);
 const TEXTCOLS=new Set(['inv_no','id','desc','name','notes','output','details','title']);       // sort + text search
@@ -648,8 +648,8 @@ function thhead(head,tbl){if(tbl)_TBL=tbl;const t=_TBL;const keys=effSort(t);con
     const txtOn=state.colText[t]&&state.colText[t][h[0]];
     const filt=((state.colF[t]&&state.colF[t][h[0]]&&state.colF[t][h[0]].length)||rngOn||txtOn)?' <span class="thfilt" title="Filtered">\u25BC</span>':'';
     return `<th data-k="${esc(h[0])}" data-lbl="${esc(h[1])}" class="thsort">${h[1]}${arrow}${pri}${filt}</th>`;}).join("");}
-function bindTable(tbl,baseRows,rerender){_TBL=tbl;
-  document.querySelectorAll('thead th[data-k]').forEach(th=>{th.onclick=e=>{e.stopPropagation();openColMenu(th,th.dataset.k,th.dataset.lbl||th.dataset.k,baseRows,tbl,rerender);};});}
+function bindTable(tbl,baseRows,rerender,scope){_TBL=tbl;
+  (scope||document).querySelectorAll('thead th[data-k]').forEach(th=>{th.onclick=e=>{e.stopPropagation();openColMenu(th,th.dataset.k,th.dataset.lbl||th.dataset.k,baseRows,tbl,rerender);};});}
 const DATEPRESETS=[['all','All dates'],['today','Today'],['yesterday','Yesterday'],['last7','Last 7 days'],['last30','Last 30 days'],['last90','Last 90 days'],['wtd','Week to date'],['mtd','Month to date'],['qtd','Quarter to date'],['ytd','Year to date'],['lastmonth','Last month'],['custom','Custom range']];
 function openColMenu(th,k,label,baseRows,tbl,rerender){
   closeColMenu();
@@ -884,9 +884,9 @@ async function generateDueExpenses(){
   if(!canWrite){toast("Read-only access");return;}
   const due=recurringExpenseDue();
   if(!due.length){toast("Nothing due to generate");return;}
-  let mx=0;store.money.forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});
+  const eids=nextMoneyIds('Expense',due.length);
   const rows=due.map(({t,occ},i)=>{const past=occ.due<=todayISO;const st=past?"Paid":"Unpaid";
-    return {id:"LDG-"+String(mx+1+i).padStart(4,"0"),date:occ.due,acct:t.acct||"",eng:"",dir:"Expense",cat:t.cat||"Other Expense",tpl:t.id,desc:t.name||t.cat||"Recurring expense",amt:-Math.abs(+t.amt||0),status:st,due:occ.due,paid:(past?occ.due:""),notes:"auto · recurring"};});
+    return {id:eids[i],date:occ.due,acct:t.acct||"",eng:"",dir:"Expense",cat:t.cat||"Other Expense",tpl:t.id,desc:t.name||t.cat||"Recurring expense",amt:-Math.abs(+t.amt||0),status:st,due:occ.due,paid:(past?occ.due:""),notes:"auto · recurring"};});
   await createMany("money",rows);
 }
 function openExpTemplateNew(t){
@@ -946,7 +946,7 @@ function renderSalaries(){
         </div>
       </div>
       <div class="porows">
-        ${g.rows.map(m=>{const paid=m.status==='Paid';return `<div class="por"><span class="porperson"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.partner||m.desc||'—')}</button>${m.role?`<span class="rtag">${esc(m.role)}</span>`:""}</span><span class="porright"><span class="num neg">KD ${KD(Math.abs(+m.amt||0))}</span>${ro?`<span class="pill ${paid?'pill-good':'pill-bad'}">${paid?'sent':'pending'}</span>`:`<button class="ghost slone ${paid?'on':''}" data-id="${esc(m.id)}" data-to="${paid?'Pending':'Paid'}" data-date="${esc(m.date||'')}">${paid?'✓ sent':'mark sent'}</button>`}</span></div>`;}).join("")}
+        ${g.rows.map(m=>{const paid=m.status==='Paid';return `<div class="por"><span class="porperson"><span class="id">${esc(m.id)}</span><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.partner||m.desc||'—')}</button>${m.role?`<span class="rtag">${esc(m.role)}</span>`:""}</span><span class="porright"><span class="num neg">KD ${KD(Math.abs(+m.amt||0))}</span>${ro?`<span class="pill ${paid?'pill-good':'pill-bad'}">${paid?'sent':'pending'}</span>`:`<button class="ghost slone ${paid?'on':''}" data-id="${esc(m.id)}" data-to="${paid?'Pending':'Paid'}" data-date="${esc(m.date||'')}">${paid?'✓ sent':'mark sent'}</button>`}</span></div>`;}).join("")}
       </div>
     </div>`).join(""):'<div class="rowcount">No salaries yet.</div>';
   $('view').innerHTML=`<div class="view">
@@ -988,7 +988,7 @@ function renderPayouts(){
         </div>
       </div>
       <div class="porows">
-        ${g.rows.map(m=>`<div class="por"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.partner||'—')}</button><span class="num neg">KD ${KD(Math.abs(+m.amt||0))}</span></div>`).join("")}
+        ${g.rows.map(m=>`<div class="por"><span class="porperson"><span class="id">${esc(m.id)}</span><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.partner||'—')}</button></span><span class="num neg">KD ${KD(Math.abs(+m.amt||0))}</span></div>`).join("")}
       </div>
     </div>`).join(""):'<div class="rowcount">No payouts yet. Add one when you split profits.</div>';
   $('view').innerHTML=`<div class="view">
@@ -1055,9 +1055,8 @@ async function generateRetainerInvoices(){
   if(!canWrite){toast("Read-only access");return;}
   const due=retainerInvoicesDue();
   if(!due.length){toast("No retainer invoices due");return;}
-  let mx=0;store.money.forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});
-  let inv=0;store.money.forEach(m=>{const g=String(m.inv_no||"").match(/INV-(\d+)/);if(g)inv=Math.max(inv,+g[1]);});
-  const rows=due.map((x,i)=>({id:"LDG-"+String(mx+1+i).padStart(4,"0"),date:x.date,logged:x.svc+"-01",acct:x.acct,eng:"",dir:"Income",cat:"Client Payment",income_type:"Retainer",desc:x.desc,amt:Math.abs(x.fee),status:"Unpaid",due:x.due,paid:"",inv_no:"INV-"+String(inv+1+i).padStart(4,"0"),notes:"auto // retainer"}));
+  const iids=nextMoneyIds('Income',due.length);
+  const rows=due.map((x,i)=>({id:iids[i],date:x.date,logged:x.svc+"-01",acct:x.acct,eng:"",dir:"Income",cat:"Client Payment",income_type:"Retainer",desc:x.desc,amt:Math.abs(x.fee),status:"Unpaid",due:x.due,paid:"",inv_no:iids[i],notes:"auto // retainer"}));
   await createMany("money",rows);
 }
 function renderRetainers(){
@@ -1148,51 +1147,111 @@ function openDealNew(d){
 }
 function openDeal(id){const d=(store.deals||[]).find(x=>x.id===id);if(d)openDealNew(d);}
 
-const SVC_TYPES=["Retainer","Project"];
+// ---------- Services: Build (project work), Run (monthly operations), Programs (bundles of Run services at a discount) ----------
+const SVC_GROUPS=["Build","Run","Program"];
+const SVC_GROUP_LABEL={Build:"Build service",Run:"Run service",Program:"Retainer program"};
+// Before migration 17 there is no grp/includes column: derive both from the old ID prefix and the "Program // A + B" note.
+const svcHasCols=()=>(store.services||[]).some(s=>Object.prototype.hasOwnProperty.call(s,'grp'));
+function svcGroup(s){if(s.grp&&SVC_GROUPS.includes(s.grp))return s.grp;const id=String(s.id||'');
+  if(/^SVC-P/.test(id)||/^Program/i.test(s.notes||''))return 'Program';if(/^SVC-B/.test(id))return 'Build';if(/^SVC-R/.test(id))return 'Run';
+  return s.type==='Project'?'Build':'Run';}
+function svcIncludes(s){const run=(store.services||[]).filter(x=>svcGroup(x)==='Run');
+  if(s.includes!=null&&s.includes!=='')return String(s.includes).split(',').map(x=>x.trim()).filter(id=>run.some(r=>r.id===id));
+  const part=String(s.notes||'').split('//')[1]||'';return run.filter(r=>r.name&&part.toLowerCase().includes(r.name.toLowerCase())).map(r=>r.id);}
+function svcBundle(s){const inc=svcIncludes(s);const run=(store.services||[]).filter(x=>inc.includes(x.id));
+  const value=run.reduce((t,r)=>t+(+r.price||0),0);const price=+s.price||0;return {inc,run,value,save:value-price,pct:value>0?Math.round((value-price)/value*100):0};}
+function svcPayload(grp,fields){const o=Object.assign({},fields,{type:grp==='Build'?'Project':'Retainer'});
+  if(svcHasCols()){o.grp=grp;}
+  else{ // migration 17 not run yet: keep the program and its bundle in the note, which the migration reads back
+    if(grp==='Program'&&'includes' in o){const names=(store.services||[]).filter(x=>String(o.includes).split(',').includes(x.id)).map(x=>x.name);o.notes='Program // '+names.join(' + ')+(o.notes?' // '+o.notes:'');}
+    delete o.includes;}
+  return o;}
 function renderServices(){
   const ro=canWrite?"":"disabled";
-  const svcMatch=s=>{if(F.status==="Active"&&s.active==="No")return false;if(F.status==="Retired"&&s.active!=="No")return false;if(F.q&&!((s.id+" "+(s.name||"")+" "+(s.type||"")+" "+(s.notes||"")).toLowerCase().includes(F.q)))return false;return true;};
-  const _base=(store.services||[]).filter(svcMatch);
-  const head=[["id","ID"],["name","Service"],["type","Type"],["price","Price (KD)"],["unit","Unit"],["notes","Notes"],["","Checklist"],["active","Status"],["",""]];
-  const svc=arrange(_base,'services');
-  const rows=svc.length?svc.map(s=>`<tr>
-    <td class="id">${esc(s.id)}</td>
-    <td><input class="edit" style="min-width:150px" data-c="services" data-id="${esc(s.id)}" data-f="name" value="${esc(s.name||'')}" ${ro}></td>
-    <td><select class="edit" data-c="services" data-id="${esc(s.id)}" data-f="type" ${ro}>${opts(SVC_TYPES,s.type||"Project")}</select></td>
-    <td class="num"><input type="number" step="0.001" class="edit num" style="width:96px" data-c="services" data-id="${esc(s.id)}" data-f="price" value="${s.price!=null?esc(s.price):''}" ${ro}></td>
-    <td><input class="edit" style="width:80px" data-c="services" data-id="${esc(s.id)}" data-f="unit" value="${esc(s.unit||'')}" ${ro} placeholder="/mo, one-off"></td>
-    <td><input class="edit" style="min-width:160px" data-c="services" data-id="${esc(s.id)}" data-f="notes" value="${esc(s.notes||'')}" ${ro} placeholder="What it covers"></td>
-    <td><button class="linkmini" data-svopen="${esc(s.id)}">${((s.tasks||'').split('\n').map(x=>x.trim()).filter(Boolean)).length||0} tasks ›</button></td>
-    <td><select class="edit" data-c="services" data-id="${esc(s.id)}" data-f="active" ${ro}><option value="Yes"${s.active!=="No"?" selected":""}>Active</option><option value="No"${s.active==="No"?" selected":""}>Retired</option></select></td>
-    <td>${canWrite?rowMenu("services",s.id):""}</td></tr>`).join(""):'<tr><td colspan="9" class="rowcount">No services yet. Add the things PIVOT sells so invoices can use them.</td></tr>';
-  $('view').innerHTML=`<div class="view"><div class="panel">
-    <div class="addbar"><button class="btn" id="svAdd"${canWrite?"":" disabled"}>+ Add service</button><span class="hint">The catalogue of what PIVOT offers. Retainers bill monthly; one-off work is a project. Click a heading to sort or filter.</span></div>
-    <div class="tablewrap"><table><thead><tr>${thhead(head,'services')}</tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="rowcount">${svc.filter(s=>s.active!=="No").length} active services · click the checklist to set the default tasks for a service</div>
-  </div></div>`;
-  if($('svAdd'))$('svAdd').onclick=openServiceNew;
-  bindTable('services',_base,renderServices);
+  const match=s=>{if(F.status==="Active"&&s.active==="No")return false;if(F.status==="Retired"&&s.active!=="No")return false;
+    if(F.q&&!((s.id+" "+(s.name||"")+" "+(s.notes||"")+" "+svcGroup(s)).toLowerCase().includes(F.q)))return false;return true;};
+  const all=(store.services||[]).filter(match);
+  const by=g=>all.filter(s=>svcGroup(s)===g);
+  const nameCell=s=>`<td><input class="edit" style="min-width:150px" data-c="services" data-id="${esc(s.id)}" data-f="name" value="${esc(s.name||'')}" ${ro}></td>`;
+  const priceCell=s=>`<td class="num"><input type="number" step="0.001" class="edit num" style="width:96px" data-c="services" data-id="${esc(s.id)}" data-f="price" value="${s.price!=null?esc(s.price):''}" ${ro}></td>`;
+  const statusCell=s=>`<td><select class="edit" data-c="services" data-id="${esc(s.id)}" data-f="active" ${ro}><option value="Yes"${s.active!=="No"?" selected":""}>Active</option><option value="No"${s.active==="No"?" selected":""}>Retired</option></select></td>`;
+  const svcTable=(g,tbl,empty)=>{const base=by(g);const rows=arrange(base,tbl);
+    const head=[["id","ID"],["name","Service"],["price","Price (KD)"],["unit","Unit"],["notes","Notes"],["","Checklist"],["active","Status"],["",""]];
+    return {base,html:`<div class="tablewrap" data-tbl="${tbl}"><table><thead><tr>${thhead(head,tbl)}</tr></thead><tbody>${rows.length?rows.map(s=>`<tr>
+      <td class="id">${esc(s.id)}</td>${nameCell(s)}${priceCell(s)}
+      <td><input class="edit" style="width:96px" data-c="services" data-id="${esc(s.id)}" data-f="unit" value="${esc(s.unit||'')}" ${ro} placeholder="${g==='Run'?'/mo':'one-off'}"></td>
+      <td><input class="edit" style="min-width:160px" data-c="services" data-id="${esc(s.id)}" data-f="notes" value="${esc(s.notes||'')}" ${ro} placeholder="What it covers"></td>
+      <td><button class="linkmini" data-svopen="${esc(s.id)}">${((s.tasks||'').split('\n').map(x=>x.trim()).filter(Boolean)).length||0} tasks ›</button></td>
+      ${statusCell(s)}<td>${canWrite?rowMenu("services",s.id):""}</td></tr>`).join(""):`<tr><td colspan="8" class="rowcount">${empty}</td></tr>`}</tbody></table></div>`};};
+  const build=svcTable('Build','svc_build','No build services yet.');
+  const run=svcTable('Run','svc_run','No run services yet.');
+  const progBase=by('Program');const progs=arrange(progBase.map(s=>Object.assign({},s,{_b:svcBundle(s)})),'svc_prog');
+  const progHead=[["id","ID"],["name","Program"],["price","Price (KD / mo)"],["","Includes"],["","Separately"],["","Saving"],["active","Status"],["",""]];
+  const progHtml=`<div class="tablewrap" data-tbl="svc_prog"><table><thead><tr>${thhead(progHead,'svc_prog')}</tr></thead><tbody>${progs.length?progs.map(s=>{const b=s._b;return `<tr>
+      <td class="id">${esc(s.id)}</td>${nameCell(s)}${priceCell(s)}
+      <td><button class="incbtn" data-svopen="${esc(s.id)}" title="Change what this program includes">${b.run.length?b.run.map(r=>`<span class="tag">${esc(r.name)}</span>`).join(""):'<span class="hint">Pick run services ›</span>'}</button></td>
+      <td class="num">${b.value?KD(b.value):'—'}</td>
+      <td class="num ${b.save>0?'pos':(b.save<0?'neg':'')}">${b.value?`${KD(b.save)} <span class="muted">· ${b.pct}%</span>`:'—'}</td>
+      ${statusCell(s)}<td>${canWrite?rowMenu("services",s.id):""}</td></tr>`;}).join(""):`<tr><td colspan="8" class="rowcount">No programs yet.</td></tr>`}</tbody></table></div>`;
+  const act=all.filter(s=>s.active!=="No");
+  $('view').innerHTML=`<div class="view">
+    <div class="kpis">${kpi("Build services",act.filter(s=>svcGroup(s)==='Build').length,"")}${kpi("Run services",act.filter(s=>svcGroup(s)==='Run').length,"")}${kpi("Retainer programs",act.filter(s=>svcGroup(s)==='Program').length,"accent")}</div>
+    <div class="panel"><h2>Build services <span class="h2sub">· project-based, billed once</span></h2>
+      <div class="addbar"><button class="btn" data-svadd="Build"${canWrite?"":" disabled"}>+ Add build service</button><span class="hint">One-off work: store builds, apps, websites, databases. Click the checklist to set the tasks a project starts with.</span></div>
+      ${build.html}</div>
+    <div class="panel"><h2>Run services <span class="h2sub">· operations, billed monthly</span></h2>
+      <div class="addbar"><button class="btn" data-svadd="Run"${canWrite?"":" disabled"}>+ Add run service</button><span class="hint">The monthly work PIVOT runs for a client. Programs bundle these at a discount.</span></div>
+      ${run.html}</div>
+    <div class="panel"><h2>Retainer programs <span class="h2sub">· bundles of run services at one monthly price</span></h2>
+      <div class="addbar"><button class="btn" data-svadd="Program"${canWrite?"":" disabled"}>+ Add program</button><span class="hint">Not a service on its own: the offering a client signs up to. "Separately" is the run services at their own prices; "Saving" is what the bundle discounts.</span></div>
+      ${progHtml}</div>
+  </div>`;
+  document.querySelectorAll('[data-svadd]').forEach(b=>b.onclick=()=>openServiceNew(b.dataset.svadd));
+  const sc=t=>document.querySelector(`.tablewrap[data-tbl="${t}"]`);
+  bindTable('svc_build',build.base,renderServices,sc('svc_build'));
+  bindTable('svc_run',run.base,renderServices,sc('svc_run'));
+  bindTable('svc_prog',progBase,renderServices,sc('svc_prog'));
 }
-function openServiceNew(){
-  if(!canWrite){toast("Read-only access");return;}
-  $('modal').innerHTML=`<div class="sheet"><div class="sheethead"><div><div class="id">New service</div><h3>Add service</h3></div><button class="del" id="mkClose">✕</button></div>
-    <div class="formgrid">${fld("Service name",`<input id="sv_name" placeholder="e.g. Social media retainer">`)}${fld("Type",`<select id="sv_type">${opts(SVC_TYPES,"Retainer")}</select>`)}${fld("Price (KD)",`<input type="number" step="0.001" id="sv_price" placeholder="0.000">`)}${fld("Unit",`<input id="sv_unit" placeholder="/mo, one-off">`)}</div>
-    <div class="formfull">${fld("Notes",`<input id="sv_notes" placeholder="What it covers">`)}${fld("Default task checklist (one task per line)",`<textarea id="sv_tasks" rows="4" placeholder="Kickoff call&#10;Collect brand assets&#10;Build&#10;QA and launch"></textarea>`)}</div>
+function svcForm(pre,s,grp){const run=(store.services||[]).filter(x=>svcGroup(x)==='Run'&&(x.active!=="No"));const inc=s?svcIncludes(s):[];
+  const unitPh=grp==='Build'?'one-off, per product, quoted':'/mo';
+  return `<div class="formgrid">${fld(grp==='Program'?"Program name":"Service name",`<input id="${pre}_name" value="${esc(s?s.name||'':'')}" placeholder="${grp==='Program'?'e.g. Growth':'e.g. Ecommerce'}">`)}
+      ${fld("Group",`<select id="${pre}_grp">${SVC_GROUPS.map(g=>`<option value="${g}"${g===grp?' selected':''}>${SVC_GROUP_LABEL[g]}</option>`).join("")}</select>`)}
+      ${fld(grp==='Program'?"Price (KD / month)":"Price (KD)",`<input type="number" step="0.001" id="${pre}_price" value="${s&&s.price!=null?esc(s.price):''}" placeholder="0.000">`)}
+      ${grp==='Program'?'':fld("Unit",`<input id="${pre}_unit" value="${esc(s?s.unit||'':(grp==='Run'?'/mo':''))}" placeholder="${unitPh}">`)}</div>
+    ${grp==='Program'?`<div class="fld"><span>Includes these run services</span><div class="pchks" id="${pre}_inc">${run.length?run.map(r=>`<label class="pchk"><input type="checkbox" value="${esc(r.id)}"${inc.includes(r.id)?' checked':''}> ${esc(r.name)} <span class="muted">· ${KD(+r.price||0)}</span></label>`).join(""):'<span class="hint">Add run services first.</span>'}</div><div class="hint" id="${pre}_sum"></div></div>`:''}
+    <div class="formfull">${fld("Notes",`<input id="${pre}_notes" value="${esc(s?s.notes||'':'')}" placeholder="What it covers">`)}
+      ${grp==='Program'?'':fld("Default task checklist (one task per line)",`<textarea id="${pre}_tasks" rows="4" placeholder="Kickoff call&#10;Collect brand assets&#10;Build&#10;QA and launch">${esc(s?s.tasks||'':'')}</textarea>`)}</div>`;}
+function wireSvcForm(pre){const box=$(pre+'_inc');const sum=$(pre+'_sum');if(!box||!sum)return;
+  const upd=()=>{const ids=[...box.querySelectorAll('input:checked')].map(x=>x.value);const v=(store.services||[]).filter(x=>ids.includes(x.id)).reduce((t,r)=>t+(+r.price||0),0);const pr=parseFloat($(pre+'_price').value)||0;
+    sum.textContent=ids.length?`Separately KD ${KD(v)} · program KD ${KD(pr)} · saving KD ${KD(v-pr)}${v>0?` (${Math.round((v-pr)/v*100)}%)`:''}`:'Pick the run services this program bundles.';};
+  box.onchange=upd;$(pre+'_price').oninput=upd;upd();}
+function readSvcForm(pre){const g=f=>{const el=$(pre+'_'+f);return el?el.value:"";};const grp=g('grp');
+  const o={name:g('name').trim(),price:Math.abs(parseFloat(g('price'))||0),notes:g('notes')};
+  if(grp==='Program'){o.unit='/mo';const box=$(pre+'_inc');o.includes=box?[...box.querySelectorAll('input:checked')].map(x=>x.value).join(','):'';}
+  else{o.unit=g('unit');o.tasks=g('tasks');}
+  return {grp,o};}
+function openServiceNew(grp){
+  if(!canWrite){toast("Read-only access");return;}grp=SVC_GROUPS.includes(grp)?grp:'Build';
+  $('modal').innerHTML=`<div class="sheet"><div class="sheethead"><div><div class="id">New ${esc(SVC_GROUP_LABEL[grp].toLowerCase())}</div><h3>Add ${esc(SVC_GROUP_LABEL[grp].toLowerCase())}</h3></div><button class="del" id="mkClose">✕</button></div>
+    ${svcForm('sv',null,grp)}
     <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Add</button></div></div>`;
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
-  $('mkSave').onclick=()=>{const name=$('sv_name').value.trim();if(!name){toast("Enter a name");return;}
-    create("services",nextId("services","SVC-",3),{name,type:$('sv_type').value,price:Math.abs(parseFloat($('sv_price').value)||0),unit:$('sv_unit').value,notes:$('sv_notes').value,tasks:$('sv_tasks')?$('sv_tasks').value:"",active:true});close();};
+  $('sv_grp').onchange=e=>{close();openServiceNew(e.target.value);};wireSvcForm('sv');
+  $('mkSave').onclick=()=>{const {grp:g,o}=readSvcForm('sv');if(!o.name){toast("Enter a name");return;}
+    create("services",nextId("services","SVC-",4),svcPayload(g,Object.assign(o,{active:true})));close();};
 }
 function openServiceEdit(id){
   const s=(store.services||[]).find(x=>x.id===id);if(!s||!canWrite){if(!canWrite)toast("Read-only access");return;}
-  $('modal').innerHTML=`<div class="sheet"><div class="sheethead"><div><div class="id">${esc(s.id)}</div><h3>Edit ${esc(s.name)}</h3></div><button class="del" id="mkClose">✕</button></div>
-    <div class="formgrid">${fld("Service name",`<input id="se_name" value="${esc(s.name||'')}">`)}${fld("Type",`<select id="se_type">${opts(SVC_TYPES,s.type||"Retainer")}</select>`)}${fld("Price (KD)",`<input type="number" step="0.001" id="se_price" value="${s.price!=null?esc(s.price):''}">`)}${fld("Unit",`<input id="se_unit" value="${esc(s.unit||'')}">`)}</div>
-    <div class="formfull">${fld("Notes",`<input id="se_notes" value="${esc(s.notes||'')}">`)}${fld("Default task checklist (one task per line)",`<textarea id="se_tasks" rows="6" placeholder="Kickoff call&#10;Collect brand assets&#10;Build the store&#10;QA and launch">${esc(s.tasks||'')}</textarea>`)}</div>
-    <div class="sheetfoot"><button class="del" id="mkDelete">Delete</button><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Save</button></div></div>`;
+  const grp=svcGroup(s);
+  $('modal').innerHTML=`<div class="sheet"><div class="sheethead"><div><div class="id">${esc(s.id)} · ${esc(SVC_GROUP_LABEL[grp])}</div><h3>Edit ${esc(s.name)}</h3></div><button class="del" id="mkClose">✕</button></div>
+    ${svcForm('se',s,grp)}
+    <div class="sheetfoot"><button class="ghost" id="mkDelete" style="color:var(--bad);border-color:var(--bad-soft)">Delete</button><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Save</button></div></div>`;
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
-  $('mkSave').onclick=()=>{write("services",id,{name:$('se_name').value,type:$('se_type').value,price:Math.abs(parseFloat($('se_price').value)||0),unit:$('se_unit').value,notes:$('se_notes').value,tasks:$('se_tasks').value});close();};
+  $('se_grp').onchange=e=>{const v=e.target.value;if(v===grp)return;write("services",id,svcPayload(v,{}));close();toast("Moved to "+SVC_GROUP_LABEL[v]+"s");};
+  wireSvcForm('se');
+  $('mkSave').onclick=()=>{const {o}=readSvcForm('se');if(!o.name){toast("Enter a name");return;}write("services",id,svcPayload(grp,o));close();};
   $('mkDelete').onclick=()=>{close();remove("services",id);};
 }
 
@@ -1479,15 +1538,21 @@ function openInvoiceNew(){
     if($('mi_split')&&$('mi_split').checked){
       const rows=[...document.querySelectorAll('#mi_partrows .partrow:not(.phead)')].map(r=>({label:r.querySelector('.pp_label').value.trim(),amt:parseFloat(r.querySelector('.pp_amt').value),due:r.querySelector('.pp_due').value,status:r.querySelector('.pp_status').value}));
       if(rows.some(r=>isNaN(r.amt)||r.amt<=0)){toast("Give every part an amount");return;}
-      const n=rows.length,ref=nextProjRef(),invs=nextInvNos(n),ids=nextIds("money","LDG-",4,n);
+      const n=rows.length,ref=nextProjRef(),ids=nextMoneyIds('Income',n),invs=ids;
       const payload=rows.map((r,i)=>Object.assign({},common,{id:ids[i],date:issued,amt:Math.abs(r.amt),status:r.status,due:r.due,paid:r.status==='Paid'?issued:"",inv_no:invs[i],proj_ref:ref,inst_no:i+1,inst_count:n,inst_label:r.label}));
       createMany("money",payload);close();return;
     }
     const amt=parseFloat(g('amt'));if(isNaN(amt)){toast("Enter an amount");return;}
-    create("money",nextId("money","LDG-",4),Object.assign({},common,{date:issued,amt:Math.abs(amt),status:g('status'),due:g('due'),paid:g('status')==='Paid'?issued:""}));close();};
+    const iid=nextMoneyIds('Income',1)[0];
+    create("money",iid,Object.assign({},common,{inv_no:iid,date:issued,amt:Math.abs(amt),status:g('status'),due:g('due'),paid:g('status')==='Paid'?issued:""}));close();};
 }
 function nextInvNo(){let mx=0;store.money.forEach(m=>{const g=String(m.inv_no||'').match(/INV-(\d+)/);if(g)mx=Math.max(mx,+g[1]);});return "INV-"+String(mx+1).padStart(4,"0");}
 function nextInvNos(n){let mx=0;store.money.forEach(m=>{const g=String(m.inv_no||'').match(/INV-(\d+)/);if(g)mx=Math.max(mx,+g[1]);});return Array.from({length:n},(_,i)=>"INV-"+String(mx+1+i).padStart(4,"0"));}
+// Ledger IDs: every money tab has its own serial. Invoices also count existing inv_no so a new number never repeats one already issued.
+const MONEY_PREFIX={Income:'INV-',Expense:'EXP-',Salary:'SAL-',Payout:'PYO-'};
+function nextMoneyIds(dir,n){const pre=MONEY_PREFIX[dir]||'LDG-';let mx=0;
+  store.money.forEach(d=>{[d.id,dir==='Income'?d.inv_no:null].forEach(v=>{const m=String(v||'').match(new RegExp('^'+pre+'(\\d+)$'));if(m)mx=Math.max(mx,+m[1]);});});
+  return Array.from({length:n||1},(_,i)=>pre+String(mx+1+i).padStart(4,'0'));}
 function nextIds(coll,prefix,pad,n){let mx=0;store[coll].forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});return Array.from({length:n},(_,i)=>prefix+String(mx+1+i).padStart(pad,"0"));}
 function nextProjRef(){let mx=0;store.money.forEach(m=>{const g=String(m.proj_ref||'').match(/PRJ-(\d+)/);if(g)mx=Math.max(mx,+g[1]);});return "PRJ-"+String(mx+1).padStart(4,"0");}
 function projSibs(m){return (m&&m.proj_ref)?store.money.filter(x=>x.proj_ref===m.proj_ref&&x.dir==='Income').sort((a,b)=>((+a.inst_no||0)-(+b.inst_no||0))||String(a.inv_no||'').localeCompare(String(b.inv_no||''))):[];}
@@ -1630,7 +1695,7 @@ function openExpenseNew(){
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   $('mkSave').onclick=()=>{const g=f=>{const el=$('mx_'+f);return el?el.value:"";};const amt=parseFloat(g('amt'));if(isNaN(amt)){toast("Enter an amount");return;}
     const st=g('status')||"Paid";
-    create("money",nextId("money","LDG-",4),{date:g('date')||todayISO,acct:g('acct'),eng:"",dir:"Expense",cat:g('cat'),desc:g('desc'),amt:-Math.abs(amt),status:st,due:"",paid:(st==='Paid'?(g('date')||todayISO):""),notes:g('notes')});close();};
+    create("money",nextMoneyIds('Expense',1)[0],{date:g('date')||todayISO,acct:g('acct'),eng:"",dir:"Expense",cat:g('cat'),desc:g('desc'),amt:-Math.abs(amt),status:st,due:"",paid:(st==='Paid'?(g('date')||todayISO):""),notes:g('notes')});close();};
 }
 const SALARY_DEFAULTS=[{person:"Daoud",role:"Full-time",amt:500},{person:"Arafa",role:"Full-time",amt:500},{person:"Zawar",role:"Part-time",amt:100}];
 function endOfMonthISO(){const d=new Date();const e=new Date(d.getFullYear(),d.getMonth()+1,0);return e.toISOString().slice(0,10);}
@@ -1676,14 +1741,14 @@ function openSalaryNew(g){
     if(edit){
       for(const e of entries.filter(x=>x.id)){const st=e.status||newSt;await write("money",e.id,mkRow(e,e.id,st));}
       const newOnes=entries.filter(e=>!e.id);
-      if(newOnes.length){let mx=0;store.money.forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});
-        await createMany("money",newOnes.map((e,i)=>mkRow(e,"LDG-"+String(mx+1+i).padStart(4,"0"),newSt)));}
+      if(newOnes.length){const sids=nextMoneyIds('Salary',newOnes.length);
+        await createMany("money",newOnes.map((e,i)=>mkRow(e,sids[i],newSt)));}
       const kept=entries.filter(e=>e.id).map(e=>e.id);
       const removed=(g.ids||[]).filter(id=>!kept.includes(id));
       if(removed.length)await removeMany("money",removed);
     }else{
-      let mx=0;store.money.forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});
-      await createMany("money",entries.map((e,i)=>mkRow(e,"LDG-"+String(mx+1+i).padStart(4,"0"),newSt)));
+      const sids=nextMoneyIds('Salary',entries.length);
+      await createMany("money",entries.map((e,i)=>mkRow(e,sids[i],newSt)));
     }
     close();};
 }
@@ -1713,8 +1778,8 @@ function openPayoutNew(){
     const p=picked();if(!p.length){toast("Pick at least one partner");return;}
     const st=g('status'),date=g('date')||todayISO,paid=(st==='Paid'?date:""),each=amt/p.length;
     const batch="PO-"+Date.now().toString(36).toUpperCase();
-    let mx=0;store.money.forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});
-    const rows=p.map((name,i)=>({id:"LDG-"+String(mx+1+i).padStart(4,"0"),date,acct:"",eng:"",dir:"Payout",cat:"Partner Payout",partner:name,batch,desc:g('desc')||"Profit split",amt:-Math.abs(each),status:st,due:"",paid,notes:g('notes')}));
+    const pids=nextMoneyIds('Payout',p.length);
+    const rows=p.map((name,i)=>({id:pids[i],date,acct:"",eng:"",dir:"Payout",cat:"Partner Payout",partner:name,batch,desc:g('desc')||"Profit split",amt:-Math.abs(each),status:st,due:"",paid,notes:g('notes')}));
     createMany("money",rows);close();};
 }
 function openAccountNew(){
@@ -1819,7 +1884,7 @@ function openReport(kind){
       <div class="muted" style="font-size:12px">Ledger CSV: ${led.length} lines, every type and status issued or paid in range.${state.range.preset!=='all'?' For a full audit set the range to All time.':''}</div>`;
     fname=`PIVOT ledger ${R.from==='2000-01-01'?'all time':R.from+'_'+rng} (exported ${todayISO}).csv`;
     csv=()=>{const f3=v=>v==null||v===''?'':(+v).toFixed(3);
-      const H=["Ledger ID","Direction","Type","Category","Brand","Account ID","Person","Role","Invoice no","Invoice type","Description","Issued","Service month","Due","Paid on","Status","Counts in totals","Amount (signed KD)","In (KD)","Out (KD)","Cash moved","Running bank balance (KD)","Payout batch","Project ref","Installment","Template","Notes","Created at"];
+      const H=["ID","Direction","Type","Category","Brand","Account ID","Person","Role","Invoice no","Invoice type","Description","Issued","Service month","Due","Paid on","Status","Counts in totals","Amount (signed KD)","In (KD)","Out (KD)","Cash moved","Running bank balance (KD)","Payout batch","Project ref","Installment","Template","Notes","Created at"];
       const lines=[H.map(csvCell).join(",")];
       led.sort((a,b)=>((a.status==='Paid'?pOf(a):dOf(a))+a.id).localeCompare((b.status==='Paid'?pOf(b):dOf(b))+b.id)).forEach(m=>{const inc=m.dir==='Income';const a=abs(m);
         lines.push([m.id,inc?"In":"Out",m.dir,m.cat,brandOf(m.acct),m.acct,m.partner,m.role,m.inv_no,m.income_type,m.desc,m.date,m.logged,m.due,m.paid,m.status,voided(m)?"No":"Yes",
@@ -1851,7 +1916,7 @@ function openMoney(id){
   $('modal').innerHTML=`<div class="sheet">
     <div class="sheethead"><div><div class="id">${esc(m.id)}</div><h3>${esc(m.desc||(isExp?'Expense':'Invoice'))} <span class="muted" style="font-weight:500">· ${esc(brandOf(m.acct))}</span></h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
     <div class="formgrid">
-      ${fld("Type",`<select id="mm_dir" ${ro}>${opts(["Income","Expense","Salary","Payout"],m.dir||"Income")}</select>`)}
+      ${fld("Type · fixed by the ID",`<select id="mm_dir" disabled title="The ID prefix depends on the type. To change it, delete and add again.">${opts(["Income","Expense","Salary","Payout"],m.dir||"Income")}</select>`)}
       ${m.dir==="Income"?(fld("Logged · service month",`<input type="date" id="mm_logged" value="${esc(m.logged||'')}" ${ro}>`)+fld("Issued",`<input type="date" id="mm_date" value="${esc(m.date||'')}" ${ro}>`)):fld("Date",`<input type="date" id="mm_date" value="${esc(m.date||'')}" ${ro}>`)}
       ${m.dir==="Payout"?"":fld("Brand",`<select id="mm_acct" ${ro}>${brandOpts(m.acct)}</select>`)}
       ${m.dir==="Salary"?(fld("Person",`<input id="mm_partner" value="${esc(m.partner||'')}" ${ro}>`)+fld("Role",`<select id="mm_role" ${ro}><option value="">—</option>${opts(ROLES,m.role)}</select>`)):(m.dir==="Payout"?fld("Partner",`<input id="mm_partner" value="${esc(m.partner||'')}" ${ro}>`):fld("Category",`<input id="mm_cat" value="${esc(m.cat||'')}" ${ro}>`))}
@@ -1876,8 +1941,8 @@ function openMoney(id){
   $('mkClose').onclick=$('mkCancel').onclick=close;
   $('modal').onclick=e=>{if(e.target===$('modal'))close();};
   if($('mkSave'))$('mkSave').onclick=async()=>{const g=f=>{const el=$('mm_'+f);return el?el.value:"";};
-    const dir=g('dir');const amt=Math.abs(parseFloat(g('amt'))||0)*(dir==="Income"?1:-1);
-    const patch={dir,date:g('date'),acct:g('acct'),amt,status:g('status'),due:g('due'),paid:g('paid'),desc:g('desc'),notes:g('notes')};
+    const dir=m.dir;const amt=Math.abs(parseFloat(g('amt'))||0)*(dir==="Income"?1:-1);
+    const patch={date:g('date'),acct:g('acct'),amt,status:g('status'),due:g('due'),paid:g('paid'),desc:g('desc'),notes:g('notes')};
     if(dir==="Salary"){patch.partner=($('mm_partner')?$('mm_partner').value:(m.partner||""));patch.role=($('mm_role')?$('mm_role').value:(m.role||""));}
     else if(dir==="Payout"){patch.partner=($('mm_partner')?$('mm_partner').value:(m.partner||""));}
     else{patch.cat=($('mm_cat')?$('mm_cat').value:(m.cat||""));if($('mm_income_type'))patch.income_type=$('mm_income_type').value;if($('mm_logged'))patch.logged=$('mm_logged').value;}
