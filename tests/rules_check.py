@@ -19,6 +19,8 @@ Behaviour checks for data rules (v68).
          program and next step only once migration 19 columns exist; Home My work and Leads panels
   - v74: table pages fit the window (no page scroll, nothing cut off) and the wheel scrolls the table from anywhere;
          salaries are charged to their brand or split (migration 20), partners on the internal account by tasks
+  - v75: profit is read per client group (children billed through the parent); group totals equal brand totals;
+         choosing a program does not overwrite a fee already set
 
 Usage: python tests/rules_check.py /path/to/pivot-backup.json   (client data is never committed)
 """
@@ -275,6 +277,22 @@ def main(seed_path):
         pg.evaluate("window.__writes.length=0"); pg.click("#mkSave"); pg.wait_for_timeout(400)
         w = pg.evaluate(f"window.__writes.filter(x=>x.table==='money'&&x.row&&x.row.partner==='Amr').slice(-1)[0]")
         if not w or w["row"].get("acct") != pg.evaluate("store.accounts.find(a=>a.brand==='Moda Body Shop').id"): fails.append(f"editing the month dropped Amr's brand ({w})")
+        # v75: client groups
+        g = pg.evaluate("""(()=>{let byBrand=0,byGroup=0;store.accounts.forEach(a=>byBrand+=collectedOn([a.id])-estCost(a.id,'0000-01','9999-12'));
+          store.accounts.filter(a=>groupOf(a.id)===a.id).forEach(a=>byGroup+=collectedOn(groupIds(a.id))-groupCost(a.id,'0000-01','9999-12'));
+          const px=store.accounts.find(a=>a.brand==='PhotonX');return [byBrand,byGroup,px?AMAP[groupOf(px.id)].brand:'']})()""")
+        if abs(g[0]-g[1]) > 0.001: fails.append(f"group totals differ from brand totals {g}")
+        if g[2] and g[2] != "Weldon Group": fails.append(f"PhotonX not grouped under Weldon Group ({g[2]})")
+        pg.evaluate("state.view='accounts';F.status='';state.colF.accounts={};render()"); pg.wait_for_timeout(250)
+        if "in Weldon Group" not in pg.inner_text("#view"): fails.append("child brand margin not shown as part of its parent")
+        pg.evaluate("store.accounts.forEach(a=>{if(!('program' in a))a.program=null;})")
+        mz = pg.evaluate("store.accounts.find(a=>a.brand==='Mizyana').id")
+        pg.evaluate(f"openAccountEdit('{mz}')"); pg.wait_for_timeout(150)
+        eng = pg.evaluate("(store.services||[]).find(s=>svcGroup(s)==='Program'&&/engine/i.test(s.name))")
+        if eng and pg.query_selector("#ae_program"):
+            pg.select_option("#ae_program", eng["id"]); pg.wait_for_timeout(100)
+            if pg.evaluate("parseFloat(document.getElementById('ae_retainer_fee').value)") != 650: fails.append("choosing a program overwrote the agreed fee")
+        pg.evaluate("document.getElementById('modal').classList.remove('show')")
         # v69: local date at 00:30 Kuwait (21:30 UTC the day before)
         pk = b.new_context(timezone_id="Asia/Kuwait").new_page()
         pk.clock.set_fixed_time("2026-10-27T21:30:00Z")
@@ -286,7 +304,7 @@ def main(seed_path):
         b.close()
     srv.shutdown()
     if fails: print("FAIL\n" + "\n".join(fails)); sys.exit(1)
-    print("PASS: ID descending; due = done rule; local date at 00:30 Kuwait; failed save reverts; retainer badge; MTD comparison; My Tasks default; Accounts default filter; paid date on Paid; duplicate-ID retry; CSV guard; no % above 100; sticky headers; task paging; read-only money tables; phone cards; Cancelled closed; Paid undeletable; hard delete before m18, Trash after; audit log; estimated cost adds up; business health; payment details; reminder; m19 fields; Home panels; fixed table layout and wheel; salary charging and month editor")
+    print("PASS: ID descending; due = done rule; local date at 00:30 Kuwait; failed save reverts; retainer badge; MTD comparison; My Tasks default; Accounts default filter; paid date on Paid; duplicate-ID retry; CSV guard; no % above 100; sticky headers; task paging; read-only money tables; phone cards; Cancelled closed; Paid undeletable; hard delete before m18, Trash after; audit log; estimated cost adds up; business health; payment details; reminder; m19 fields; Home panels; fixed table layout and wheel; salary charging and month editor; client groups; program keeps fee")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2: print(__doc__); sys.exit(2)

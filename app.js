@@ -53,7 +53,7 @@ const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t.onclick=null;t.style.pointerEvents='';
   if(ms===-1){t.style.pointerEvents='auto';t.style.cursor='pointer';t.onclick=()=>{t.classList.remove('show');t.style.pointerEvents='';t.style.cursor='';};return;} // sticky until clicked
   const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v74 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v75 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -620,8 +620,8 @@ function renderMoneyDash(){
   const series=moneySeries(R.from,R.to);
   const bm={};
   // estimated profit by brand, all time: collected minus direct expenses minus the estimated salary share
-  store.accounts.forEach(a=>{const rev=Mall.filter(m=>m.acct===a.id&&m.dir==='Income'&&m.status==='Paid').reduce((s,m)=>s+(+m.amt||0),0);
-    const cost=estCost(a.id,'0000-01','9999-12');if(rev||cost)bm[a.brand]={rev,cost};});
+  store.accounts.filter(a=>groupOf(a.id)===a.id).forEach(a=>{const ids=groupIds(a.id);const rev=collectedOn(ids);
+    const cost=groupCost(a.id,'0000-01','9999-12');if(rev||cost)bm[a.brand+(ids.length>1?' (group)':'')]={rev,cost};});
   const marginRows=Object.entries(bm).map(([l,o])=>({l,v:o.rev-o.cost})).filter(x=>Math.abs(x.v)>0.0005).sort((a,b)=>b.v-a.v);
   const health=bizHealth(S);
   const age={cur:0,b30:0,b60:0,b60p:0};
@@ -662,7 +662,7 @@ function renderMoneyDash(){
     <div class="grid3">
       <div class="panel"><h2>Unpaid invoices ${overdueInv?`<span class="flag-over" style="font-size:11px;font-weight:700">· ${overdueInv} overdue</span>`:""}</h2><div class="attn">${chase.length?chase.map(m=>{const od=m.due&&m.due<todayISO;return `<div class="r" data-goto="invoices" data-hl="${esc(m.id)}" style="cursor:pointer"><span class="t"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||m.id)}</button> <span class="muted">· ${esc(brandOf(m.acct))}</span></span><span class="${od?'flag-over':'flag-soon'}" style="white-space:nowrap">KD ${KD(m.amt)}${m.due?` · ${esc(fmtD(m.due))}`:''}</span></div>`;}).join(""):'<div class="rowcount">All invoices settled.</div>'}</div><div class="rowcount">KD ${KD(chaseTot)} outstanding · ${unpaid.length} invoice${unpaid.length===1?'':'s'} (live, all dates)</div></div>
       <div class="panel"><h2>Expenses by category <span class="h2sub">· issued in range</span></h2><div class="body">${topCat.length?hbars(topCat,'kd'):'<div class="muted">No expenses in range</div>'}</div></div>
-      <div class="panel"><h2>Estimated profit by brand <span class="h2sub">· all time</span></h2><div class="attn">${marginRows.length?(marginRows.length>8?marginRows.slice(0,6).concat(marginRows.slice(-2)):marginRows).map(r=>`<div class="r"><span class="t">${esc(r.l)}</span><span class="num ${r.v<0?'neg':'pos'}">KD ${KD(r.v)}</span></div>`).join(""):'<div class="rowcount">No data yet.</div>'}</div><div class="rowcount">Collected minus brand expenses minus an estimated salary share (each person's salary split by their tasks done that month). Payouts are profit shares, not costs.${(()=>{const u=Object.values(estAlloc().unal).reduce((x,y)=>x+y,0);return u>0.0005?` KD ${KD(u)} of salaries falls in months with no completed tasks and is not split.`:'';})()}</div></div>
+      <div class="panel"><h2>Estimated profit by brand <span class="h2sub">· all time</span></h2><div class="attn">${marginRows.length?(marginRows.length>8?marginRows.slice(0,6).concat(marginRows.slice(-2)):marginRows).map(r=>`<div class="r"><span class="t">${esc(r.l)}</span><span class="num ${r.v<0?'neg':'pos'}">KD ${KD(r.v)}</span></div>`).join(""):'<div class="rowcount">No data yet.</div>'}</div><div class="rowcount">By client: a group includes the brands billed through it (Weldon Group with PhotonX and Mesoestetic Egypt). Collected minus brand expenses minus an estimated salary share (each person's salary split by their tasks done that month). Payouts are profit shares, not costs.${(()=>{const u=Object.values(estAlloc().unal).reduce((x,y)=>x+y,0);return u>0.0005?` KD ${KD(u)} of salaries falls in months with no completed tasks and is not split.`:'';})()}</div></div>
     </div>
     <div class="panel"><h2>Unpaid invoices by age</h2><div class="attn">
         <div class="r"><span class="t">Not due yet</span><span class="num">KD ${KD(age.cur)}</span></div>
@@ -723,6 +723,12 @@ function estSalary(acct,fromYm,toYm){const {alloc}=estAlloc();let s=0;Object.key
 // direct costs logged on the brand (expenses only; payouts are profit shares)
 function directCost(acct,fromYm,toYm,paidOnly){return Math.abs(store.money.filter(m=>m.acct===acct&&m.dir==='Expense'&&!voided(m)&&(!paidOnly||m.status==='Paid')&&(m.date||'').slice(0,7)>=fromYm&&(m.date||'').slice(0,7)<=toYm).reduce((s,m)=>s+(+m.amt||0),0));}
 function estCost(acct,fromYm,toYm){return directCost(acct,fromYm,toYm,true)+estSalary(acct,fromYm,toYm);}
+// Client groups (v75): a brand billed through its parent (PhotonX and Mesoestetic Egypt under Weldon Group) is costed with the parent,
+// so profit is read where the money is billed. groupOf = top parent; groupIds = the account and every brand under it.
+function groupOf(id){let a=AMAP[id],guard=0;while(a&&a.parent&&AMAP[a.parent]&&guard++<10)a=AMAP[a.parent];return a?a.id:id;}
+function groupIds(id){const out=[id];let i=0;while(i<out.length&&i<200){const cur=out[i++];store.accounts.forEach(x=>{if(x.parent===cur&&!out.includes(x.id))out.push(x.id);});}return out;}
+const collectedOn=ids=>store.money.filter(m=>ids.includes(m.acct)&&m.dir==='Income'&&m.status==='Paid').reduce((s,m)=>s+(+m.amt||0),0);
+function groupCost(id,fromYm,toYm){return groupIds(id).reduce((s,x)=>s+estCost(x,fromYm,toYm),0);}
 // ===== Business health (v73) =====
 function bizHealth(S){
   const fee=a=>Math.abs(+a.retainer_fee||0);
@@ -1148,8 +1154,10 @@ function renderAccounts(){
     const coll=store.money.filter(m=>m.acct===a.id&&m.dir==="Income"&&m.status==="Paid").reduce((s,m)=>s+(+m.amt||0),0);
     const out=store.money.filter(m=>m.acct===a.id&&m.dir==="Income"&&!voided(m)).reduce((s,m)=>s+(+m.amt||0),0)-coll;
     const eng=store.engagements.filter(e=>e.acct===a.id).length;
-    const cost=estCost(a.id,'0000-01','9999-12');
-    return Object.assign({open,coll,out,eng,cost,margin:coll-cost},a);
+    const isChild=groupOf(a.id)!==a.id,ids=groupIds(a.id);
+    const cost=isChild?estCost(a.id,'0000-01','9999-12'):groupCost(a.id,'0000-01','9999-12');
+    const margin=isChild?null:collectedOn(ids)-cost;
+    return Object.assign({open,coll,out,eng,cost,margin,isChild,grpN:ids.length},a);
   }).filter(a=>(!F.brand||a.brand===F.brand)&&(!F.status||a.lifecycle===F.status)&&(!F.q||((a.id+" "+(a.brand||"")+" "+(a.country||"")+" "+(a.type||"")).toLowerCase().includes(F.q))));
   // the default Lost/Churned filter steps aside when the user searches or picks a brand or lifecycle at the top
   const cfA=state.colF.accounts;if((F.brand||F.status||F.q)&&cfA&&cfA.lifecycle&&cfA.lifecycle.join()==='Lead,Active,Paused,Internal')delete cfA.lifecycle;
@@ -1159,7 +1167,7 @@ function renderAccounts(){
   const head=[["id","ID"],["brand","Brand"],...(hasCountry?[["country","Country"]]:[]),["type","Type"],["lifecycle","Lifecycle"],["eng","Engagements"],["open","Open"],["coll","Collected"],["out","Outstanding"],["cost","Est. cost"],["margin","Est. margin"]];
   const hiddenN=_base.length-tableFilter(_base,'accounts').length;
   $('view').innerHTML=`<div class="view"><div class="panel tpanel">
-    <div class="addbar"><button class="btn" id="acAdd"${canWrite?"":" disabled"}>+ Add account</button><span class="hint">Click a brand to open its profile. Est. cost = brand expenses plus an estimated salary share (by tasks done each month).</span></div>
+    <div class="addbar"><button class="btn" id="acAdd"${canWrite?"":" disabled"}>+ Add account</button><span class="hint">Click a brand to open its profile. Est. cost = brand expenses plus an estimated salary share. A parent's cost and margin include the brands billed through it.</span></div>
     <div class="tablewrap"><table>
     <thead><tr>${thhead(head)}</tr></thead>
     <tbody>${rows.map(a=>`<tr>
@@ -1170,7 +1178,7 @@ function renderAccounts(){
       <td>${csel("life","accounts",a.id,"lifecycle",a.lifecycle,LIFE,ro)}</td>
       <td class="num">${a.eng}</td><td class="num">${a.open}</td>
       <td class="num pos">${KD(a.coll)}</td><td class="num ${a.out>0?'neg':''}">${KD(a.out)}</td>
-      <td class="num ${a.cost>0?'neg':''}">${KD(a.cost)}</td><td class="num ${a.margin<0?'neg':'pos'}">${KD(a.margin)}</td></tr>`).join("")}</tbody></table></div>
+      <td class="num ${a.cost>0?'neg':''}">${KD(a.cost)}</td>${a.isChild?`<td class="num muted" title="Billed through ${esc(brandOf(groupOf(a.id)))}: its cost counts in that group's margin">in ${esc(brandOf(groupOf(a.id)))}</td>`:`<td class="num ${a.margin<0?'neg':'pos'}"${a.grpN>1?` title="Includes ${a.grpN-1} brand${a.grpN>2?'s':''} billed through it"`:''}>${KD(a.margin)}${a.grpN>1?' <span class="muted">(group)</span>':''}</td>`}</tr>`).join("")}</tbody></table></div>
     <div class="rowcount">${rows.length} accounts${hiddenN?` · ${hiddenN} hidden by filters (Lost and Churned are hidden by default; Clear filters shows all)`:''}</div></div></div>`;
   if($('acAdd'))$('acAdd').onclick=openAccountNew;
   bindTable('accounts',_base,renderAccounts);
@@ -1207,7 +1215,7 @@ function renderRetainers(){
   const fee=a=>Math.abs(+a.retainer_fee||0);
   const rets=store.accounts.filter(a=>fee(a)>0&&a.lifecycle!=="Churned"&&a.lifecycle!=="Lost");
   const lastYm=shiftMonths(ym+'-01',-1).slice(0,7);
-  const monthCost=id=>estCost(id,lastYm,lastYm);
+  const monthCost=id=>groupCost(id,lastYm,lastYm);
   const progOf=a=>a.program?(store.services||[]).find(s=>s.id===a.program):null;
   const monthColl=id=>store.money.filter(m=>m.acct===id&&m.dir==="Income"&&m.status==="Paid"&&(m.paid||m.date||"").slice(0,7)===ym).reduce((s,m)=>s+(+m.amt||0),0);
   // service month = Logged if set, else the month before the issue date (retainers bill the 1st of the next month)
@@ -2033,7 +2041,7 @@ function openAccountEdit(id){
     <div class="sheetfoot">${canWrite?`<button class="ghost" id="mkDelete" style="color:var(--bad);border-color:var(--bad-soft)">Delete</button>`:""}<span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Save</button></div></div>`;
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
-  if($('ae_program'))$('ae_program').onchange=e=>{const sv=(store.services||[]).find(x=>x.id===e.target.value);if(sv)$('ae_retainer_fee').value=Math.abs(+sv.price||0);};
+  if($('ae_program'))$('ae_program').onchange=e=>{const sv=(store.services||[]).find(x=>x.id===e.target.value);const f=$('ae_retainer_fee');if(sv&&!(parseFloat(f.value)>0))f.value=Math.abs(+sv.price||0);};
   $('mkSave').onclick=async()=>{const g=f=>{const el=$('ae_'+f);return el?el.value:"";};
     const extra={};if($('ae_program'))extra.program=g('program')||null;if($('ae_next_step')){extra.next_step=g('next_step');extra.next_date=g('next_date')||null;}
     await write("accounts",id,{...extra,brand:g('brand'),type:g('type'),country:g('country'),lifecycle:g('lifecycle'),parent:g('parent'),date_added:g('date_added'),notes:g('notes'),retainer_fee:Math.abs(parseFloat(g('retainer_fee'))||0),bill_company:g('bill_company'),bill_addr:g('bill_addr'),bill_attn:g('bill_attn'),bill_tel:g('bill_tel'),bill_email:g('bill_email'),bill_reg:g('bill_reg')});close();};
