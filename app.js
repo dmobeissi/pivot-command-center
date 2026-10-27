@@ -43,7 +43,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v65 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v66 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -327,11 +327,11 @@ function hbars(items,unit,drill){const max=Math.max(1,...items.map(i=>i.v));retu
    <span class="num hbar-val">${unit==='kd'?KD(i.v):i.v}</span></div>`).join("")+`</div>`;}
 const kpi=(l,v,c,dh)=>`<div class="kpi ${c||''}"><span class="lab">${l}</span><span class="val">${v}</span>${dh?`<span class="kdelta">${dh}</span>`:''}<span class="bar"></span></div>`;
 function kShort(v){v=+v||0;const a=Math.abs(v);if(a>=1000)return (v/1000).toFixed(a>=10000?0:1).replace(/\.0$/,'')+'k';return Math.round(v);}
-function vbars(items,unit){const max=Math.max(1,...items.map(i=>i.v));return `<div style="display:flex;align-items:flex-end;gap:3px;height:148px;padding-top:18px">`+
-  items.map(i=>`<div data-tip="${esc(i.l)}: ${unit==='kd'?'KD '+KD(i.v):i.v}" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:3px;min-width:0;cursor:default">
+function vbars(items,unit){const max=Math.max(1,...items.map(i=>i.v));const every=Math.max(1,Math.ceil(items.length/12));return `<div class="vbars">`+
+  items.map((i,ix)=>`<div class="vbar${ix%every&&ix!==items.length-1?' nolab':''}" data-tip="${esc(i.l)}: ${unit==='kd'?'KD '+KD(i.v):i.v}">
    <span class="barval">${i.v?(unit==='kd'?kShort(i.v):i.v):''}</span>
    <div style="width:100%;max-width:34px;background:var(--accent);border-radius:4px 4px 0 0;height:${Math.max(2,Math.round(i.v/max*100))}px"></div>
-   <span class="muted" style="font-size:9px;white-space:nowrap;overflow:hidden;max-width:100%">${esc(i.s||i.l)}</span></div>`).join("")+`</div>`;}
+   <span class="barlab">${esc(i.s||i.l)}</span></div>`).join("")+`</div>`;}
 function isoAdd(iso,days){const d=new Date(iso+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10);}
 function daysBetween(a,b){return Math.round((new Date(b+'T00:00:00Z')-new Date(a+'T00:00:00Z'))/864e5);}
 function shiftMonths(iso,n){const d=new Date(iso+'T00:00:00Z');const day=d.getUTCDate();d.setUTCDate(1);d.setUTCMonth(d.getUTCMonth()+n);const last=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,0)).getUTCDate();d.setUTCDate(Math.min(day,last));return d.toISOString().slice(0,10);}
@@ -364,13 +364,14 @@ function rangeBar(actions){
   const presets=[['today','Today'],['yesterday','Yesterday'],['last7','Last 7 days'],['last30','Last 30 days'],['last90','Last 90 days'],['wtd','Week to date'],['mtd','Month to date'],['qtd','Quarter to date'],['ytd','Year to date'],['lastmonth','Last month'],['all','All time'],['custom','Custom']];
   const cmps=[['none','No comparison'],['prev_period','Previous period'],['prev_month','Previous month'],['prev_year','Previous year']];
   const isC=state.range.preset==='custom';const R=activeRange();const C=cmpRange(R.from,R.to);
+  const span=(a,b)=>a==='2000-01-01'?'All time':`${esc(a)} → ${esc(b==='9999-12-31'?'now':b)}`;
   return `<div class="rangebar">
-    <select id="dPreset">${presets.map(p=>`<option value="${p[0]}"${state.range.preset===p[0]?' selected':''}>${p[1]}</option>`).join("")}</select>
-    ${isC?`<input type="date" id="dFrom" value="${esc(state.range.from)}"><span class="muted">to</span><input type="date" id="dTo" value="${esc(state.range.to)}">`:`<span class="muted" style="font-size:12px">${esc(R.from)} → ${esc(R.to==='9999-12-31'?'now':R.to)}</span>`}
-    <span class="muted" style="font-size:12px">vs</span>
-    <select id="dCmp">${cmps.map(c=>`<option value="${c[0]}"${state.cmp===c[0]?' selected':''}>${c[1]}</option>`).join("")}</select>
-    ${C?`<span class="muted" style="font-size:11px">${esc(C.from)} → ${esc(C.to)}</span>`:""}
-    <span style="flex:1"></span>
+    <div class="rgrp"><select id="dPreset" aria-label="Date range">${presets.map(p=>`<option value="${p[0]}"${state.range.preset===p[0]?' selected':''}>${p[1]}</option>`).join("")}</select>
+    ${isC?`<input type="date" id="dFrom" value="${esc(state.range.from)}"><span class="hint">to</span><input type="date" id="dTo" value="${esc(state.range.to)}">`:`<span class="rdates">${span(R.from,R.to)}</span>`}</div>
+    <div class="rgrp"><span class="hint">vs</span>
+    <select id="dCmp" aria-label="Compare with">${cmps.map(c=>`<option value="${c[0]}"${state.cmp===c[0]?' selected':''}>${c[1]}</option>`).join("")}</select>
+    ${C?`<span class="rdates">${span(C.from,C.to)}</span>`:""}</div>
+    <span class="rspacer"></span>
     ${actions||''}
   </div>`;}
 function wireRange(rerender){
@@ -387,8 +388,8 @@ function moneySeries(from,to){
   const byMonth=daysBetween(from,to)>45;const map={};
   Mall.forEach(m=>{const dt=pd(m);if(!dt||dt<from||dt>to)return;const key=byMonth?dt.slice(0,7):dt;map[key]=(map[key]||0)+(+m.amt||0);});
   const items=[];let guard=0;
-  if(byMonth){let cur=from.slice(0,7),end=to.slice(0,7);while(cur<=end&&guard<36){items.push({l:cur,s:cur.slice(2),v:map[cur]||0});const[yy,mm]=cur.split('-').map(Number);cur=mm===12?`${yy+1}-01`:`${yy}-${String(mm+1).padStart(2,'0')}`;guard++;}}
-  else{let cur=from;while(cur<=to&&guard<62){items.push({l:cur,s:cur.slice(5),v:map[cur]||0});cur=isoAdd(cur,1);guard++;}}
+  if(byMonth){let cur=from.slice(0,7),end=to.slice(0,7);while(cur<=end&&guard<36){const[yy,mm]=cur.split('-').map(Number);items.push({l:cur,s:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][mm-1]+(mm===1||!items.length?` '${String(yy).slice(2)}`:''),v:map[cur]||0});cur=mm===12?`${yy+1}-01`:`${yy}-${String(mm+1).padStart(2,'0')}`;guard++;}}
+  else{let cur=from;while(cur<=to&&guard<62){items.push({l:cur,s:String(+cur.slice(8)),v:map[cur]||0});cur=isoAdd(cur,1);guard++;}}
   return items;}
 
 function renderTasksDash(){
@@ -408,8 +409,7 @@ function renderTasksDash(){
   const curT=tagg(R.from,R.to),prevT=C?tagg(C.from,C.to):null;
   $('view').innerHTML=`<div class="view">
     ${rangeBar(`<button class="ghost" id="repBtn">Export report</button>`)}
-    <div class="kpis">${kpi("Logged in range",curT.created,"accent",prevT?delta(curT.created,prevT.created,true):"")}${kpi("Completed in range",curT.completed,"good",prevT?delta(curT.completed,prevT.completed,true):"")}</div>
-    <div class="kpis">${kpi("Open tasks",open,"accent")}${kpi("Overdue",overdue,"bad")}${kpi("High open",high,"warn")}${kpi("Done",done,"good")}${kpi("Active brands",store.accounts.filter(a=>a.lifecycle==="Active").length,"")}${kpi("Engagements",store.engagements.length,"")}</div>
+    <div class="kpis k4">${kpi("Logged in range",curT.created,"accent",prevT?delta(curT.created,prevT.created,true):"")}${kpi("Completed in range",curT.completed,"good",prevT?delta(curT.completed,prevT.completed,true):"")}${kpi("Open tasks",open,"accent")}${kpi("Overdue",overdue,"bad")}${kpi("High open",high,"warn")}${kpi("Done",done,"good")}${kpi("Active brands",store.accounts.filter(a=>a.lifecycle==="Active").length,"")}${kpi("Engagements",store.engagements.length,"")}</div>
     <div class="grid3">
       <div class="panel"><h2>Needs attention, soonest due</h2><div class="attn">${attn.length?attn.map(t=>{const[fl,fc]=flag(t);return `<div class="r"><span class="t"><button class="linkname" data-open="${esc(t.id)}">${esc(t.name||t.id)}</button> <span class="muted">· ${esc(brandOf(t.acct))}</span></span><span class="${fc}">${esc(t.due||'')}</span></div>`;}).join(""):'<div class="rowcount">Nothing due.</div>'}</div></div>
       <div class="panel"><h2>Tasks by status</h2><div class="body" style="display:flex;justify-content:center">${donut(sParts.map(p=>({v:p.v,c:p.c,k:p.name})))}</div><div class="legend">${sParts.map(p=>`<span class="drill" data-drill="status" data-val="${esc(p.name)}"><span class="sw" style="background:${p.c}"></span>${p.name} ${p.v}</span>`).join("")}</div></div>
@@ -567,10 +567,10 @@ function renderMoneyDash(){
   $('view').innerHTML=`<div class="view">
     ${rangeBar(`<button class="ghost" id="repBtn">Export report</button>`)}
     <div class="kpis">
-      <div class="kpi ${bankCls} kpiclick" data-dm="cashpos" style="grid-column:span 2" title="See the cash position breakdown"><span class="lab">Bank balance · actual cash now · tap for breakdown</span><span class="val valbig">KD ${KD(S.bankBalance)}</span><span class="kdelta muted">If everything owed clears: KD ${KD(settled)}</span><span class="bar"></span></div>
+      <div class="kpi ${bankCls} kpiclick" data-dm="cashpos" style="grid-column:span 2" title="See the cash position breakdown"><span class="lab">In the bank now</span><span class="val valbig">KD ${KD(S.bankBalance)}</span><span class="kdelta muted">If everything owed clears: KD ${KD(settled)}</span><span class="bar"></span></div>
       <div class="kpiclick" data-dm="collect">${kpi("Still to collect","KD "+KD(S.toCollect),"warn")}</div><div class="kpiclick" data-dm="pay">${kpi("Still to pay out","KD "+KD(S.toPayOut),"bad")}</div>
     </div>
-    <div class="panel"><h2>Issued vs paid <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">· ${esc(R.from)} → ${esc(R.to==='9999-12-31'?'now':R.to)} · click a number to see which</span></h2>
+    <div class="panel"><h2>Issued vs paid <span class="h2sub">· ${esc(R.from)} → ${esc(R.to==='9999-12-31'?'now':R.to)} · click a number to see which</span></h2>
       <div class="ivpwrap">
         ${ivpRow("Invoices",S.perType.income.issued,S.perType.income.paid,true,"invoices")}
         ${ivpRow("Expenses",S.perType.expense.issued,S.perType.expense.paid,false,"expenses")}
@@ -592,11 +592,11 @@ function renderMoneyDash(){
         </div>
       </div>
     </div>
-    <div class="panel"><h2>Collected over time <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">· by the date paid</span></h2><div class="body">${series.length?vbars(series,'kd'):'<div class="muted">Nothing collected in range</div>'}</div></div>
+    <div class="panel"><h2>Collected over time <span class="h2sub">· by the date paid</span></h2><div class="body">${series.length?vbars(series,'kd'):'<div class="muted">Nothing collected in range</div>'}</div></div>
     <div class="grid3">
       <div class="panel"><h2>Invoices to chase ${overdueInv?`<span class="flag-over" style="font-size:11px;font-weight:700">· ${overdueInv} overdue</span>`:""}</h2><div class="attn">${chase.length?chase.map(m=>{const od=m.due&&m.due<todayISO;return `<div class="r" data-goto="invoices" data-hl="${esc(m.id)}" style="cursor:pointer"><span class="t"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||m.id)}</button> <span class="muted">· ${esc(brandOf(m.acct))}</span></span><span class="${od?'flag-over':'flag-soon'}" style="white-space:nowrap">KD ${KD(m.amt)}${m.due?` · ${esc(m.due)}`:''}</span></div>`;}).join(""):'<div class="rowcount">All invoices settled.</div>'}</div><div class="rowcount">KD ${KD(chaseTot)} outstanding · ${unpaid.length} invoice${unpaid.length===1?'':'s'} (live, all dates)</div></div>
-      <div class="panel"><h2>Expenses by category <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">· issued in range</span></h2><div class="body">${topCat.length?hbars(topCat,'kd'):'<div class="muted">No expenses in range</div>'}</div></div>
-      <div class="panel"><h2>Profit by brand <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">· collected − paid costs</span></h2><div class="attn">${marginRows.length?marginRows.map(r=>`<div class="r"><span class="t">${esc(r.l)}</span><span class="num ${r.v<0?'neg':'pos'}">KD ${KD(r.v)}</span></div>`).join(""):'<div class="rowcount">No data yet.</div>'}</div></div>
+      <div class="panel"><h2>Expenses by category <span class="h2sub">· issued in range</span></h2><div class="body">${topCat.length?hbars(topCat,'kd'):'<div class="muted">No expenses in range</div>'}</div></div>
+      <div class="panel"><h2>Profit by brand <span class="h2sub">· collected − paid costs</span></h2><div class="attn">${marginRows.length?marginRows.map(r=>`<div class="r"><span class="t">${esc(r.l)}</span><span class="num ${r.v<0?'neg':'pos'}">KD ${KD(r.v)}</span></div>`).join(""):'<div class="rowcount">No data yet.</div>'}</div></div>
     </div>
     <div class="panel"><h2>Unpaid invoices by age</h2><div class="attn">
         <div class="r"><span class="t">Not due yet</span><span class="num">KD ${KD(age.cur)}</span></div>
@@ -790,7 +790,7 @@ function renderInvoices(){
   $('view').innerHTML=`<div class="view">
     <div class="kpis">${kpi("Billed","KD "+KD(billed),"accent")}${kpi("Collected","KD "+KD(collected),"good")}${kpi("Outstanding","KD "+KD(billed-collected),"bad")}${kpi("Overdue","KD "+KD(overdue),"warn")}</div>
     <div class="panel">
-      <div class="addbar"><button class="btn" id="niAdd"${canWrite?"":" disabled"}>+ Add invoice</button><span class="muted" style="font-size:12px">Click a field to edit it. Click the invoice number to open the full record. Retainers bill the 1st of the next month, due the 10th.</span></div>
+      <div class="addbar"><button class="btn" id="niAdd"${canWrite?"":" disabled"}>+ Add invoice</button><span class="hint">Click a field to edit it. Click the invoice number to open the full record. Retainers bill the 1st of the next month, due the 10th.</span></div>
       <div class="tablewrap"><table><thead><tr>${thhead(head)}</tr></thead>
       <tbody>${M.map(m=>{const od=owed(m)&&m.due&&m.due<todayISO;return `<tr id="mrow-${esc(m.id)}">
         <td class="id"><button class="linkname" data-mopen="${esc(m.id)}" title="Open full record">${esc(m.inv_no||m.id)}</button>${m.notes?` <span class="tag" style="color:var(--hold);background:var(--hold-soft)">note</span>`:""}</td>
@@ -827,13 +827,12 @@ function renderExpenses(){
     <div class="grid2">
       <div class="panel"><h2>By category</h2><div class="body">${top.length?hbars(top,'kd'):'<div class="muted">No expenses</div>'}</div></div>
       <div class="panel"><h2>Recurring expenses</h2>
-        <div class="poevents" style="margin-bottom:10px">${rtHtml}</div>
-        <div class="addbar"><button class="ghost" id="reAdd"${canWrite?"":" disabled"}>+ Create recurring</button><button class="btn" id="reGen"${canWrite?"":" disabled"}>Generate due${dueCount?` (${dueCount})`:""}</button></div>
-        <div class="muted" style="font-size:12px;margin-top:6px">Generated lines land as pending until you mark them paid; past-dated ones that already auto-charged come in as paid.</div>
+        <div class="addbar"><button class="btn" id="reGen"${canWrite?"":" disabled"}>Generate due${dueCount?` (${dueCount})`:""}</button><button class="ghost" id="reAdd"${canWrite?"":" disabled"}>+ Create recurring</button><span class="hint">Generated lines land as pending until marked paid. Past-dated ones that already auto-charged come in as paid.</span></div>
+        <div class="porows">${rtHtml}</div>
       </div>
     </div>
     <div class="panel">
-      <div class="addbar"><button class="btn" id="neAdd"${canWrite?"":" disabled"}>+ Add expense</button><span class="muted" style="font-size:12px">Click a field to edit it. Recurring lines stay pending until marked paid.</span></div>
+      <div class="addbar"><button class="btn" id="neAdd"${canWrite?"":" disabled"}>+ Add expense</button><span class="hint">Click a field to edit it. Recurring lines stay pending until marked paid.</span></div>
       <div class="tablewrap"><table><thead><tr>${thhead(head)}</tr></thead>
       <tbody>${M.map(m=>`<tr id="mrow-${esc(m.id)}">
         <td class="id">${esc(m.id)}</td>
@@ -953,7 +952,7 @@ function renderSalaries(){
   $('view').innerHTML=`<div class="view">
     <div class="kpis">${kpi("Total salaries","KD "+KD(total),"warn")}${kpi("Pending","KD "+KD(pending),"bad")}${kpi("Paid","KD "+KD(total-pending),"good")}${kpi("Months",months.length,"")}</div>
     <div class="panel">
-      <div class="addbar"><span class="muted" style="flex:1">Salaries are grouped by month. Each month lists the people paid, full-time, part-time or freelance.</span>${months.length>1?`<button class="ghost" id="salXpAll">Expand all</button><button class="ghost" id="salClAll">Collapse all</button>`:""}<button class="btn" id="slAdd"${canWrite?"":" disabled"}>+ Add month</button></div>
+      <div class="addbar"><button class="btn" id="slAdd"${canWrite?"":" disabled"}>+ Add month</button>${months.length>1?`<button class="ghost" id="salXpAll">Expand all</button><button class="ghost" id="salClAll">Collapse all</button>`:""}<span class="hint">Grouped by month. Each month lists the people paid: full-time, part-time or freelance.</span></div>
       <div class="poevents">${monthHtml}</div>
     </div></div>`;
   if($('slAdd'))$('slAdd').onclick=openSalaryNew;
@@ -995,7 +994,7 @@ function renderPayouts(){
   $('view').innerHTML=`<div class="view">
     <div class="kpis">${kpi("Total payouts","KD "+KD(total),"warn")}${kpi("Pending","KD "+KD(pending),"bad")}${kpi("Paid","KD "+KD(total-pending),"good")}${kpi("Events",events.length,"")}</div>
     <div class="panel">
-      <div class="addbar"><span class="muted" style="flex:1">Payouts are PIVOT profit splits, divided equally among the partners in each split.</span>${events.length>1?`<button class="ghost" id="payXpAll">Expand all</button><button class="ghost" id="payClAll">Collapse all</button>`:""}<button class="btn" id="pyAdd"${canWrite?"":" disabled"}>+ Add payout</button></div>
+      <div class="addbar"><button class="btn" id="pyAdd"${canWrite?"":" disabled"}>+ Add payout</button>${events.length>1?`<button class="ghost" id="payXpAll">Expand all</button><button class="ghost" id="payClAll">Collapse all</button>`:""}<span class="hint">PIVOT profit splits, divided equally among the partners in each split.</span></div>
       <div class="poevents">${eventHtml}</div>
     </div></div>`;
   if($('pyAdd'))$('pyAdd').onclick=openPayoutNew;
@@ -1016,7 +1015,7 @@ function renderAccounts(){
   const ro=canWrite?"":"disabled";
   const head=[["id","ID"],["brand","Brand"],["country","Country"],["type","Type"],["lifecycle","Lifecycle"],["eng","Engagements"],["open","Open"],["coll","Collected"],["out","Outstanding"],["cost","Costs"],["margin","Margin"],["date_added","Added"]];
   $('view').innerHTML=`<div class="view"><div class="panel">
-    <div class="addbar"><button class="btn" id="acAdd"${canWrite?"":" disabled"}>+ Add account</button><span class="muted" style="font-size:12px">Click a brand to open its profile.</span></div>
+    <div class="addbar"><button class="btn" id="acAdd"${canWrite?"":" disabled"}>+ Add account</button><span class="hint">Click a brand to open its profile.</span></div>
     <div class="tablewrap"><table>
     <thead><tr>${thhead(head)}</tr></thead>
     <tbody>${rows.map(a=>`<tr>
@@ -1074,21 +1073,20 @@ function renderRetainers(){
   const cards=rows.length?rows.map(r=>{const col=r.burn>=100?'var(--bad)':(r.burn>=80?'var(--warn)':'var(--good)');return `
     <div class="poevent">
       <div class="pohead">
-        <div class="poinfo"><button class="linkname" data-brand="${esc(r.a.id)}" style="font-weight:700;font-size:15px">${esc(r.a.brand)}</button><span class="muted"> · KD ${KD(r.f)}/mo</span></div>
+        <div class="poinfo"><button class="linkname potitle" data-brand="${esc(r.a.id)}">${esc(r.a.brand)}</button><span class="muted"> · KD ${KD(r.f)}/mo</span></div>
         <div class="poact"><span class="pill ${r.billed?'pill-good':'pill-bad'}">${r.billed?'invoiced this month':'not invoiced'}</span></div>
       </div>
-      <div style="padding:10px 14px 14px">
-        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:5px"><span>Delivery cost this month · KD ${KD(r.c)}</span><span style="color:${col};font-weight:700">${r.burn}% of fee</span></div>
+      <div class="pobody">
+        <div class="pometa"><span>Delivery cost this month · KD ${KD(r.c)}</span><span style="color:${col};font-weight:700">${r.burn}% of fee</span></div>
         ${bar(r.burn,col)}
-        <div style="display:flex;gap:20px;margin-top:10px;font-size:13px"><span>Margin this month <b class="${r.margin<0?'neg':'pos'}">KD ${KD(r.margin)}</b></span><span class="muted">Collected · KD ${KD(r.coll)}</span></div>
+        <div class="pofoot"><span>Margin this month <b class="${r.margin<0?'neg':'pos'}">KD ${KD(r.margin)}</b></span><span class="muted">Collected · KD ${KD(r.coll)}</span></div>
       </div>
     </div>`;}).join(""):'<div class="rowcount">No retainers yet. Open a brand in Accounts → Edit → set a Monthly retainer, and it appears here.</div>';
   const dueN=retainerInvoicesDue().length;
   $('view').innerHTML=`<div class="view">
-    <div class="kpis">${kpi("Monthly retainer value","KD "+KD(totFee),"accent")}${kpi("Retainers",rows.length,"")}${kpi("Delivery cost (mo)","KD "+KD(totCost),"warn")}${kpi("Total margin (mo)","KD "+KD(totFee-totCost),(totFee-totCost)<0?"bad":"good")}</div>
+    <div class="kpis">${kpi("Retainers / month","KD "+KD(totFee),"accent")}${kpi("Active retainers",rows.length,"")}${kpi("Delivery cost (mo)","KD "+KD(totCost),"warn")}${kpi("Total margin (mo)","KD "+KD(totFee-totCost),(totFee-totCost)<0?"bad":"good")}</div>
     <div class="panel">
-      <div class="addbar"><span class="muted" style="flex:1;font-size:12px">Burn = this month's delivery cost (expenses, freelancers, payouts on the brand) vs the fee. Amber ≥80%, red ≥100%.</span><button class="btn" id="genRetInv"${canWrite&&dueN?"":" disabled"}>Generate retainer invoices${dueN?` (${dueN})`:""}</button></div>
-      <div class="muted" style="font-size:12px;margin:0 0 12px">Invoices bill the month before on the 1st, due the 10th, as "<month> support plan". They land Unpaid until you mark them paid.</div>
+      <div class="addbar"><button class="btn" id="genRetInv"${canWrite&&dueN?"":" disabled"}>Generate retainer invoices${dueN?` (${dueN})`:""}</button><span class="hint">Invoices bill the month before on the 1st, due the 10th, titled "Client Month Year support plan", and land Unpaid until marked paid. Burn = this month's delivery cost on the brand vs the fee: amber at 80%, red at 100%.</span></div>
       <div class="poevents">${cards}</div></div></div>`;
   if($('genRetInv'))$('genRetInv').onclick=generateRetainerInvoices;
 }
@@ -1117,7 +1115,7 @@ function renderPipeline(){
   $('view').innerHTML=`<div class="view">
     <div class="kpis">${kpi("Open pipeline","KD "+KD(openVal),"accent")}${kpi("Open deals",openN,"")}${kpi("Signed value","KD "+KD(signedVal),"good")}${kpi("Win rate",winRate+"%",(signed+lost)?"good":"")}</div>
     <div class="pipegrid">${DEAL_STAGES.map(col).join("")}</div>
-    <div class="addbar" style="margin-top:12px"><button class="btn" id="dealAdd"${canWrite?"":" disabled"}>+ Add deal</button><span class="muted" style="font-size:12px">A deal is one opportunity for a client. Move it through Lead → Proposal → Contract → Signed.</span></div></div>`;
+    <div class="addbar" style="margin-top:12px"><button class="btn" id="dealAdd"${canWrite?"":" disabled"}>+ Add deal</button><span class="hint">A deal is one opportunity for a client. Move it through Lead → Proposal → Contract → Signed.</span></div></div>`;
   if($('dealAdd'))$('dealAdd').onclick=openDealNew;
 }
 function openDealNew(d){
@@ -1168,7 +1166,7 @@ function renderServices(){
     <td><select class="edit" data-c="services" data-id="${esc(s.id)}" data-f="active" ${ro}><option value="Yes"${s.active!=="No"?" selected":""}>Active</option><option value="No"${s.active==="No"?" selected":""}>Retired</option></select></td>
     <td>${canWrite?rowMenu("services",s.id):""}</td></tr>`).join(""):'<tr><td colspan="9" class="rowcount">No services yet. Add the things PIVOT sells so invoices can use them.</td></tr>';
   $('view').innerHTML=`<div class="view"><div class="panel">
-    <div class="addbar"><button class="btn" id="svAdd"${canWrite?"":" disabled"}>+ Add service</button><span class="muted" style="font-size:12px">The catalogue of what PIVOT offers. Retainers bill monthly; one-off work is a project. Click a heading to sort or filter.</span></div>
+    <div class="addbar"><button class="btn" id="svAdd"${canWrite?"":" disabled"}>+ Add service</button><span class="hint">The catalogue of what PIVOT offers. Retainers bill monthly; one-off work is a project. Click a heading to sort or filter.</span></div>
     <div class="tablewrap"><table><thead><tr>${thhead(head,'services')}</tr></thead><tbody>${rows}</tbody></table></div>
     <div class="rowcount">${svc.filter(s=>s.active!=="No").length} active services · click the checklist to set the default tasks for a service</div>
   </div></div>`;
@@ -1209,17 +1207,17 @@ function renderProjects(){
   const card=p=>{const st=projStats(p.id);const pct=st.total?Math.round(st.done/st.total*100):0;const a=AMAP[p.acct];return `
     <div class="poevent">
       <div class="pohead">
-        <div class="poinfo"><button class="linkname" data-popen="${esc(p.id)}" style="font-weight:700;font-size:15px">${esc(p.name||p.id)}</button><span class="muted"> · ${esc(a?a.brand:(p.acct||'—'))}</span></div>
+        <div class="poinfo"><button class="linkname potitle" data-popen="${esc(p.id)}">${esc(p.name||p.id)}</button><span class="muted"> · ${esc(a?a.brand:(p.acct||'—'))}</span></div>
         <div class="poact">${csel("proj","projects",p.id,"status",p.status||"Planned",PROJ_STATUS,ro)}</div>
       </div>
-      <div style="padding:10px 14px 14px">
-        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:5px"><span>${st.done}/${st.total} tasks done</span><span>${p.due_date?('due '+esc(p.due_date)):''}</span></div>
+      <div class="pobody">
+        <div class="pometa"><span>${st.done}/${st.total} tasks done</span><span>${p.due_date?('due '+esc(p.due_date)):''}</span></div>
         <div class="burnwrap"><div class="burnbar" style="width:${Math.max(2,pct)}%;background:var(--good)"></div></div>
       </div>
     </div>`;};
   $('view').innerHTML=`<div class="view">
     <div class="kpis">${kpi("Active projects",ps.filter(p=>p.status!=="Done").length,"accent")}${kpi("All projects",ps.length,"")}</div>
-    <div class="panel"><div class="addbar"><button class="btn" id="prAdd"${canWrite?"":" disabled"}>+ Add project</button><span class="muted" style="font-size:12px">A project groups the work for one piece of a client's engagement. Sign a deal in Pipeline to deploy one with its tasks.</span></div>
+    <div class="panel"><div class="addbar"><button class="btn" id="prAdd"${canWrite?"":" disabled"}>+ Add project</button><span class="hint">A project groups the work for one piece of a client's engagement. Sign a deal in Pipeline to deploy one with its tasks.</span></div>
     <div class="poevents">${ps.length?ps.map(card).join(""):'<div class="rowcount">No projects yet. Add one, or deploy from a signed deal.</div>'}</div></div></div>`;
   if($('prAdd'))$('prAdd').onclick=()=>openProjectNew();
 }
@@ -1321,12 +1319,28 @@ function render(){
     const VIEWS={digest:renderDigest,tasksdash:renderTasksDash,moneydash:renderMoneyDash,mytasks:renderMyTasks,tasks:renderTasks,recurring:renderRecurring,invoices:renderInvoices,expenses:renderExpenses,salaries:renderSalaries,payouts:renderPayouts,retainers:renderRetainers,accounts:renderAccounts,services:renderServices,activity:renderActivity,setup:renderSetup};
     if(!VIEWS[state.view])state.view="tasksdash";
     setupFilters(state.view);
-    $('viewtitle').textContent=TITLES[state.view];
     document.querySelectorAll('#nav button').forEach(b=>b.setAttribute('aria-current',b.dataset.view===state.view));
+    renderNavContext(TITLES);
     VIEWS[state.view]();
   });
 }
 
+// Title shows where you are ("Money › Invoices"); on phones a second bar lists the pages inside the current group.
+function renderNavContext(TITLES){
+  const cur=document.querySelector(`#nav button[data-view="${state.view}"]`);const g=cur&&cur.dataset.group;
+  const head=g&&document.querySelector(`#nav .grp[data-group="${g}"]`);
+  const grpName=head?head.childNodes[0].textContent.trim():'';
+  $('viewtitle').innerHTML=(g&&cur&&!cur.classList.contains('grp'))?`<span class="crumb">${esc(grpName)}<span class="crumbsep">›</span></span>${esc(TITLES[state.view])}`:esc(TITLES[state.view]);
+  document.querySelectorAll('#nav .grp').forEach(b=>b.classList.toggle('ingrp',!!g&&b.dataset.group===g));
+  const sn=$('subnav');if(!sn)return;
+  if(!g){sn.innerHTML='';sn.hidden=true;return;}
+  const items=[...document.querySelectorAll(`#nav button[data-group="${g}"]`)];
+  sn.hidden=false;
+  sn.innerHTML=items.map(b=>`<button data-view="${b.dataset.view}"${b.dataset.view===state.view?' aria-current="true"':''}>${b.classList.contains('grp')?'Overview':esc(b.textContent.trim())}</button>`).join('');
+  const act=sn.querySelector('[aria-current]');if(act&&sn.scrollWidth>sn.clientWidth)sn.scrollLeft=Math.max(0,act.offsetLeft-12);
+  const ng=document.querySelector('#nav .grp.ingrp')||cur;const rail=document.querySelector('.rail');
+  if(ng&&rail&&rail.scrollWidth>rail.clientWidth){const l=ng.offsetLeft-12;if(l<rail.scrollLeft||l>rail.scrollLeft+rail.clientWidth-80)rail.scrollLeft=Math.max(0,l);}
+}
 function autoDone(){const st=$('mk_status'),dn=$('mk_done');if(st&&dn)st.addEventListener('change',()=>{if(st.value==='Done'&&!dn.value)dn.value=todayISO;});}
 function fld(label,inner){return `<label class="fld"><span>${label}</span>${inner}</label>`;}
 function openTask(id){
@@ -1970,13 +1984,9 @@ function renderRecurring(){
     <td><select class="edit" data-c="templates" data-id="${esc(t.id)}" data-f="active" ${ro}>${opts(["Yes","No"],t.active||"Yes")}</select></td>
     <td>${canWrite?rowMenu("templates",t.id):""}</td></tr>`).join(""):`<tr><td colspan="8" class="rowcount">No recurring tasks yet. Click "Add recurring task".</td></tr>`;
   $('view').innerHTML=`<div class="view"><div class="panel">
-      <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap">
-        <h2 style="margin:0;border:0;padding:0">Recurring tasks</h2><span style="flex:1"></span>
-        <button class="btn" id="tplAddBtn"${canWrite?"":" disabled"}>+ Add recurring task</button>
-        <button class="ghost" id="genMonthly"${canWrite?"":" disabled"}>Generate this month's tasks</button>
-      </div>
+      <h2>Recurring tasks</h2>
+      <div class="addbar"><button class="btn" id="tplAddBtn"${canWrite?"":" disabled"}>+ Add recurring task</button><button class="ghost" id="genMonthly"${canWrite?"":" disabled"}>Generate this month's tasks</button><span class="hint">Each active one becomes a real task on the 1st of the month (or when you press Generate), due on its day. Re-runs skip ones already created.</span></div>
       <div class="tablewrap"><table><thead><tr><th>ID</th><th>Brand</th><th>Task</th><th>Owner</th><th>Priority</th><th>Due day</th><th>Active</th><th></th></tr></thead><tbody>${trows}</tbody></table></div>
-      <div class="rowcount">Each active recurring task becomes a real task on the 1st of the month (and whenever you press Generate), due on its day. Re-runs skip ones already created.</div>
   </div></div>`;
   if($('tplAddBtn'))$('tplAddBtn').onclick=openTemplateNew;
   if($('genMonthly'))$('genMonthly').onclick=generateMonthly;
@@ -1992,15 +2002,15 @@ function renderSetup(){
     <td><select class="edit" data-c="people" data-id="${esc(p.id)}" data-f="active" ${ro}><option value="Yes"${p.active!=="No"?" selected":""}>Active</option><option value="No"${p.active==="No"?" selected":""}>Archived</option></select></td>
     <td>${canWrite?rowMenu("people",p.id):""}</td></tr>`).join(""):'<tr><td colspan="6" class="rowcount">No team yet. Add a member, or run migration-05 to seed the current team.</td></tr>';
   $('view').innerHTML=`<div class="view">
-    <div class="panel"><div class="addbar"><h2 style="flex:1;margin:0">Team</h2><button class="btn" id="tmAdd"${canWrite?"":" disabled"}>+ Add member</button></div>
-      <div class="muted" style="font-size:12px;margin:2px 0 10px">Active members show in owner, salary and payout pickers. Email feeds the per-person digest.</div>
+    <div class="panel"><h2>Team</h2>
+      <div class="addbar"><button class="btn" id="tmAdd"${canWrite?"":" disabled"}>+ Add member</button><span class="hint">Active members show in owner, salary and payout pickers. Email feeds the per-person digest.</span></div>
       <div class="tablewrap"><table><thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Email</th><th>Status</th><th></th></tr></thead><tbody>${teamRows}</tbody></table></div>
       <div class="rowcount">${ppl.filter(p=>p.active!=="No").length} active · ${ppl.filter(p=>p.active==="No").length} archived</div>
     </div>
     <div class="panel"><h2>Appearance</h2><div class="body"><div class="themeseg"><button data-theme="system">System</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></div></div></div>
     <div class="panel"><h2>About</h2><div class="body" style="display:flex;flex-direction:column;gap:10px">
-      <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center"><div><span class="muted">Build</span> &nbsp; <b>PIVOT Command Center ${APPVER}</b></div><div><span class="muted">Status</span> &nbsp; <span id="savestate">${esc(saveStateText)}</span></div></div>
-      <div class="rowcount" style="padding-left:0">If the app looks unstyled or an update hasn't shown up, use Refresh data in the ⋯ menu beside your name. It clears the cache and reloads the newest data and version. Data lives in your Supabase database; a nightly backup pushes to a private repo and a daily digest posts to Teams.</div>
+      <div class="aboutrow"><div><span class="muted">Build</span> &nbsp; <b>PIVOT Command Center ${APPVER}</b></div><div><span class="muted">Status</span> &nbsp; <span id="savestate">${esc(saveStateText)}</span></div></div>
+      <div class="hint">If the app looks unstyled or an update hasn't shown up, use Refresh data in the ⋯ menu beside your name. It clears the cache and reloads the newest data and version. Data lives in your Supabase database; a nightly backup pushes to a private repo and a daily digest posts to Teams.</div>
     </div></div>
   </div>`;
   document.querySelectorAll('.themeseg button').forEach(b=>b.onclick=()=>setTheme(b.dataset.theme));
@@ -2020,7 +2030,7 @@ async function renderActivity(){
   $('view').innerHTML=`<div class="view"><div class="panel"><h2>Recent activity</h2><div class="center" style="padding:30px"><div class="spin"></div><div class="muted">${esc(quip())}</div></div></div></div>`;
   let items=[];try{const {data}=await sb.from('activity').select('*').order('at',{ascending:false}).limit(120);items=(data||[]).map(r=>({t:r.at,who:r.who,act:r.action,coll:r.coll,id:r.doc_id,label:r.label}));}catch(e){}
   const rows=items.slice(0,120).map(a=>`<div class="r"><span class="t"><b>${esc(a.who||'Someone')}</b> ${esc(a.act)} <span class="muted">${esc(a.coll)}/${esc(a.id)}</span>${a.label?` <span class="muted">· ${esc(a.label)}</span>`:''}</span><span class="muted" style="white-space:nowrap">${esc((a.t||'').replace('T',' ').slice(0,16))}</span></div>`).join("");
-  $('view').innerHTML=`<div class="view"><div class="panel"><h2>Recent activity</h2><div class="attn">${items.length?rows:'<div class="rowcount">No activity logged yet. New tasks, edits and deletions will appear here with who made them and when.</div>'}</div></div></div>`;
+  $('view').innerHTML=`<div class="view"><div class="panel"><h2>Recent activity</h2><div class="attn actlist">${items.length?rows:'<div class="rowcount">No activity logged yet. New tasks, edits and deletions will appear here with who made them and when.</div>'}</div></div></div>`;
 }
 document.addEventListener('click',e=>{const o=e.target.closest('[data-open]');if(o)openTask(o.dataset.open);});
 document.addEventListener('click',e=>{const o=e.target.closest('[data-mopen]');if(o)openMoney(o.dataset.mopen);});
@@ -2035,6 +2045,7 @@ $('nav').onclick=e=>{
   state.view=b.dataset.view;try{localStorage.setItem('pivot_view',state.view);}catch(_){}render();
 };
 applyGroups();
+if($('subnav'))$('subnav').onclick=e=>{const b=e.target.closest('button[data-view]');if(!b)return;state.view=b.dataset.view;try{localStorage.setItem('pivot_view',state.view);}catch(_){}render();window.scrollTo(0,0);};
 $('addBtn').onclick=e=>{e.stopPropagation();$('addMenu').classList.toggle('show');};
 $('addMenu').onclick=e=>{const b=e.target.closest('[data-add]');if(!b)return;$('addMenu').classList.remove('show');({task:openTaskNew,account:openAccountNew,invoice:openInvoiceNew,expense:openExpenseNew,salary:openSalaryNew,payout:openPayoutNew,recurring:openTemplateNew}[b.dataset.add])();};
 document.addEventListener('click',e=>{if(!e.target.closest('#addMenu')&&!e.target.closest('#addBtn'))$('addMenu').classList.remove('show');});

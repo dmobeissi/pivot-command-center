@@ -425,3 +425,137 @@ th.thsort:hover{color:var(--accent)}
 .kpi{container-type:inline-size}
 .kpi .val{font-size:min(19px,9.5cqw)}
 .kpi .val.valbig{font-size:min(24px,9.5cqw)}
+
+/* =====================================================================
+   v66 DESIGN STANDARD. One scale for the whole app; later rules win.
+   Radius:  7 small (inline edits, menu items) / 9 controls / 12 menus + inner cards / 14 cards, panels, popups / 999 pills
+   Spacing: 16px inside every card edge; 12px between bar items; 16px between cards
+   Type:    11 labels and tags / 12 hints and secondary / 13 body and controls / 14 base / 16 page title / 18 popup title
+   Controls: one height (34px) for buttons, selects, inputs in bars
+   ===================================================================== */
+:root{--r-sm:7px;--r:9px;--r-md:12px;--r-lg:14px;--pad:16px;--ctl-h:34px}
+
+/* controls: same height, same box, text never wraps inside a button */
+.btn,.ghost,.theme{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:var(--ctl-h);box-sizing:border-box;padding:0 14px;line-height:1.2;white-space:nowrap;border-radius:var(--r);font-size:13px}
+.ghost{color:var(--ink);background:var(--surface)}
+.ghost:hover{background:var(--surface-2)}
+.ghost[disabled]{opacity:.5;cursor:not-allowed}
+.theme{padding:0 11px;font-size:15px;color:var(--muted)}
+.theme:hover{background:var(--surface-2);color:var(--ink)}
+.topbar select,.topbar input[type=search],.rangebar select,.rangebar input{min-height:var(--ctl-h);box-sizing:border-box;border-radius:var(--r)}
+.colmenu .cmsort .ghost{justify-content:flex-start;min-height:32px}
+.colmenu .cmfoot .btn{min-height:30px}
+.poact .ghost,.porright .ghost{min-height:30px;padding:0 11px;font-size:12px}
+
+/* radius scale */
+.del,.pocaret,.dots,.navuser .udots,.edit,.colmenu .cmrow,.addmenu button,.rowmenu button,.usermenu button{border-radius:var(--r-sm)}
+.addmenu,.usermenu,.rowmenu,.colmenu,.poevent,.pipecol,.pipecard,.splitwrap,.dropzone,.colmenu .cmlist{border-radius:var(--r-md)}
+.panel,.kpi,.sheet,.loginbox{border-radius:var(--r-lg)}
+.slrow input,.slrow select,.partrow input,.partrow select,.colmenu .cmsearch,.pchk{border-radius:var(--r)}
+.tag{border-radius:999px;padding:1px 8px}
+
+/* menus: one item size */
+.addmenu,.usermenu,.rowmenu{padding:4px}
+.addmenu button,.rowmenu button,.usermenu button{padding:8px 12px;font-size:13px}
+
+/* type floor: nothing under 11px except chart annotations */
+.tag,.rtag,.dchip,.pill,.partrow.phead,.kpi .kdelta,.delta{font-size:11px}
+.barval{font-size:10px}
+
+/* panel anatomy: title, action bar, content. Every edge 16px */
+.panel>h2{padding:14px var(--pad) 0}
+.panel>h2+.addbar{margin-top:12px;border-top:1px solid var(--line)}
+.panel>h2+.tablewrap,.panel>h2+.porows,.panel>h2+.attn{margin-top:10px;border-top:1px solid var(--line)}
+.addbar{gap:12px;padding:12px var(--pad)}
+.hint{font-size:12px;color:var(--muted);line-height:1.5}
+.addbar .hint{flex:1 1 260px;min-width:0}
+.h2sub{color:var(--muted);font-weight:500;text-transform:none;letter-spacing:0}
+.panel .body{padding:14px var(--pad)}
+.rowcount{padding:10px var(--pad)}
+.attn .r{padding:10px var(--pad)}
+.pohead{padding:12px var(--pad)}
+.por{padding:10px var(--pad)}
+.porows>.rowcount{padding:12px var(--pad)}
+.poevents{gap:12px;padding:12px}
+.pobody{padding:12px var(--pad) 14px}
+.pometa{display:flex;justify-content:space-between;gap:12px;font-size:12px;color:var(--muted);margin-bottom:6px}
+.pofoot{display:flex;flex-wrap:wrap;gap:6px 20px;margin-top:10px;font-size:13px}
+.potitle{font-weight:700;font-size:15px}
+.aboutrow{display:flex;gap:8px 24px;flex-wrap:wrap;align-items:center}
+.kpis.k4{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media(max-width:1000px){.kpis.k4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* range bar: two groups (range, compare) then actions */
+.rangebar{gap:10px 16px;margin-bottom:0}
+.rgrp{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
+.rdates{font-size:12px;color:var(--muted);white-space:nowrap}
+.rspacer{flex:1}
+
+/* vertical bar chart: labels thinned so they never collide */
+.vbars{display:flex;align-items:flex-end;gap:3px;height:150px;padding-top:18px}
+.vbar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px;min-width:0;cursor:default}
+.barlab{font-size:10px;color:var(--muted);white-space:nowrap;line-height:1;height:10px}
+.vbar.nolab .barlab{visibility:hidden}
+
+/* breadcrumb in the page title: Money › Invoices */
+.topbar h1 .crumb{color:var(--muted);font-weight:600}
+.topbar h1 .crumbsep{margin:0 6px;color:var(--muted);font-weight:400}
+
+/* phone sub-nav: hidden on desktop (the rail already shows the hierarchy) */
+.subnav{display:none}
+
+@media(max-width:720px){
+  /* rail shows top-level sections only; the section you are in stays highlighted */
+  .nav .sub{display:none !important}
+  .nav .grp.ingrp{background:#ffffff1f;color:#fff;font-weight:600}
+  .rail{scrollbar-width:none}.rail::-webkit-scrollbar{display:none}
+  /* second bar: pages inside the current section */
+  .subnav:not([hidden]){display:flex;gap:4px;overflow-x:auto;background:var(--rail);border-top:1px solid #ffffff14;padding:6px 8px 8px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .subnav::-webkit-scrollbar{display:none}
+  .subnav button{all:unset;cursor:pointer;flex:0 0 auto;white-space:nowrap;font-size:13px;font-weight:500;color:var(--rail-ink);padding:6px 12px;border-radius:999px;border:1px solid #ffffff1f}
+  .subnav button[aria-current="true"]{background:#fff;color:#111;border-color:#fff;font-weight:600}
+  /* top bar: title row with Add and theme on the right; filters in an even 2-column grid below */
+  .topbar{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px 8px}
+  .topbar h1{width:auto;grid-column:1;grid-row:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .filters{display:contents}
+  .addwrap{grid-column:2;grid-row:1}
+  .theme{grid-column:3;grid-row:1}
+  #filterctrls[style*="contents"]{display:grid !important;grid-column:1/-1;grid-row:2;grid-template-columns:1fr 1fr;gap:8px}
+  #filterctrls select,#filterctrls input,#filterctrls .ghost{width:100%;min-width:0}
+  .addmenu{right:0;left:auto}
+  /* group headers (salaries, payouts): title on its own line, actions below */
+  .pohead{flex-wrap:wrap;row-gap:8px}
+  .poinfo{flex:1 1 calc(100% - 40px)}
+  .poact{flex:1 1 100%;justify-content:flex-end;flex-wrap:wrap}
+  .poact .pill{margin-right:auto}
+}
+@media(max-width:560px){
+  .main{padding:14px 12px 40px}
+  /* range bar: each group a full-width row, select and dates side by side */
+  .rangebar{display:grid;grid-template-columns:1fr;gap:8px}
+  .rgrp{flex-wrap:nowrap}
+  .rgrp select{flex:1 1 auto;min-width:0}
+  .rspacer{display:none}
+  .rangebar>.ghost,.rangebar>.btn{justify-self:start}
+  /* activity: date on its own line instead of truncating the event */
+  .actlist .r{flex-wrap:wrap;row-gap:2px}
+  .actlist .t,.actlist .t *{white-space:normal}
+  .actlist .r>span:last-child{flex-basis:100%;max-width:none;font-size:11px}
+  .addbar .hint{flex-basis:100%}
+}
+.edit.csel,select.csel{border-radius:999px}
+.nav .grp.ingrp{color:#fff}
+/* KPI rows lay out by count so no card is ever left alone on a row:
+   4 cards = 4 across, 2x2 below 1000px; 3 cards = 3 across, first full-width on phones; bank card row = 2+1+1 */
+.view>.kpis:has(>:nth-child(4):last-child){grid-template-columns:repeat(4,minmax(0,1fr))}
+.view>.kpis:has(>:nth-child(3):last-child){grid-template-columns:repeat(3,minmax(0,1fr))}
+.view>.kpis.kpis.kpis:has(>[style*="span 2"]){grid-template-columns:repeat(4,minmax(0,1fr))}
+@media(max-width:1000px){
+  .view>.kpis:has(>:nth-child(4):last-child){grid-template-columns:repeat(2,minmax(0,1fr))}
+  .view>.kpis.kpis.kpis:has(>[style*="span 2"]){grid-template-columns:repeat(2,minmax(0,1fr))}
+  .view>.kpis>[style*="span 2"]{grid-column:1/-1 !important}
+}
+@media(max-width:560px){
+  .view>.kpis:has(>:nth-child(3):last-child){grid-template-columns:repeat(2,minmax(0,1fr))}
+  .view>.kpis:has(>:nth-child(3):last-child)>:first-child{grid-column:1/-1}
+}

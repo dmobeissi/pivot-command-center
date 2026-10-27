@@ -3,7 +3,7 @@
 <title>PIVOT Command Center</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=65">
+<link rel="stylesheet" href="styles.css?v=66">
 </head><body>
 <div id="loginwrap"></div>
 
@@ -34,6 +34,7 @@
   </aside>
   <div class="work">
     <div id="banner"></div>
+    <nav class="subnav" id="subnav" hidden aria-label="Pages in this section"></nav>
     <header class="topbar">
       <h1 id="viewtitle">Dashboard</h1>
       <div class="filters">
@@ -55,7 +56,7 @@
             <button data-add="recurring">Recurring task</button>
           </div>
         </div>
-        <button class="theme" id="theme" title="Toggle theme">◐</button>
+        <button class="theme" id="theme" title="Toggle theme" aria-label="Toggle theme">◐</button>
       </div>
     </header>
     <main class="main"><div id="view"><div class="center"><div class="spin"></div><div>Brewing your workspace…</div></div></div></main>
@@ -66,5 +67,5 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=65"></script>
+<script src="app.js?v=66"></script>
 </body></html>
