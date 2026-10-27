@@ -53,7 +53,7 @@ const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t.onclick=null;t.style.pointerEvents='';
   if(ms===-1){t.style.pointerEvents='auto';t.style.cursor='pointer';t.onclick=()=>{t.classList.remove('show');t.style.pointerEvents='';t.style.cursor='';};return;} // sticky until clicked
   const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v73 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v74 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -169,7 +169,7 @@ async function fetchColl(coll){
   const {data,error}=await sb.from(coll).select('*');
   if(coll==='app_settings')SETTINGS_OK=!error;
   if(error){ if(SOFT.has(coll)){store[coll]=[];loaded[coll]=true;return;} toast("Load error: "+coll); console.error(coll,error); return; }
-  const all=data.map(r=>fromDB(coll,r));
+  const all=data.map(r=>fromDB(coll,r)); _est=null;
   if(SOFTDEL.has(coll)){HASDEL[coll]=all.length?('deleted_at' in all[0]):HASDEL[coll];trash[coll]=all.filter(r=>r.deleted_at);store[coll]=all.filter(r=>!r.deleted_at);}else store[coll]=all;
   if(coll==='accounts'){ AMAP={}; store.accounts.forEach(a=>AMAP[a.id]=a); rebuildBrandFilter(); }
   if(coll==='tasks'){ const s=new Set(store.tasks.map(x=>x.owner).filter(Boolean)); if(s.size){TEAM=[...new Set([...TEAM,...s])];rebuildTeamFilter();} }
@@ -184,13 +184,14 @@ async function refreshAll(){ if(_refreshing||!booted||_busyEditing())return; _re
 async function loadAll(){
   try{ await Promise.all(ALLCOLLS.map(fetchColl)); }catch(e){ console.error(e); }
   try{ const {error}=await sb.from('audit_log').select('id').limit(1); AUDIT=!error; }catch(e){ AUDIT=false; }
+  { const p=PEOPLE_BY_EMAIL(session&&session.user&&session.user.email); if(p&&p!==myName){ myName=p; renderUserChip(); render(); } }
   render();
   ALLCOLLS.forEach(subscribe);
   // keep the shared workspace fresh even without Supabase Realtime:
   setInterval(()=>{ if(typeof document==='undefined'||!document.hidden) refreshAll(); },40000);
   if(typeof document!=='undefined')document.addEventListener('visibilitychange',()=>{ if(!document.hidden) refreshAll(); });
 }
-function applyLocal(coll,id,patch){ const arr=store[coll]; if(!arr)return; const i=arr.findIndex(x=>x.id===id); if(i>=0){ Object.assign(arr[i],patch); render(); } }
+function applyLocal(coll,id,patch){ _est=null; const arr=store[coll]; if(!arr)return; const i=arr.findIndex(x=>x.id===id); if(i>=0){ Object.assign(arr[i],patch); render(); } }
 const errMsg=e=>{const s=(e&&(e.message||e.hint||e.details))||"";return s?(": "+String(s).slice(0,140)):"";};
 const ready=()=>COLLS.every(c=>loaded[c]);
 
@@ -674,25 +675,49 @@ function renderMoneyDash(){
   if($('repBtn'))$('repBtn').onclick=()=>openReport('money');
 }
 
+// ===== Salary brand allocation (v74) =====
+// A salary row is charged to brands in this order: its split (alloc 'ACC-1:60|ACC-2:40', migration 20),
+// else its single client brand (acct, when not the internal PIVOT account), else the person's tasks done that month.
+const HASALLOC=()=>store.money.length>0&&('alloc' in store.money[0]);
+const isInternalAcct=id=>{const a=AMAP[id];return !id||!a||a.lifecycle==='Internal'||a.type==='Internal';};
+function allocParse(str){return String(str||'').split('|').map(x=>{const [a,p]=x.split(':');return {a:(a||'').trim(),p:parseFloat(p)};}).filter(x=>x.a);}
+function allocOf(m){let l=allocParse(m.alloc);if(!l.length&&m.acct&&!isInternalAcct(m.acct))l=[{a:m.acct,p:100}];
+  if(!l.length)return [];const known=l.filter(x=>!isNaN(x.p)&&x.p>0);if(known.length!==l.length)return l.map(x=>({a:x.a,w:1/l.length}));
+  const t=known.reduce((s,x)=>s+x.p,0);return known.map(x=>({a:x.a,w:x.p/t}));}
+function allocStr(list){return list.filter(x=>x.a).map(x=>x.a+':'+(Math.round((+x.p||0)*100)/100)).join('|');}
+function allocLabel(m){const l=allocOf(m);if(!l.length)return 'By tasks';return l.map(x=>brandOf(x.a)+(l.length>1?' '+Math.round(x.w*100)+'%':'')).join(' · ');}
+// editor: brand + percent rows; empty = split by tasks done
+function allocEditorHtml(list,single){list=(list&&list.length)?list:[];
+  const row=x=>`<div class="alrow"><select class="al_a"><option value="">Brand</option>${store.accounts.filter(a=>!isInternalAcct(a.id)).sort((p,q)=>(p.brand||'').localeCompare(q.brand||'')).map(a=>`<option value="${esc(a.id)}"${a.id===x.a?' selected':''}>${esc(a.brand)}</option>`).join('')}</select>${single?'':`<input class="al_p" type="number" step="1" min="0" max="100" placeholder="%" value="${x.p!=null&&!isNaN(x.p)?esc(Math.round(x.p)):''}">`}<button type="button" class="ghost alx" title="Remove">✕</button></div>`;
+  return `<div class="alloced">${list.map(row).join('')}<div class="alfoot">${(single&&list.length)?'':`<button type="button" class="ghost aladd">+ Brand</button>`}<span class="hint">${list.length?(single?'Run migration 20 to split one pay across several brands.':'Percent of this pay per brand. Blank = equal split.'):'No brand: split by the tasks this person finished that month.'}</span></div></div>`;}
+function wireAllocEditor(box,single,onChange){const redraw=list=>{box.innerHTML=allocEditorHtml(list,single);wireAllocEditor(box,single,onChange);onChange&&onChange();};
+  const read=()=>readAllocEditor(box);
+  box.querySelectorAll('.alx').forEach(b=>b.onclick=()=>{const l=read();const i=[...box.querySelectorAll('.alx')].indexOf(b);l.splice(i,1);redraw(l);});
+  const add=box.querySelector('.aladd');if(add)add.onclick=()=>{const l=read();l.push({a:'',p:null});redraw(l);};
+  box.querySelectorAll('select,input').forEach(el=>el.onchange=()=>onChange&&onChange());}
+function readAllocEditor(box){return [...box.querySelectorAll('.alrow')].map(r=>({a:r.querySelector('.al_a').value,p:r.querySelector('.al_p')?parseFloat(r.querySelector('.al_p').value):NaN}));}
+// what to save: {acct, alloc?}
+function allocSave(list){const l=list.filter(x=>x.a);const o={acct:l.length?l[0].a:''};if(HASALLOC())o.alloc=l.length>1?allocStr(l.map(x=>({a:x.a,p:isNaN(x.p)?100/l.length:x.p}))):null;return o;}
+
 // ===== Estimated delivery cost (v73) =====
 // Each salary row is split across brands by that person's share of tasks done in the same month.
 // If the person finished no tasks that month, the team's share that month is used; if nobody did, it stays Unallocated.
 // Payouts are profit shares, not delivery cost, so they are never allocated.
-let _estKey='',_est=null;
+let _est=null;
 function estAlloc(){
-  const key=store.money.length+':'+store.tasks.length+':'+(store.money[0]||{}).id+':'+store.tasks.filter(t=>t.status==='Done').length;
-  if(_est&&_estKey===key)return _est;
+  if(_est)return _est;
   const per={},team={};
   store.tasks.forEach(t=>{if(t.status!=='Done'||!t.done)return;const ym=t.done.slice(0,7),a=t.acct||'';
     ((per[ym]=per[ym]||{})[t.owner||'']=per[ym][t.owner||'']||{})[a]=(per[ym][t.owner||''][a]||0)+1;
     (team[ym]=team[ym]||{})[a]=(team[ym][a]||0)+1;});
   const alloc={},unal={};
   store.money.forEach(m=>{if(m.dir!=='Salary'||voided(m)||!m.date)return;const ym=m.date.slice(0,7),amt=Math.abs(+m.amt||0);
+    const direct=allocOf(m);if(direct.length){direct.forEach(x=>{((alloc[ym]=alloc[ym]||{})[x.a]=(alloc[ym][x.a]||0)+amt*x.w);});return;}
     const share=(per[ym]&&per[ym][m.partner||''])||team[ym];
     if(!share){unal[ym]=(unal[ym]||0)+amt;return;}
     const tot=Object.values(share).reduce((x,y)=>x+y,0);
     Object.entries(share).forEach(([a,n])=>{((alloc[ym]=alloc[ym]||{})[a]=(alloc[ym][a]||0)+amt*n/tot);});});
-  _estKey=key;_est={alloc,unal};return _est;}
+  _est={alloc,unal};return _est;}
 // estimated salary share for a brand between two months (YYYY-MM, inclusive)
 function estSalary(acct,fromYm,toYm){const {alloc}=estAlloc();let s=0;Object.keys(alloc).forEach(ym=>{if(ym>=fromYm&&ym<=toYm)s+=(alloc[ym][acct]||0);});return s;}
 // direct costs logged on the brand (expenses only; payouts are profit shares)
@@ -841,7 +866,7 @@ function renderTasks(){
   const head=[["id","ID"],["brand","Brand"],["name","Task"],["owner","Owner"],["priority","Priority"],["due","Due"],["status","Status"],["done","Done"],["flag","Flag"],["",""]];
   $('view').innerHTML=`<div class="view">
     <div class="kpis">${kpi("Open",openAll.length,"accent")}${kpi("Overdue",openAll.filter(t=>t.due&&t.due<todayISO).length,"bad")}${kpi("No due date",openAll.filter(t=>!t.due).length,"warn")}${kpi("High open",openAll.filter(t=>t.priority==="High").length,"warn")}</div>
-    <div class="panel">
+    <div class="panel tpanel">
       <div class="addbar">
         <button class="btn" id="ntAdd"${canWrite?"":" disabled"}>+ Add task</button>
         <button class="ghost" id="ntImport"${canWrite?"":" disabled"}>Bulk import</button>
@@ -904,7 +929,7 @@ function renderInvoices(){
   const ro=canWrite?"":"disabled";
   $('view').innerHTML=`<div class="view">
     <div class="kpis">${kpi("Billed","KD "+KD(billed),"accent")}${kpi("Collected","KD "+KD(collected),"good")}${kpi("Outstanding","KD "+KD(billed-collected),"bad")}${kpi("Overdue","KD "+KD(overdue),"warn")}</div>
-    <div class="panel">
+    <div class="panel tpanel">
       <div class="addbar"><button class="btn" id="niAdd"${canWrite?"":" disabled"}>+ Add invoice</button><span class="hint">Click an invoice to edit it. Status changes right here.</span></div>
       <div class="tablewrap"><table><thead><tr>${thhead(head)}</tr></thead>
       <tbody>${M.map(m=>{const od=owed(m)&&m.due&&m.due<todayISO;return `<tr id="mrow-${esc(m.id)}">
@@ -946,7 +971,7 @@ function renderExpenses(){
         <div class="porows">${rtHtml}</div>
       </div>
     </div>
-    <div class="panel">
+    <div class="panel tpanel">
       <div class="addbar"><button class="btn" id="neAdd"${canWrite?"":" disabled"}>+ Add expense</button><span class="hint">Click an expense to edit it. Status changes right here.</span></div>
       <div class="tablewrap"><table><thead><tr>${thhead(head)}</tr></thead>
       <tbody>${M.map(m=>`<tr id="mrow-${esc(m.id)}">
@@ -1061,7 +1086,7 @@ function renderSalaries(){
         </div>
       </div>
       <div class="porows">
-        ${g.rows.map(m=>{const paid=m.status==='Paid';return `<div class="por"><span class="porperson"><span class="id">${esc(m.id)}</span><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.partner||m.desc||'—')}</button>${m.role?`<span class="rtag">${esc(m.role)}</span>`:""}</span><span class="porright"><span class="num neg">KD ${KD(Math.abs(+m.amt||0))}</span>${ro?`<span class="pill ${paid?'pill-good':'pill-bad'}">${paid?'sent':'pending'}</span>`:`<button class="ghost slone ${paid?'on':''}" data-id="${esc(m.id)}" data-to="${paid?'Pending':'Paid'}" data-date="${esc(m.date||'')}">${paid?'✓ sent':'mark sent'}</button>`}</span></div>`;}).join("")}
+        ${g.rows.map(m=>{const paid=m.status==='Paid';return `<div class="por"><span class="porperson"><span class="id">${esc(m.id)}</span><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.partner||m.desc||'-')}</button><span class="rtag" title="Charged to (estimated profit)">${esc(allocLabel(m))}</span>${m.role?`<span class="rtag">${esc(m.role)}</span>`:""}</span><span class="porright"><span class="num neg">KD ${KD(Math.abs(+m.amt||0))}</span>${ro?`<span class="pill ${paid?'pill-good':'pill-bad'}">${paid?'sent':'pending'}</span>`:`<button class="ghost slone ${paid?'on':''}" data-id="${esc(m.id)}" data-to="${paid?'Pending':'Paid'}" data-date="${esc(m.date||'')}">${paid?'✓ sent':'mark sent'}</button>`}</span></div>`;}).join("")}
       </div>
     </div>`).join(""):'<div class="rowcount">No salaries yet.</div>';
   $('view').innerHTML=`<div class="view">
@@ -1133,7 +1158,7 @@ function renderAccounts(){
   const hasCountry=store.accounts.some(a=>a.country);
   const head=[["id","ID"],["brand","Brand"],...(hasCountry?[["country","Country"]]:[]),["type","Type"],["lifecycle","Lifecycle"],["eng","Engagements"],["open","Open"],["coll","Collected"],["out","Outstanding"],["cost","Est. cost"],["margin","Est. margin"]];
   const hiddenN=_base.length-tableFilter(_base,'accounts').length;
-  $('view').innerHTML=`<div class="view"><div class="panel">
+  $('view').innerHTML=`<div class="view"><div class="panel tpanel">
     <div class="addbar"><button class="btn" id="acAdd"${canWrite?"":" disabled"}>+ Add account</button><span class="hint">Click a brand to open its profile. Est. cost = brand expenses plus an estimated salary share (by tasks done each month).</span></div>
     <div class="tablewrap"><table>
     <thead><tr>${thhead(head)}</tr></thead>
@@ -1510,6 +1535,7 @@ function render(){
     renderNavContext(TITLES);
     VIEWS[state.view]();
     labelTables();
+    document.body.classList.toggle('tv',!!document.querySelector('#view .tpanel'));
   });
 }
 
@@ -1856,16 +1882,21 @@ const SALARY_DEFAULTS=[{person:"Daoud",role:"Full-time",amt:500},{person:"Arafa"
 function endOfMonthISO(){const d=new Date();return localISO(new Date(d.getFullYear(),d.getMonth()+1,0));}
 // current month on a given day (clamped to the month's last day), used as the default salary issue date
 function issueDayISO(day){const d=new Date();const y=d.getFullYear(),m=d.getMonth();const last=new Date(y,m+1,0).getDate();const dd=Math.min(day,last);return `${y}-${String(m+1).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;}
-function salRowHtml(r){r=r||{person:"",role:"",amt:""};return `<div class="slrow" data-id="${esc(r.id||'')}" data-status="${esc(r.status||'')}">
+// last salary row of a person: used to prefill who their pay is charged to
+function lastSalaryOf(person){return store.money.filter(m=>m.dir==='Salary'&&m.partner===person&&!voided(m)).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')))[0];}
+function salRowHtml(r){r=r||{person:"",role:"",amt:""};const al=r.al||[];return `<div class="slrow" data-id="${esc(r.id||'')}" data-status="${esc(r.status||'')}" data-al="${esc(JSON.stringify(al))}">
   <input class="sl_p" placeholder="Name" value="${esc(r.person||'')}">
   <select class="sl_r"><option value="">role</option>${opts(ROLES,r.role||"")}</select>
   <input class="sl_a" type="number" step="0.001" placeholder="KD" value="${r.amt!==''&&r.amt!=null?esc(r.amt):''}">
-  <button class="ghost slx" title="Remove">✕</button></div>`;}
+  <button class="ghost slx" title="Remove">✕</button>
+  <button type="button" class="ghost sl_b" title="Which brands this pay is charged to">Charged to: ${esc(al.length?al.map(x=>brandOf(x.a)+(al.length>1&&!isNaN(x.p)?' '+Math.round(x.p)+'%':'')).join(' · '):'By tasks')}</button>
+  <div class="sl_al" hidden></div></div>`;}
+const alFromRow=m=>{if(!m)return [];const l=allocParse(m.alloc);if(l.length)return l;return (m.acct&&!isInternalAcct(m.acct))?[{a:m.acct,p:100}]:[];};
 function openSalaryEdit(g){openSalaryNew(g);}
 function openSalaryNew(g){
   if(!canWrite){toast("Read-only access");return;}
   const edit=!!(g&&g.rows&&g.rows.length);
-  const initRows=edit?g.rows.map(m=>({id:m.id,person:m.partner||'',role:m.role||'',amt:Math.abs(+m.amt||0),status:m.status})):SALARY_DEFAULTS;
+  const initRows=edit?g.rows.map(m=>({id:m.id,person:m.partner||'',role:m.role||'',amt:Math.abs(+m.amt||0),status:m.status,al:alFromRow(m)})):SALARY_DEFAULTS.map(d=>Object.assign({},d,{al:alFromRow(lastSalaryOf(d.person))}));
   const dateVal=edit?(g.rows[0].date||g.ym+"-24"):issueDayISO(24);
   const notesVal=edit?(g.rows[0].notes||''):'';
   $('modal').innerHTML=`<div class="sheet">
@@ -1884,15 +1915,22 @@ function openSalaryNew(g){
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
   const preview=()=>{let t=0;document.querySelectorAll('.sl_a').forEach(a=>t+=Math.abs(parseFloat(a.value)||0));$('sl_preview').textContent="Month total · KD "+KD(t);};
-  const wireRows=()=>{document.querySelectorAll('.slx').forEach(b=>b.onclick=()=>{if(document.querySelectorAll('.slrow').length>1)b.closest('.slrow').remove();preview();});document.querySelectorAll('.sl_a').forEach(a=>a.oninput=preview);preview();};
+  const single=!HASALLOC();
+  const lbl=row=>{const al=JSON.parse(row.dataset.al||'[]').filter(x=>x.a);row.querySelector('.sl_b').textContent='Charged to: '+(al.length?al.map(x=>brandOf(x.a)+(al.length>1&&!isNaN(x.p)&&x.p!=null?' '+Math.round(x.p)+'%':'')).join(' · '):'By tasks');};
+  const wireRows=()=>{document.querySelectorAll('.slx').forEach(b=>b.onclick=()=>{if(document.querySelectorAll('.slrow').length>1)b.closest('.slrow').remove();preview();});document.querySelectorAll('.sl_a').forEach(a=>a.oninput=preview);preview();
+    document.querySelectorAll('.slrow').forEach(row=>{const box=row.querySelector('.sl_al');const sync=()=>{row.dataset.al=JSON.stringify(readAllocEditor(box));lbl(row);};
+      row.querySelector('.sl_b').onclick=()=>{if(box.hidden){box.innerHTML=allocEditorHtml(JSON.parse(row.dataset.al||'[]'),single);wireAllocEditor(box,single,sync);box.hidden=false;}else{sync();box.hidden=true;}};
+      // a new name picks up where that person was charged last time
+      row.querySelector('.sl_p').onchange=e=>{if(row.dataset.id||JSON.parse(row.dataset.al||'[]').length)return;const last=lastSalaryOf(e.target.value.trim());if(last){row.dataset.al=JSON.stringify(alFromRow(last));if(!row.querySelector('.sl_r').value)row.querySelector('.sl_r').value=last.role||'';lbl(row);}};});};
   wireRows();
   $('sl_addrow').onclick=()=>{$('sl_rows').insertAdjacentHTML('beforeend',salRowHtml());wireRows();};
   $('mkSave').onclick=async()=>{const date=$('sl_date').value||issueDayISO(24);const newSt=$('sl_status').value;const notes=$('sl_notes').value;
     const ml=monthLabel(date.slice(0,7));
     const rowsEl=Array.from(document.querySelectorAll('.slrow'));
-    const entries=rowsEl.map(r=>({id:r.dataset.id||'',status:r.dataset.status||'',person:r.querySelector('.sl_p').value.trim(),role:r.querySelector('.sl_r').value,amt:parseFloat(r.querySelector('.sl_a').value)})).filter(e=>e.person&&!isNaN(e.amt)&&e.amt>0);
+    rowsEl.forEach(r=>{const box=r.querySelector('.sl_al');if(!box.hidden)r.dataset.al=JSON.stringify(readAllocEditor(box));});
+    const entries=rowsEl.map(r=>({id:r.dataset.id||'',status:r.dataset.status||'',person:r.querySelector('.sl_p').value.trim(),role:r.querySelector('.sl_r').value,amt:parseFloat(r.querySelector('.sl_a').value),al:JSON.parse(r.dataset.al||'[]')})).filter(e=>e.person&&!isNaN(e.amt)&&e.amt>0);
     if(!entries.length){toast("Add at least one person with an amount");return;}
-    const mkRow=(e,id,st)=>({id,date,acct:"",eng:"",dir:"Salary",cat:(e.role==="Freelance"?"Freelancer":"Salary"),partner:e.person,role:e.role,desc:`${e.person} ${ml} salary`,amt:-Math.abs(e.amt),status:st,due:"",paid:(st==='Paid'?date:""),notes});
+    const mkRow=(e,id,st)=>({id,date,...allocSave(e.al||[]),eng:"",dir:"Salary",cat:(e.role==="Freelance"?"Freelancer":"Salary"),partner:e.person,role:e.role,desc:`${e.person} ${ml} salary`,amt:-Math.abs(e.amt),status:st,due:"",paid:(st==='Paid'?date:""),notes});
     if(edit){
       for(const e of entries.filter(x=>x.id)){const st=e.status||newSt;await write("money",e.id,mkRow(e,e.id,st));}
       const newOnes=entries.filter(e=>!e.id);
@@ -2078,7 +2116,7 @@ function openMoney(id){
     <div class="formgrid">
       ${fld("Type · fixed by the ID",`<select id="mm_dir" disabled title="The ID prefix depends on the type. To change it, delete and add again.">${opts(["Income","Expense","Salary","Payout"],m.dir||"Income")}</select>`)}
       ${m.dir==="Income"?(fld("Logged · service month",`<input type="date" id="mm_logged" value="${esc(m.logged||'')}" ${ro}>`)+fld("Issued",`<input type="date" id="mm_date" value="${esc(m.date||'')}" ${ro}>`)):fld("Date",`<input type="date" id="mm_date" value="${esc(m.date||'')}" ${ro}>`)}
-      ${m.dir==="Payout"?"":fld("Brand",`<select id="mm_acct" ${ro}>${brandOpts(m.acct)}</select>`)}
+      ${m.dir==="Payout"?"":(m.dir==="Salary"?fld("Charged to",`<div id="mm_al"></div>`):fld("Brand",`<select id="mm_acct" ${ro}>${brandOpts(m.acct)}</select>`))}
       ${m.dir==="Salary"?(fld("Person",`<input id="mm_partner" value="${esc(m.partner||'')}" ${ro}>`)+fld("Role",`<select id="mm_role" ${ro}><option value="">—</option>${opts(ROLES,m.role)}</select>`)):(m.dir==="Payout"?fld("Partner",`<input id="mm_partner" value="${esc(m.partner||'')}" ${ro}>`):fld("Category",`<input id="mm_cat" value="${esc(m.cat||'')}" ${ro}>`))}
       ${m.dir==="Income"?fld("Invoice type",`<select id="mm_income_type" ${ro}>${opts(INCOME_TYPES,m.income_type||"Project")}</select>`):""}
       ${fld("Amount (KD)",`<input type="number" step="0.001" id="mm_amt" value="${esc(Math.abs(+m.amt||0))}" ${ro}>`)}
@@ -2097,12 +2135,13 @@ function openMoney(id){
       ${canWrite?`<button class="btn" id="mkSave">Save</button>`:""}
     </div></div>`;
   $('modal').classList.add('show');
+  if($('mm_al')){const box=$('mm_al');box.innerHTML=allocEditorHtml(alFromRow(m),!HASALLOC());wireAllocEditor(box,!HASALLOC());}
   const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;
   $('modal').onclick=e=>{if(e.target===$('modal'))close();};
   if($('mkSave'))$('mkSave').onclick=async()=>{const g=f=>{const el=$('mm_'+f);return el?el.value:"";};
     const dir=m.dir;const amt=Math.abs(parseFloat(g('amt'))||0)*(dir==="Income"?1:-1);
-    const patch={date:g('date'),acct:g('acct'),amt,status:g('status'),due:g('due'),paid:g('paid'),desc:g('desc'),notes:g('notes')};
+    const patch={date:g('date'),...(dir==="Salary"?allocSave(readAllocEditor($('mm_al'))):{acct:g('acct')}),amt,status:g('status'),due:g('due'),paid:g('paid'),desc:g('desc'),notes:g('notes')};
     if(dir==="Salary"){patch.partner=($('mm_partner')?$('mm_partner').value:(m.partner||""));patch.role=($('mm_role')?$('mm_role').value:(m.role||""));}
     else if(dir==="Payout"){patch.partner=($('mm_partner')?$('mm_partner').value:(m.partner||""));}
     else{patch.cat=($('mm_cat')?$('mm_cat').value:(m.cat||""));if($('mm_income_type'))patch.income_type=$('mm_income_type').value;if($('mm_logged'))patch.logged=$('mm_logged').value;}
@@ -2303,6 +2342,11 @@ async function renderActivity(){
   const rows=items.slice(0,120).map(a=>`<div class="r"><span class="t"><b>${esc(a.who||'Someone')}</b> ${esc(a.act)} <span class="muted">${esc(a.coll)}/${esc(a.id)}</span>${a.label?` <span class="muted">· ${esc(a.label)}</span>`:''}</span><span class="muted" style="white-space:nowrap">${esc(a.t?(()=>{const d=new Date(a.t);return fmtD(localISO(d))+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');})():'')}</span></div>`).join("");
   $('view').innerHTML=`<div class="view"><div class="panel"><h2>Recent activity</h2><div class="attn actlist">${items.length?rows:'<div class="rowcount">No activity logged yet. New tasks, edits and deletions will appear here with who made them and when.</div>'}</div></div></div>`;
 }
+document.addEventListener('wheel',e=>{if(!document.body.classList.contains('tv')||e.ctrlKey)return;
+  if(e.target.closest('.tablewrap,.modal,.colmenu,.addmenu,.usermenu,.rowmenu,.rail,select,textarea'))return;
+  const w=document.querySelector('#view .tpanel .tablewrap');if(!w||w.scrollHeight<=w.clientHeight+1)return;
+  const v=document.querySelector('#view>.view');if(v&&v.scrollHeight>v.clientHeight+1&&e.target.closest('#view'))return; // short screens: the page itself scrolls
+  w.scrollTop+=e.deltaY;if(e.deltaX)w.scrollLeft+=e.deltaX;e.preventDefault();},{passive:false});
 document.addEventListener('click',e=>{const o=e.target.closest('[data-open]');if(o)openTask(o.dataset.open);});
 document.addEventListener('click',e=>{const o=e.target.closest('[data-mopen]');if(o)openMoney(o.dataset.mopen);});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('modal').classList.contains('show')){$('modal').classList.remove('show');$('modal').innerHTML='';}});

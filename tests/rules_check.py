@@ -17,6 +17,8 @@ Behaviour checks for data rules (v68).
          after it they go to Trash (restore works); Activity reads the database audit log with local times
   - v73: estimated salary allocation adds up; business health; payment details on the PDF; reminder; account
          program and next step only once migration 19 columns exist; Home My work and Leads panels
+  - v74: table pages fit the window (no page scroll, nothing cut off) and the wheel scrolls the table from anywhere;
+         salaries are charged to their brand or split (migration 20), partners on the internal account by tasks
 
 Usage: python tests/rules_check.py /path/to/pivot-backup.json   (client data is never committed)
 """
@@ -233,6 +235,46 @@ def main(seed_path):
             pg.fill("#ae_next_step","Send proposal"); pg.evaluate("window.__writes.length=0"); pg.click("#mkSave"); pg.wait_for_timeout(250)
             w = pg.evaluate("window.__writes.filter(x=>x.table==='accounts').slice(-1)[0]")
             if not w or w["row"].get("next_step") != "Send proposal": fails.append(f"next step not saved ({w})")
+        # v74: table pages fit the window
+        pf = b.new_page(viewport={"width": 1280, "height": 800})
+        pf.add_init_script("window.__SEED=" + json.dumps(seed) + ";")
+        pf.route("**/supabase.min.js", lambda r: r.fulfill(body=smoke.MOCK, content_type="application/javascript"))
+        pf.route("https://fonts.googleapis.com/**", lambda r: r.fulfill(body="", content_type="text/css"))
+        pf.goto(url); pf.wait_for_function("booted && ready()")
+        for v in ("tasks", "invoices", "expenses", "accounts"):
+            pf.evaluate(f"state.view='{v}';F.quick='';render()"); pf.wait_for_timeout(300)
+            r = pf.evaluate("""(()=>{const w=document.querySelector('#view .tpanel .tablewrap');const rc=document.querySelector('#view .tpanel .rowcount');
+              return {tv:document.body.classList.contains('tv'),page:document.scrollingElement.scrollHeight-innerHeight,
+                      bottom:Math.round(w.getBoundingClientRect().bottom),rc:rc?Math.round(rc.getBoundingClientRect().bottom):0,inner:innerHeight,scrolls:w.scrollHeight>w.clientHeight}})()""")
+            if not r["tv"]: fails.append(f"{v}: not in fixed table layout")
+            if r["page"] > 1: fails.append(f"{v}: the page itself scrolls by {r['page']}px")
+            if r["bottom"] > r["inner"] or r["rc"] > r["inner"]: fails.append(f"{v}: table or row count cut off at the bottom {r}")
+            if r["scrolls"]:
+                pf.mouse.move(640, 110); pf.mouse.wheel(0, 400); pf.wait_for_timeout(200)
+                if pf.evaluate("(()=>{const w=document.querySelector('#view .tpanel .tablewrap');return w.scrollTop>=Math.min(100,w.scrollHeight-w.clientHeight)-1})()") is False: fails.append(f"{v}: wheel outside the table does not scroll it")
+                pf.evaluate("document.querySelector('#view .tpanel .tablewrap').scrollTop=0")
+        pf.evaluate("state.view='moneydash';render()"); pf.wait_for_timeout(200)
+        if pf.evaluate("document.body.classList.contains('tv')"): fails.append("dashboard locked in table layout")
+        pf.close()
+        # v74: salary charging
+        ch = pg.evaluate("""(()=>{const fake=(o)=>Object.assign({dir:'Salary',status:'Paid',date:'2026-10-24',amt:-100,alloc:null},o);
+          const mbs=store.accounts.find(a=>a.brand==='Moda Body Shop').id, miz=store.accounts.find(a=>a.brand==='Mizyana').id, piv=store.accounts.find(a=>a.lifecycle==='Internal').id;
+          return {direct:allocOf(fake({acct:mbs})), split:allocOf(fake({acct:mbs,alloc:miz+':60|'+mbs+':40'})), internal:allocOf(fake({acct:piv})), none:allocOf(fake({acct:null})), equal:allocOf(fake({alloc:miz+'|'+mbs})), mbs, miz}})()""")
+        if not (len(ch["direct"])==1 and ch["direct"][0]["a"]==ch["mbs"] and ch["direct"][0]["w"]==1): fails.append(f"single-brand salary not charged directly {ch['direct']}")
+        if not (len(ch["split"])==2 and abs(ch["split"][0]["w"]-0.6)<1e-9): fails.append(f"split salary wrong {ch['split']}")
+        if ch["internal"] or ch["none"]: fails.append("internal or unbranded salary should fall back to tasks")
+        if not (len(ch["equal"])==2 and abs(ch["equal"][0]["w"]-0.5)<1e-9): fails.append(f"blank percent should split equally {ch['equal']}")
+        tot = pg.evaluate("(()=>{_est=null;const e=estAlloc();let a=0;Object.values(e.alloc).forEach(o=>Object.values(o).forEach(v=>a+=v));const u=Object.values(e.unal).reduce((x,y)=>x+y,0);const sal=store.money.filter(m=>m.dir==='Salary'&&!voided(m)).reduce((x,m)=>x+Math.abs(+m.amt||0),0);return [a+u,sal]})()")
+        if abs(tot[0]-tot[1]) > 0.001: fails.append(f"salary allocation does not add up after v74 {tot}")
+        # month editor keeps and saves the brand (before migration 20: single brand into acct)
+        amr = pg.evaluate("store.money.find(m=>m.dir==='Salary'&&m.partner==='Amr'&&m.date.startsWith('2026-10')).id")
+        pg.evaluate(f"store.money.find(m=>m.id==='{amr}').acct=store.accounts.find(a=>a.brand==='Moda Body Shop').id")
+        pg.evaluate("(()=>{const ym='2026-10';const rows=store.money.filter(m=>m.dir==='Salary'&&!voided(m)&&m.date.startsWith(ym));openSalaryNew({ym,rows});})()"); pg.wait_for_timeout(200)
+        lab = pg.evaluate(f"[...document.querySelectorAll('.slrow')].find(r=>r.dataset.id==='{amr}').querySelector('.sl_b').textContent")
+        if "Moda Body Shop" not in lab: fails.append(f"month editor does not show Amr's brand ({lab})")
+        pg.evaluate("window.__writes.length=0"); pg.click("#mkSave"); pg.wait_for_timeout(400)
+        w = pg.evaluate(f"window.__writes.filter(x=>x.table==='money'&&x.row&&x.row.partner==='Amr').slice(-1)[0]")
+        if not w or w["row"].get("acct") != pg.evaluate("store.accounts.find(a=>a.brand==='Moda Body Shop').id"): fails.append(f"editing the month dropped Amr's brand ({w})")
         # v69: local date at 00:30 Kuwait (21:30 UTC the day before)
         pk = b.new_context(timezone_id="Asia/Kuwait").new_page()
         pk.clock.set_fixed_time("2026-10-27T21:30:00Z")
@@ -244,7 +286,7 @@ def main(seed_path):
         b.close()
     srv.shutdown()
     if fails: print("FAIL\n" + "\n".join(fails)); sys.exit(1)
-    print("PASS: ID descending; due = done rule; local date at 00:30 Kuwait; failed save reverts; retainer badge; MTD comparison; My Tasks default; Accounts default filter; paid date on Paid; duplicate-ID retry; CSV guard; no % above 100; sticky headers; task paging; read-only money tables; phone cards; Cancelled closed; Paid undeletable; hard delete before m18, Trash after; audit log; estimated cost adds up; business health; payment details; reminder; m19 fields; Home panels")
+    print("PASS: ID descending; due = done rule; local date at 00:30 Kuwait; failed save reverts; retainer badge; MTD comparison; My Tasks default; Accounts default filter; paid date on Paid; duplicate-ID retry; CSV guard; no % above 100; sticky headers; task paging; read-only money tables; phone cards; Cancelled closed; Paid undeletable; hard delete before m18, Trash after; audit log; estimated cost adds up; business health; payment details; reminder; m19 fields; Home panels; fixed table layout and wheel; salary charging and month editor")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2: print(__doc__); sys.exit(2)

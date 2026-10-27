@@ -569,8 +569,18 @@ th.thsort:hover{color:var(--accent)}
 
 /* ===== v71 ===== */
 /* sticky table headers: on desktop and tablet each table scrolls inside its card, so the header row stays in view */
-@media (min-width:721px){
-  .tablewrap{max-height:calc(100dvh - 120px);overflow:auto;overscroll-behavior:contain}
+/* v74: table pages (All Tasks, Invoices, Expenses, Accounts) fit the window: everything above the table stays put,
+   only the table body scrolls, the wheel scrolls the table wherever the mouse is, and nothing is cut off at the bottom */
+@media (min-width:721px) and (min-height:560px){
+  body.tv .app{height:100dvh;min-height:0}
+  body.tv .work{height:100dvh;min-height:0;overflow:hidden}
+  body.tv .main{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;padding-bottom:16px}
+  body.tv #view{flex:1;min-height:0;display:flex;flex-direction:column}
+  body.tv #view>.view{flex:1;min-height:0;overflow:auto}
+  body.tv #view>.view>*{flex:none}
+  body.tv #view>.view>.tpanel{flex:1 1 auto;min-height:220px;display:flex;flex-direction:column}
+  body.tv .tpanel>*{flex:none}
+  body.tv .tpanel>.tablewrap{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain}
   .tablewrap thead th{position:sticky;top:0;z-index:3;box-shadow:inset 0 -1px 0 var(--line)}
 }
 .nowrap{white-space:nowrap}
@@ -591,3 +601,13 @@ th.thsort:hover{color:var(--accent)}
   .tablewrap td .tagrow{grid-column:2}
   .tablewrap tr:hover td{background:transparent}
 }
+
+/* v74: "Charged to" brand split on salaries */
+.slrow .sl_b{grid-column:1/-1;justify-self:start;font-size:12px;padding:4px 10px;height:auto}
+.slrow .sl_al{grid-column:1/-1}
+.alloced{display:flex;flex-direction:column;gap:6px}
+.alrow{display:grid;grid-template-columns:minmax(0,1fr) 80px 32px;gap:8px}
+.alrow:not(:has(.al_p)){grid-template-columns:minmax(0,1fr) 32px}
+.alrow select,.alrow input{font-family:var(--font);font-size:13px;padding:7px 9px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface-2);color:var(--ink);min-width:0}
+.alfoot{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.alfoot .ghost{font-size:12px;padding:4px 10px;height:auto}
