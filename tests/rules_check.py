@@ -13,6 +13,8 @@ Behaviour checks for data rules (v68).
          CSV cells that look like formulas are neutralized while numbers stay numbers; no "247% collected"
   - v71: sticky table headers; tasks open by default and paged at 100; money tables read-only except status;
          phone rows render as labelled cards; dates read "28 Oct 2026"
+  - v72: Cancelled tasks are closed; Paid money cannot be deleted; before migration 18 deletes are hard deletes,
+         after it they go to Trash (restore works); Activity reads the database audit log with local times
 
 Usage: python tests/rules_check.py /path/to/pivot-backup.json   (client data is never committed)
 """
@@ -147,7 +149,52 @@ def main(seed_path):
             if not r[0]: fails.append(f"phone {v}: table wider than the screen")
             if r[1]: fails.append(f"phone {v}: {r[1]} cells without a label")
         pp.close()
+        # v72: Cancelled is closed work
+        pg.evaluate("state.view='tasks';F.quick='open';render()"); pg.wait_for_timeout(150)
+        n_open = pg.evaluate("store.tasks.filter(isOpenT).length")
+        tc = pg.evaluate("store.tasks.find(isOpenT).id")
+        pg.evaluate(f"store.tasks.find(t=>t.id==='{tc}').status='Cancelled'")
+        if pg.evaluate("store.tasks.filter(isOpenT).length") != n_open - 1: fails.append("Cancelled task still counted as open")
+        # v72: Paid money cannot be deleted (before or after migration)
+        paid = pg.evaluate("store.money.find(m=>m.status==='Paid').id")
+        pg.evaluate("window.__writes.length=0")
+        pg.evaluate(f"remove('money','{paid}')"); pg.wait_for_timeout(200)
+        if pg.evaluate("window.__writes.length"): fails.append("Paid money row was deleted")
+        # v72: before migration 18 (no deleted_at column) delete is a hard delete
+        un = pg.evaluate("store.money.find(m=>m.status!=='Paid').id")
+        pg.evaluate(f"remove('money','{un}')"); pg.wait_for_timeout(200)
+        w = pg.evaluate("window.__writes.filter(x=>x.table==='money').slice(-1)[0]")
+        if not w or w["op"] != "delete": fails.append(f"pre-migration delete should be a hard delete ({w})")
         if errs: fails.append("page errors: " + " | ".join(errs[:3]))
+        # v72: after migration 18: Trash, restore, audit log
+        seed2 = json.loads(json.dumps(seed))
+        for t in ("tasks","money","accounts","services","templates"):
+            for r in seed2.get(t, []): r["deleted_at"] = None; r["deleted_by"] = None
+        tr = seed2["tasks"][0]; tr["deleted_at"] = "2026-10-26T21:30:00Z"; tr["deleted_by"] = "Daoud"
+        seed2["audit_log"] = [{"id":1,"at":"2026-10-26T21:30:00Z","actor":"daoud@thepivotstrategy.com","op":"edited","tbl":"tasks","row_id":"TSK-0907","label":"Payment Methods","changes":{"status":["To Do","Done"]}}]
+        p2 = b.new_page(viewport={"width": 1280, "height": 900})
+        e2 = []; p2.on("pageerror", lambda e: e2.append(str(e)))
+        p2.add_init_script("window.__SEED=" + json.dumps(seed2) + ";")
+        p2.route("**/supabase.min.js", lambda r: r.fulfill(body=smoke.MOCK, content_type="application/javascript"))
+        p2.route("https://fonts.googleapis.com/**", lambda r: r.fulfill(body="", content_type="text/css"))
+        p2.goto(url); p2.wait_for_function("booted && ready()"); p2.wait_for_timeout(300)
+        if p2.evaluate(f"store.tasks.some(t=>t.id==='{tr['id']}')"): fails.append("trashed task still shown")
+        live = p2.evaluate("store.tasks.find(isOpenT).id")
+        p2.evaluate("window.__writes.length=0")
+        p2.evaluate(f"remove('tasks','{live}')"); p2.wait_for_timeout(300)
+        w = p2.evaluate("window.__writes.filter(x=>x.table==='tasks').slice(-1)[0]")
+        if not w or w["op"] != "update" or not w["row"].get("deleted_at"): fails.append(f"post-migration delete should move to Trash ({w})")
+        p2.evaluate("state.view='setup';render()"); p2.wait_for_timeout(300)
+        if tr["id"] not in p2.inner_text("#view"): fails.append("Trash panel does not list the trashed task")
+        p2.click(f"[data-trestore='{tr['id']}']"); p2.wait_for_timeout(300)
+        w = p2.evaluate("window.__writes.filter(x=>x.table==='tasks').slice(-1)[0]")
+        if not w or w["row"].get("deleted_at", "x") is not None: fails.append(f"Restore did not clear deleted_at ({w})")
+        p2.evaluate("state.view='activity';render()"); p2.wait_for_timeout(500)
+        at = p2.inner_text("#view")
+        if "edited status on" not in at: fails.append(f"Activity does not read the audit log ({at[:120]!r})")
+        if p2.evaluate("logAct.toString().includes('if(AUDIT)return')") and not p2.evaluate("AUDIT"): fails.append("AUDIT flag not set when audit_log exists")
+        if e2: fails.append("page errors after migration: " + " | ".join(e2[:3]))
+        p2.close()
         # v69: local date at 00:30 Kuwait (21:30 UTC the day before)
         pk = b.new_context(timezone_id="Asia/Kuwait").new_page()
         pk.clock.set_fixed_time("2026-10-27T21:30:00Z")
@@ -159,7 +206,7 @@ def main(seed_path):
         b.close()
     srv.shutdown()
     if fails: print("FAIL\n" + "\n".join(fails)); sys.exit(1)
-    print("PASS: ID descending; due = done rule; local date at 00:30 Kuwait; failed save reverts; retainer badge; MTD comparison; My Tasks default; Accounts default filter; paid date on Paid; duplicate-ID retry; CSV guard; no % above 100; sticky headers; task paging; read-only money tables; phone cards")
+    print("PASS: ID descending; due = done rule; local date at 00:30 Kuwait; failed save reverts; retainer badge; MTD comparison; My Tasks default; Accounts default filter; paid date on Paid; duplicate-ID retry; CSV guard; no % above 100; sticky headers; task paging; read-only money tables; phone cards; Cancelled closed; Paid undeletable; hard delete before m18, Trash after; audit log")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2: print(__doc__); sys.exit(2)

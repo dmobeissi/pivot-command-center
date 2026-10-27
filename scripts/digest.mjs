@@ -16,10 +16,10 @@ async function all(table) {
     if (!res.ok) throw new Error(`${table}: ${res.status} ${await res.text()}`);
     const b = await res.json(); rows.push(...b); if (b.length < step) break;
   }
-  return rows;
+  return rows.filter((r) => !r.deleted_at); // rows in Trash (migration 18) are not live data
 }
 
-const today = new Date().toISOString().slice(0, 10);
+const today = new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 10); // Kuwait date (UTC+3, no DST)
 const [accounts, money, templates] = await Promise.all([all("accounts"), all("money"), all("templates")]);
 const brand = (id) => (accounts.find((a) => a.id === id) || {}).brand || id || "—";
 const abs = (n) => Math.abs(+n || 0);

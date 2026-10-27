@@ -1,5 +1,7 @@
 
-const STATUSES=["To Do","In Progress","Review","Done","On Hold"];
+const STATUSES=["To Do","In Progress","Review","Done","On Hold","Cancelled"];
+// open work = anything not Done or Cancelled
+const isOpenT=t=>t.status!=="Done"&&t.status!=="Cancelled";
 const PRIOS=["High","Medium","Low"];
 const LIFE=["Lead","Active","Paused","Churned","Lost","Internal"];
 const STAGES=["Lead","Proposal","Won","Lost"];
@@ -51,7 +53,7 @@ const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t.onclick=null;t.style.pointerEvents='';
   if(ms===-1){t.style.pointerEvents='auto';t.style.cursor='pointer';t.onclick=()=>{t.classList.remove('show');t.style.pointerEvents='';t.style.cursor='';};return;} // sticky until clicked
   const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v71 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v72 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -62,6 +64,7 @@ function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;
   if(!session){ showLogin(); return; }
   startApp();
 })();
+function PEOPLE_BY_EMAIL(e){if(!e)return '';const p=(store.people||[]).find(x=>x.email&&String(x.email).toLowerCase()===String(e).toLowerCase());return p?p.name:'';}
 function nameFromEmail(e){ if(!e)return "Someone"; const p=e.split("@")[0].replace(/[._-]/g," ").trim(); return p.charAt(0).toUpperCase()+p.slice(1); }
 // a little personality, internal only
 const QUIPS=["Grabbing coffee, one sec…","Catching butterflies…","Warming up the numbers…","Counting the dinars…","Herding the invoices…","Shuffling the deck…","Chasing decimals…","Polishing the pixels…","Summoning the data…","Doing the math, carrying the one…","Untangling the spreadsheets…","Feeding the hamsters…"];
@@ -165,7 +168,8 @@ function toDB(coll,obj){ const o=Object.assign({},obj);
 async function fetchColl(coll){
   const {data,error}=await sb.from(coll).select('*');
   if(error){ if(SOFT.has(coll)){store[coll]=[];loaded[coll]=true;return;} toast("Load error: "+coll); console.error(coll,error); return; }
-  store[coll]=data.map(r=>fromDB(coll,r));
+  const all=data.map(r=>fromDB(coll,r));
+  if(SOFTDEL.has(coll)){HASDEL[coll]=all.length?('deleted_at' in all[0]):HASDEL[coll];trash[coll]=all.filter(r=>r.deleted_at);store[coll]=all.filter(r=>!r.deleted_at);}else store[coll]=all;
   if(coll==='accounts'){ AMAP={}; store.accounts.forEach(a=>AMAP[a.id]=a); rebuildBrandFilter(); }
   if(coll==='tasks'){ const s=new Set(store.tasks.map(x=>x.owner).filter(Boolean)); if(s.size){TEAM=[...new Set([...TEAM,...s])];rebuildTeamFilter();} }
   loaded[coll]=true;
@@ -178,6 +182,7 @@ function _busyEditing(){ try{ if(document.querySelector('.modal.show'))return tr
 async function refreshAll(){ if(_refreshing||!booted||_busyEditing())return; _refreshing=true; try{ await Promise.all(ALLCOLLS.map(fetchColl)); render(); }catch(e){ console.error(e); } _refreshing=false; }
 async function loadAll(){
   try{ await Promise.all(ALLCOLLS.map(fetchColl)); }catch(e){ console.error(e); }
+  try{ const {error}=await sb.from('audit_log').select('id').limit(1); AUDIT=!error; }catch(e){ AUDIT=false; }
   render();
   ALLCOLLS.forEach(subscribe);
   // keep the shared workspace fresh even without Supabase Realtime:
@@ -211,16 +216,31 @@ async function write(coll,id,patch){
 async function create(coll,id,data){ if(!canWrite){toast("Read-only access");return;} if(coll==='tasks')taskDueRule(null,data); if(coll==='money')moneyRule(null,data); let row=Object.assign({id},toDB(coll,data)); let {error}=await sb.from(coll).insert(row);
   if(isDup(error)){ await fetchColl(coll); const r=renumber(coll,[Object.assign({id},data)])[0]; id=r.id; data=r; row=Object.assign({id},toDB(coll,Object.assign({},r))); ({error}=await sb.from(coll).insert(row)); if(!error)toast("Someone added at the same time. Saved as "+id,5000); }
   if(error){ toast("Add failed"+errMsg(error)); console.error(error);} else { toast("Added"); logAct("added",coll,id,data.name||data.desc||""); await fetchColl(coll); render(); } }
-async function remove(coll,id){ if(!canWrite){toast("Read-only access");return;} const row=(store[coll]||[]).find(r=>r.id===id); const {error}=await sb.from(coll).delete().eq("id",id); if(error){ toast("Delete failed"+errMsg(error)); console.error(error);} else { logAct("deleted",coll,id,""); await fetchColl(coll); render(); if(row)undoToast("Deleted",coll,[row]); else toast("Deleted"); } }
+// soft delete: once migration 18 has added deleted_at, rows go to Settings > Trash instead of being erased
+const SOFTDEL=new Set(['tasks','money','accounts','services','templates']);
+const trash={};
+const canSoft=coll=>SOFTDEL.has(coll)&&HASDEL[coll]===true;
+const HASDEL={};
+function paidBlock(coll,rows){if(coll==='money'&&rows.some(r=>r&&r.status==='Paid')){toast("Paid records can't be deleted. Set the status to Cancelled instead, so the bank balance stays explainable",-1);return true;}return false;}
+async function softDel(coll,ids,rows){const {error}=await sb.from(coll).update({deleted_at:new Date().toISOString(),deleted_by:myName}).in('id',ids);
+  if(error){toast("Delete failed"+errMsg(error),-1);console.error(error);return;}
+  await fetchColl(coll);render();
+  const t=$('toast');if(!t)return;const hide=()=>{t.classList.remove('show');t.style.pointerEvents='';t.innerHTML='';};
+  t.innerHTML=`<span>${esc(ids.length>1?'Moved '+ids.length+' to Trash':'Moved to Trash')}</span><button id="undoBtn" class="undobtn">Undo</button>`;t.classList.add('show');t.style.pointerEvents='auto';clearTimeout(t._t);t._t=setTimeout(hide,7000);
+  const b=$('undoBtn');if(b)b.onclick=async()=>{clearTimeout(t._t);hide();await restoreTrash(coll,ids);};}
+async function restoreTrash(coll,ids){const {error}=await sb.from(coll).update({deleted_at:null,deleted_by:null}).in('id',ids);if(error){toast("Restore failed"+errMsg(error),-1);return;}await fetchColl(coll);render();toast(ids.length>1?"Restored "+ids.length:"Restored");}
+async function purge(coll,id){const r=(trash[coll]||[]).find(x=>x.id===id);if(paidBlock(coll,[r]))return;const {error}=await sb.from(coll).delete().eq('id',id);if(error){toast("Delete failed"+errMsg(error),-1);return;}await fetchColl(coll);render();toast("Deleted for good");}
+async function remove(coll,id){ if(!canWrite){toast("Read-only access");return;} const row=(store[coll]||[]).find(r=>r.id===id); if(paidBlock(coll,[row]))return; if(canSoft(coll))return softDel(coll,[id],[row]); const {error}=await sb.from(coll).delete().eq("id",id); if(error){ toast("Delete failed"+errMsg(error)); console.error(error);} else { logAct("deleted",coll,id,""); await fetchColl(coll); render(); if(row)undoToast("Deleted",coll,[row]); else toast("Deleted"); } }
 async function restoreRows(coll,rows){ if(!canWrite||!rows||!rows.length)return; const payload=rows.map(r=>toDB(coll,Object.assign({},r))); const {error}=await sb.from(coll).insert(payload); if(error){ toast("Undo failed"); console.error(error); return; } rows.forEach(r=>logAct("restored",coll,r.id,r.desc||r.name||"")); await fetchColl(coll); render(); toast(rows.length>1?("Restored "+rows.length):"Restored"); }
 function undoToast(msg,coll,rows){ const t=$('toast'); if(!t)return; const hide=()=>{t.classList.remove('show');t.style.pointerEvents='';t.innerHTML='';}; t.innerHTML=`<span>${esc(msg)}</span><button id="undoBtn" class="undobtn">Undo</button>`; t.classList.add('show'); t.style.pointerEvents='auto'; clearTimeout(t._t); t._t=setTimeout(hide,7000); const b=$('undoBtn'); if(b)b.onclick=()=>{clearTimeout(t._t);hide();restoreRows(coll,rows);}; }
 async function createMany(coll,rows){ if(!canWrite){toast("Read-only access");return;} if(!rows.length)return; if(coll==='tasks')rows.forEach(r=>taskDueRule(null,r)); if(coll==='money')rows.forEach(r=>moneyRule(null,r)); let payload=rows.map(r=>toDB(coll,r)); let {error}=await sb.from(coll).insert(payload);
   if(isDup(error)){ await fetchColl(coll); renumber(coll,rows); payload=rows.map(r=>toDB(coll,r)); ({error}=await sb.from(coll).insert(payload)); if(!error)toast("Someone added at the same time. Renumbered to "+rows[0].id+(rows.length>1?" onward":""),5000); }
   if(error){ toast("Add failed"+errMsg(error)); console.error(error);} else { toast("Added "+rows.length); rows.forEach(r=>logAct("added",coll,r.id,r.desc||"")); await fetchColl(coll); render(); } }
-async function removeMany(coll,ids){ if(!canWrite){toast("Read-only access");return;} if(!ids.length)return; const rows=(store[coll]||[]).filter(r=>ids.includes(r.id)); const {error}=await sb.from(coll).delete().in("id",ids); if(error){ toast("Delete failed"+errMsg(error)); console.error(error);} else { ids.forEach(id=>logAct("deleted",coll,id,"")); await fetchColl(coll); render(); undoToast("Deleted "+ids.length,coll,rows); } }
+async function removeMany(coll,ids){ if(!canWrite){toast("Read-only access");return;} if(!ids.length)return; const rows=(store[coll]||[]).filter(r=>ids.includes(r.id)); if(paidBlock(coll,rows))return; if(canSoft(coll))return softDel(coll,ids,rows); const {error}=await sb.from(coll).delete().in("id",ids); if(error){ toast("Delete failed"+errMsg(error)); console.error(error);} else { ids.forEach(id=>logAct("deleted",coll,id,"")); await fetchColl(coll); render(); undoToast("Deleted "+ids.length,coll,rows); } }
 async function updateMany(coll,ids,patch){ if(!canWrite){toast("Read-only access");return;} if(!ids.length)return; const o=toDB(coll,patch); delete o.id; const {error}=await sb.from(coll).update(o).in("id",ids); if(error){ toast("Save failed"+errMsg(error)); console.error(error);} else { toast("Saved"); await fetchColl(coll); render(); } }
 function nextId(coll,prefix,pad){let mx=0;store[coll].forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});return prefix+String(mx+1).padStart(pad,"0");}
-async function logAct(act,coll,id,label){ try{ await sb.from("activity").insert({who:myName,action:act,coll,doc_id:id,label:label||""}); }catch(e){} }
+let AUDIT=false;
+async function logAct(act,coll,id,label){ if(AUDIT)return; try{ await sb.from("activity").insert({who:myName,action:act,coll,doc_id:id,label:label||""}); }catch(e){} }
 function dl(name,text){const blob=new Blob(["﻿"+text],{type:'text/csv;charset=utf-8'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},120);}
 function csvCell(v){v=v==null?"":String(v);if(/^[=+\-@\t\r]/.test(v)&&!/^-?\d+(\.\d+)?$/.test(v))v="'"+v;return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
 function exportTasksCSV(rows,fname){
@@ -318,19 +338,19 @@ function tasksF(){return store.tasks.filter(t=>{
   if(F.q){const s=(t.id+" "+(t.name||"")+" "+brandOf(t.acct)+" "+(t.owner||"")+" "+(t.tags||"")).toLowerCase();if(!s.includes(F.q))return false;}
   return true;});}
 function applyQuick(arr){if(!F.quick)return arr;return arr.filter(t=>{
-  if(F.quick==='open')return t.status!=='Done';
-  if(F.quick==='nodue')return t.status!=='Done'&&!t.due;
+  if(F.quick==='open')return isOpenT(t);
+  if(F.quick==='nodue')return isOpenT(t)&&!t.due;
   if(F.quick==='done')return t.status==='Done';
-  if(F.quick==='overdue')return t.status!=='Done'&&t.due&&t.due<todayISO;
-  if(F.quick==='week')return t.status!=='Done'&&t.due&&t.due>=todayISO&&(new Date(t.due)-new Date(todayISO))<=7*864e5;
+  if(F.quick==='overdue')return isOpenT(t)&&t.due&&t.due<todayISO;
+  if(F.quick==='week')return isOpenT(t)&&t.due&&t.due>=todayISO&&(new Date(t.due)-new Date(todayISO))<=7*864e5;
   if(F.quick==='unassigned')return !t.owner;
-  if(F.quick==='high')return t.status!=='Done'&&t.priority==='High';
+  if(F.quick==='high')return isOpenT(t)&&t.priority==='High';
   return true;});}
 function moneyF(){return store.money.filter(m=>{
   if(F.brand&&brandOf(m.acct)!==F.brand)return false;
   if(F.q){const s=((m.id||"")+" "+(m.desc||"")+" "+brandOf(m.acct)+" "+(m.cat||"")).toLowerCase();if(!s.includes(F.q))return false;}
   return true;});}
-const flag=t=>{if(t.status==="Done")return["Done","flag-ok"];if(!t.due)return["—","flag-ok"];
+const flag=t=>{if(t.status==="Done")return["Done","flag-ok"];if(t.status==="Cancelled")return["Cancelled","flag-ok"];if(!t.due)return["—","flag-ok"];
   if(t.due<todayISO)return["Overdue","flag-over"];if((new Date(t.due)-new Date(todayISO))<=7*864e5)return["Due soon","flag-soon"];return["On track","flag-ok"];};
 const owed=m=>m.dir==="Income"&&m.status!=="Paid"&&m.status!=="Voided"&&m.status!=="Cancelled";
 const voided=m=>m.status==="Voided"||m.status==="Cancelled";
@@ -340,7 +360,7 @@ const brandOpts=sel=>`<option value="">—</option>`+store.accounts.filter(a=>a.
 function teamActive(){const p=(store.people||[]).filter(x=>x.active!=="No"&&x.active!==false);return p.length?p.map(x=>x.name):[...TEAM_ACTIVE];}
 function activeOwners(cur){const a=[...teamActive()];if(cur&&!a.includes(cur))a.push(cur);return a;}
 function accountOpts(sel,excludeId){return `<option value="">— none —</option>`+[...store.accounts].filter(a=>a.id!==excludeId).sort((x,y)=>(x.brand||'').localeCompare(y.brand||'')).map(a=>`<option value="${esc(a.id)}"${a.id===sel?" selected":""}>${esc(a.brand)}</option>`).join("");}
-const CMAP={status:{"To Do":["var(--hold-soft)","var(--hold)"],"In Progress":["var(--warn-soft)","var(--warn)"],"Review":["var(--accent-soft)","var(--accent)"],"Done":["var(--good-soft)","var(--good)"],"On Hold":["var(--hold-soft)","var(--hold)"]},
+const CMAP={status:{"To Do":["var(--hold-soft)","var(--hold)"],"In Progress":["var(--warn-soft)","var(--warn)"],"Review":["var(--accent-soft)","var(--accent)"],"Done":["var(--good-soft)","var(--good)"],"On Hold":["var(--hold-soft)","var(--hold)"],"Cancelled":["var(--hold-soft)","var(--muted)"]},
   priority:{High:["var(--bad-soft)","var(--bad)"],Medium:["var(--warn-soft)","var(--warn)"],Low:["var(--good-soft)","var(--good)"]},
   pay:{Paid:["var(--good-soft)","var(--good)"],Partial:["var(--warn-soft)","var(--warn)"],Unpaid:["var(--bad-soft)","var(--bad)"],Voided:["var(--hold-soft)","var(--hold)"],Cancelled:["var(--hold-soft)","var(--hold)"]},
   payout:{Pending:["var(--warn-soft)","var(--warn)"],Paid:["var(--good-soft)","var(--good)"]},
@@ -434,15 +454,15 @@ function moneySeries(from,to){
 
 function renderTasksDash(){
   const T=tasksF();
-  const open=T.filter(t=>t.status!=="Done").length,done=T.filter(t=>t.status==="Done").length;
-  const overdue=T.filter(t=>t.status!=="Done"&&t.due&&t.due<todayISO).length;
-  const high=T.filter(t=>t.status!=="Done"&&t.priority==="High").length;
+  const open=T.filter(t=>isOpenT(t)).length,done=T.filter(t=>t.status==="Done").length;
+  const overdue=T.filter(t=>isOpenT(t)&&t.due&&t.due<todayISO).length;
+  const high=T.filter(t=>isOpenT(t)&&t.priority==="High").length;
   const scol={"To Do":"#9aa0aa","In Progress":"var(--warn)","Review":"#4b5563","Done":"var(--good)","On Hold":"#c2c6cc"};
   const sParts=STATUSES.map(s=>({name:s,v:T.filter(t=>t.status===s).length,c:scol[s]}));
-  const ownerItems=TEAM.map(tm=>({l:tm,v:T.filter(t=>t.status!=="Done"&&t.owner===tm).length})).filter(i=>i.v).sort((a,b)=>b.v-a.v);
-  const byBrand={};T.forEach(t=>{if(t.status!=="Done"){const b=brandOf(t.acct);byBrand[b]=(byBrand[b]||0)+1;}});
+  const ownerItems=TEAM.map(tm=>({l:tm,v:T.filter(t=>isOpenT(t)&&t.owner===tm).length})).filter(i=>i.v).sort((a,b)=>b.v-a.v);
+  const byBrand={};T.forEach(t=>{if(isOpenT(t)){const b=brandOf(t.acct);byBrand[b]=(byBrand[b]||0)+1;}});
   const topBrand=Object.entries(byBrand).map(([l,v])=>({l,v})).sort((a,b)=>b.v-a.v).slice(0,7);
-  const attn=T.filter(t=>t.status!=="Done"&&t.due).sort((a,b)=>(a.due||"").localeCompare(b.due||"")).slice(0,8);
+  const attn=T.filter(t=>isOpenT(t)&&t.due).sort((a,b)=>(a.due||"").localeCompare(b.due||"")).slice(0,8);
   const R=activeRange(),C=cmpRange(R.from,R.to);
   const inR=(v,from,to)=>v&&v>=from&&v<=to;
   const tagg=(from,to)=>({created:T.filter(t=>inR(t.logged,from,to)).length,completed:T.filter(t=>inR(t.done,from,to)).length});
@@ -765,7 +785,7 @@ function renderTasks(){
   let T=arrange(_base,'tasks');
   const sig=JSON.stringify([F,state.colF.tasks||{},state.colText.tasks||{},state.colRange.tasks||{}]);if(state.tSig!==sig){state.tSig=sig;state.tShow=100;}
   const cap=Math.min(T.length,state.tShow||100);
-  const openAll=tasksF().filter(t=>t.status!=="Done");
+  const openAll=tasksF().filter(t=>isOpenT(t));
   const chips=[["open","Open"],["overdue","Overdue"],["nodue","No due date"],["week","Due this week"],["unassigned","Unassigned"],["high","High priority"],["done","Done"],["","All"]];
   const head=[["id","ID"],["brand","Brand"],["name","Task"],["owner","Owner"],["priority","Priority"],["due","Due"],["status","Status"],["done","Done"],["flag","Flag"],["",""]];
   $('view').innerHTML=`<div class="view">
@@ -803,7 +823,7 @@ function renderTasks(){
 function renderMyTasks(){
   const me=state.me||(TEAM_ACTIVE.includes(myName)?myName:"");
   const mine=me?store.tasks.filter(t=>t.owner===me&&(!F.brand||brandOf(t.acct)===F.brand)&&(!F.q||((t.id+" "+(t.name||"")+" "+brandOf(t.acct)+" "+(t.tags||"")).toLowerCase().includes(F.q)))):[];
-  const open=mine.filter(t=>t.status!=="Done");
+  const open=mine.filter(t=>isOpenT(t));
   const byDue=(a,b)=>((a.due||"9999-99")+"").localeCompare((b.due||"9999-99")+"");
   const overdue=open.filter(t=>t.due&&t.due<todayISO).sort(byDue);
   const week=open.filter(t=>t.due&&t.due>=todayISO&&(new Date(t.due)-new Date(todayISO))<=7*864e5).sort(byDue);
@@ -1048,7 +1068,7 @@ function renderPayouts(){
 }
 function renderAccounts(){
   let rows=store.accounts.map(a=>{
-    const open=store.tasks.filter(t=>t.acct===a.id&&t.status!=="Done").length;
+    const open=store.tasks.filter(t=>t.acct===a.id&&isOpenT(t)).length;
     const coll=store.money.filter(m=>m.acct===a.id&&m.dir==="Income"&&m.status==="Paid").reduce((s,m)=>s+(+m.amt||0),0);
     const out=store.money.filter(m=>m.acct===a.id&&m.dir==="Income"&&!voided(m)).reduce((s,m)=>s+(+m.amt||0),0)-coll;
     const eng=store.engagements.filter(e=>e.acct===a.id).length;
@@ -1948,7 +1968,7 @@ function openReport(kind){
       dl(fname,lines.join("\n"));};
   } else {
     const T=tasksF();const inR=v=>v&&v>=R.from&&v<=R.to;
-    const open=T.filter(t=>t.status!=="Done");
+    const open=T.filter(t=>isOpenT(t));
     const created=T.filter(t=>inR(t.logged)).length,completed=T.filter(t=>inR(t.done)).length;
     const byOwner={};open.forEach(t=>{const o=t.owner||"Unassigned";byOwner[o]=(byOwner[o]||0)+1;});
     const rows=Object.entries(byOwner).sort((a,b)=>b[1]-a[1]);
@@ -2009,7 +2029,7 @@ function openBrand(acctId){
   const a=AMAP[acctId];if(!a)return;
   const engs=store.engagements.filter(e=>e.acct===acctId);
   const tasks=store.tasks.filter(t=>t.acct===acctId);
-  const openT=tasks.filter(t=>t.status!=="Done");
+  const openT=tasks.filter(t=>isOpenT(t));
   const overdueT=openT.filter(t=>t.due&&t.due<todayISO).length;
   const inc=store.money.filter(m=>m.acct===acctId&&m.dir==="Income"&&!voided(m));
   const coll=inc.filter(m=>m.status==="Paid").reduce((s,m)=>s+(+m.amt||0),0);
@@ -2052,8 +2072,8 @@ function renderDigest(){
   const ovInv=store.money.filter(m=>owed(m)&&m.due&&m.due<todayISO);const ovInvSum=ovInv.reduce((s,m)=>s+(+m.amt||0),0);
   const pendPay=store.money.filter(m=>(m.dir==='Salary'||m.dir==='Payout')&&m.status!=='Paid'&&!voided(m));const pendPaySum=Math.abs(pendPay.reduce((s,m)=>s+(+m.amt||0),0));
   const pendExp=store.money.filter(m=>m.dir==='Expense'&&m.status!=='Paid'&&!voided(m));const pendExpSum=Math.abs(pendExp.reduce((s,m)=>s+(+m.amt||0),0));
-  const ovTasks=store.tasks.filter(t=>t.status!=='Done'&&t.due&&t.due<todayISO);
-  const dueToday=store.tasks.filter(t=>t.status!=='Done'&&t.due===todayISO);
+  const ovTasks=store.tasks.filter(t=>isOpenT(t)&&t.due&&t.due<todayISO);
+  const dueToday=store.tasks.filter(t=>isOpenT(t)&&t.due===todayISO);
   const plural=(n,w)=>n+' '+w+(n===1?'':'s');
   const items=[];
   if(retDue.length)items.push({cls:'warn',goto:'retainers',txt:`Bill <b>${plural(retDue.length,'retainer')}</b> for last month · <b>KD ${KD(retSum)}</b>`,sub:'due the 10th'});
@@ -2128,6 +2148,7 @@ function renderSetup(){
       <div class="tablewrap"><table><thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Email</th><th>Status</th><th></th></tr></thead><tbody>${teamRows}</tbody></table></div>
       <div class="rowcount">${ppl.filter(p=>p.active!=="No").length} active · ${ppl.filter(p=>p.active==="No").length} archived</div>
     </div>
+    ${trashPanel()}
     <div class="panel"><h2>Appearance</h2><div class="body"><div class="themeseg"><button data-theme="system">System</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></div></div></div>
     <div class="panel"><h2>About</h2><div class="body" style="display:flex;flex-direction:column;gap:10px">
       <div class="aboutrow"><div><span class="muted">Build</span> &nbsp; <b>PIVOT Command Center ${APPVER}</b></div><div><span class="muted">Status</span> &nbsp; <span id="savestate">${esc(saveStateText)}</span></div></div>
@@ -2137,6 +2158,19 @@ function renderSetup(){
   document.querySelectorAll('.themeseg button').forEach(b=>b.onclick=()=>setTheme(b.dataset.theme));
   applyTheme();
   if($('tmAdd'))$('tmAdd').onclick=openMemberNew;
+  document.querySelectorAll('[data-trestore]').forEach(b=>b.onclick=()=>restoreTrash(b.dataset.tc,[b.dataset.trestore]));
+  document.querySelectorAll('[data-tpurge]').forEach(b=>b.onclick=()=>{if(b.dataset.armed){purge(b.dataset.tc,b.dataset.tpurge);}else{b.dataset.armed='1';b.textContent='Click again to delete for good';b.classList.add('danger');}});
+}
+function trashPanel(){
+  if(!Object.values(HASDEL).some(Boolean))return `<div class="panel"><h2>Trash</h2><div class="body hint">Deleted items go to Trash once migration 18 is run. Until then, deletes are permanent after the 7 second undo.</div></div>`;
+  const what={tasks:'Task',money:'Money',accounts:'Account',services:'Service',templates:'Recurring'};
+  const rows=Object.keys(trash).flatMap(c=>(trash[c]||[]).map(r=>({c,r}))).sort((a,b)=>String(b.r.deleted_at).localeCompare(String(a.r.deleted_at)));
+  return `<div class="panel"><h2>Trash <span class="h2sub">· ${rows.length} item${rows.length===1?'':'s'}</span></h2>
+    <div class="addbar"><span class="hint">Deleted items stay here until restored or deleted for good. Paid money is never deleted: cancel it instead.</span></div>
+    <div class="tablewrap"><table><thead><tr><th>ID</th><th>Type</th><th>Item</th><th>Deleted</th><th>By</th><th></th></tr></thead><tbody>
+    ${rows.length?rows.map(({c,r})=>`<tr><td class="id">${esc(r.id)}</td><td class="muted">${esc(what[c]||c)}</td><td>${esc(r.name||r.desc||r.brand||r.id)}</td><td class="nowrap">${esc(fmtD(localISO(new Date(r.deleted_at))))}</td><td>${esc(r.deleted_by||'')}</td>
+      <td class="nowrap">${canWrite?`<button class="ghost" data-trestore="${esc(r.id)}" data-tc="${c}">Restore</button> <button class="ghost" data-tpurge="${esc(r.id)}" data-tc="${c}">Delete for good</button>`:''}</td></tr>`).join(''):'<tr><td colspan="6" class="rowcount">Trash is empty.</td></tr>'}
+    </tbody></table></div></div>`;
 }
 async function hardRefresh(){
   const b=$('uRefresh');if(b){b.disabled=true;b.textContent='Refreshing…';}
@@ -2149,8 +2183,11 @@ async function hardRefresh(){
 }
 async function renderActivity(){
   $('view').innerHTML=`<div class="view"><div class="panel"><h2>Recent activity</h2><div class="center" style="padding:30px"><div class="spin"></div><div class="muted">${esc(quip())}</div></div></div></div>`;
-  let items=[];try{const {data}=await sb.from('activity').select('*').order('at',{ascending:false}).limit(120);items=(data||[]).map(r=>({t:r.at,who:r.who,act:r.action,coll:r.coll,id:r.doc_id,label:r.label}));}catch(e){}
-  const rows=items.slice(0,120).map(a=>`<div class="r"><span class="t"><b>${esc(a.who||'Someone')}</b> ${esc(a.act)} <span class="muted">${esc(a.coll)}/${esc(a.id)}</span>${a.label?` <span class="muted">· ${esc(a.label)}</span>`:''}</span><span class="muted" style="white-space:nowrap">${esc((a.t||'').replace('T',' ').slice(0,16))}</span></div>`).join("");
+  let items=[];
+  const fields=c=>{try{return Object.keys(c||{}).filter(k=>!['deleted_at','deleted_by'].includes(k)).map(k=>({description:'title',txn_date:'date',amt:'amount',acct:'brand'}[k]||k)).join(', ');}catch(e){return '';}};
+  if(AUDIT){try{const {data}=await sb.from('audit_log').select('*').order('at',{ascending:false}).limit(150);items=(data||[]).map(r=>({t:r.at,who:(PEOPLE_BY_EMAIL(r.actor)||nameFromEmail(r.actor)),act:r.op==='edited'&&fields(r.changes)?'edited '+fields(r.changes)+' on':r.op,coll:r.tbl,id:r.row_id,label:r.label}));}catch(e){}}
+  else{try{const {data}=await sb.from('activity').select('*').order('at',{ascending:false}).limit(120);items=(data||[]).map(r=>({t:r.at,who:r.who,act:r.action,coll:r.coll,id:r.doc_id,label:r.label}));}catch(e){}}
+  const rows=items.slice(0,120).map(a=>`<div class="r"><span class="t"><b>${esc(a.who||'Someone')}</b> ${esc(a.act)} <span class="muted">${esc(a.coll)}/${esc(a.id)}</span>${a.label?` <span class="muted">· ${esc(a.label)}</span>`:''}</span><span class="muted" style="white-space:nowrap">${esc(a.t?(()=>{const d=new Date(a.t);return fmtD(localISO(d))+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');})():'')}</span></div>`).join("");
   $('view').innerHTML=`<div class="view"><div class="panel"><h2>Recent activity</h2><div class="attn actlist">${items.length?rows:'<div class="rowcount">No activity logged yet. New tasks, edits and deletions will appear here with who made them and when.</div>'}</div></div></div>`;
 }
 document.addEventListener('click',e=>{const o=e.target.closest('[data-open]');if(o)openTask(o.dataset.open);});
