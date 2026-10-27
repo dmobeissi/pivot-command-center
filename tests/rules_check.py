@@ -9,6 +9,8 @@ Behaviour checks for data rules (v68).
   - v69: a failed save puts the stored value back on screen
   - v69: retainer badge reads the service month; MTD compares with the same days last month
   - v69: My Tasks defaults to the signed-in person; Accounts hides Lost and Churned by default
+  - v70: Paid money rows always get a paid date; a duplicate-ID insert is renumbered and retried;
+         CSV cells that look like formulas are neutralized while numbers stay numbers; no "247% collected"
 
 Usage: python tests/rules_check.py /path/to/pivot-backup.json   (client data is never committed)
 """
@@ -93,6 +95,27 @@ def main(seed_path):
         pg.evaluate("F.status='Lost';render()"); pg.wait_for_timeout(150)
         if not pg.evaluate("document.querySelectorAll('#view tbody tr').length"): fails.append("picking Lifecycle = Lost shows nothing")
         pg.evaluate("F.status='';render()")
+        # v70: Paid gets a paid date
+        inv = pg.evaluate("store.money.find(m=>m.dir==='Income'&&m.status==='Unpaid').id")
+        pg.evaluate(f"(async()=>{{window.__writes.length=0;await write('money','{inv}',{{status:'Paid'}});}})()"); pg.wait_for_timeout(200)
+        w = pg.evaluate("window.__writes.slice(-1)[0].row")
+        if not w.get("paid"): fails.append(f"Paid without a paid date ({w})")
+        pg.evaluate(f"(async()=>{{await write('money','{inv}',{{status:'Paid',paid:'2026-10-01'}});}})()"); pg.wait_for_timeout(200)
+        if pg.evaluate("window.__writes.slice(-1)[0].row.paid") != "2026-10-01": fails.append("given paid date overwritten")
+        # v70: duplicate key on insert is renumbered and retried once
+        pg.evaluate("""window.__realFrom2=sb.from;window.__dupOnce=true;sb.from=(t)=>{const q=window.__realFrom2(t);const ins=q.insert;q.insert=(o)=>{if(window.__dupOnce){window.__dupOnce=false;return {then:(r)=>Promise.resolve({error:{code:'23505',message:'duplicate key value'}}).then(r)}};return ins(o);};return q;}""")
+        nid = pg.evaluate("nextId('tasks','TSK-',4)")
+        pg.evaluate(f"""(async()=>{{store.tasks=store.tasks.filter(t=>t.id!=='{nid}');await create('tasks','{nid}',{{name:'Dup test',status:'To Do',acct:'',owner:'',priority:'Medium'}});}})()"""); pg.wait_for_timeout(400)
+        pg.evaluate("sb.from=window.__realFrom2")
+        w = pg.evaluate("window.__writes.filter(x=>x.op==='insert'&&x.table==='tasks').slice(-1)[0]")
+        if not w or w["row"]["name"] != "Dup test": fails.append("duplicate-key insert was not retried")
+        # v70: CSV formula guard
+        c = pg.evaluate("[csvCell('=HYPERLINK(1)'),csvCell('-100.5'),csvCell('+cmd'),csvCell('Plain')]")
+        if c != ["'=HYPERLINK(1)", "-100.5", "'+cmd", "Plain"]: fails.append(f"CSV guard wrong {c}")
+        # v70: no percentage above 100
+        pg.evaluate("state.view='moneydash';render()"); pg.wait_for_timeout(200)
+        import re as _re
+        if any(int(x) > 100 for x in _re.findall(r"(\d+)% (?:collected|paid)", pg.inner_text("#view"))): fails.append("dashboard still shows a percentage above 100")
         if errs: fails.append("page errors: " + " | ".join(errs[:3]))
         # v69: local date at 00:30 Kuwait (21:30 UTC the day before)
         pk = b.new_context(timezone_id="Asia/Kuwait").new_page()
@@ -105,7 +128,7 @@ def main(seed_path):
         b.close()
     srv.shutdown()
     if fails: print("FAIL\n" + "\n".join(fails)); sys.exit(1)
-    print("PASS: ID descending; due = done rule; local date at 00:30 Kuwait; failed save reverts; retainer badge; MTD comparison; My Tasks default; Accounts default filter")
+    print("PASS: ID descending; due = done rule; local date at 00:30 Kuwait; failed save reverts; retainer badge; MTD comparison; My Tasks default; Accounts default filter; paid date on Paid; duplicate-ID retry; CSV guard; no % above 100")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2: print(__doc__); sys.exit(2)

@@ -48,7 +48,7 @@ const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t.onclick=null;t.style.pointerEvents='';
   if(ms===-1){t.style.pointerEvents='auto';t.style.cursor='pointer';t.onclick=()=>{t.classList.remove('show');t.style.pointerEvents='';t.style.cursor='';};return;} // sticky until clicked
   const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v69 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v70 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -188,24 +188,38 @@ const ready=()=>COLLS.every(c=>loaded[c]);
 // Rule (27 Oct): a Done task with a done date but no due date gets due = done on save. Status Done without a due date stays allowed
 function byIdDesc(a,b){return String(b.id||'').localeCompare(String(a.id||''),undefined,{numeric:true});}
 function taskDueRule(cur,patch){const m=Object.assign({},cur||{},patch);if(m.status==='Done'&&!m.due&&m.done)patch.due=m.done;return patch;}
+// Money rules on every save: Paid always carries a paid date (today if none given, so cash lands in the right month);
+// a due date before the issue date is allowed but flagged
+function moneyRule(cur,patch){const m=Object.assign({},cur||{},patch);if(m.status==='Paid'&&!m.paid)patch.paid=todayISO;
+  if(m.due&&m.date&&m.due<m.date)setTimeout(()=>toast("Saved, but the due date is before the issue date. Check it"),900);return patch;}
+// IDs are max + 1 in the browser, so two people adding at once can collide. On a duplicate key, renumber from the latest and retry once
+const isDup=e=>!!e&&(e.code==='23505'||/duplicate key/i.test(e.message||''));
+function renumber(coll,rows){const next={};rows.forEach(r=>{const mm=String(r.id).match(/^(.*?)(\d+)$/);if(!mm)return;const pre=mm[1],w=mm[2].length;
+  if(next[pre]==null){let mx=0;(store[coll]||[]).forEach(d=>{const x=String(d.id).match(/^(.*?)(\d+)$/);if(x&&x[1]===pre)mx=Math.max(mx,+x[2]);});next[pre]=mx;}
+  const old=r.id;next[pre]+=1;r.id=pre+String(next[pre]).padStart(w,'0');if(r.inv_no===old)r.inv_no=r.id;});return rows;}
 async function write(coll,id,patch){
   if(!canWrite){toast("Read-only access");return;}
   if(coll==='tasks')taskDueRule((store.tasks||[]).find(x=>x.id===id),patch);
+  if(coll==='money')moneyRule((store.money||[]).find(x=>x.id===id),patch);
   const o=toDB(coll,patch); delete o.id;              // never try to update the primary key
   const {error}=await sb.from(coll).update(o).eq('id',id);
   if(error){ toast("Save failed, change not kept"+errMsg(error)+". Click to dismiss",-1); console.error(error); render(); } else { toast("Saved"); applyLocal(coll,id,patch); }
 }
-async function create(coll,id,data){ if(!canWrite){toast("Read-only access");return;} if(coll==='tasks')taskDueRule(null,data); const row=Object.assign({id},toDB(coll,data)); const {error}=await sb.from(coll).insert(row); if(error){ toast("Add failed"+errMsg(error)); console.error(error);} else { toast("Added"); logAct("added",coll,id,data.name||data.desc||""); await fetchColl(coll); render(); } }
+async function create(coll,id,data){ if(!canWrite){toast("Read-only access");return;} if(coll==='tasks')taskDueRule(null,data); if(coll==='money')moneyRule(null,data); let row=Object.assign({id},toDB(coll,data)); let {error}=await sb.from(coll).insert(row);
+  if(isDup(error)){ await fetchColl(coll); const r=renumber(coll,[Object.assign({id},data)])[0]; id=r.id; data=r; row=Object.assign({id},toDB(coll,Object.assign({},r))); ({error}=await sb.from(coll).insert(row)); if(!error)toast("Someone added at the same time. Saved as "+id,5000); }
+  if(error){ toast("Add failed"+errMsg(error)); console.error(error);} else { toast("Added"); logAct("added",coll,id,data.name||data.desc||""); await fetchColl(coll); render(); } }
 async function remove(coll,id){ if(!canWrite){toast("Read-only access");return;} const row=(store[coll]||[]).find(r=>r.id===id); const {error}=await sb.from(coll).delete().eq("id",id); if(error){ toast("Delete failed"+errMsg(error)); console.error(error);} else { logAct("deleted",coll,id,""); await fetchColl(coll); render(); if(row)undoToast("Deleted",coll,[row]); else toast("Deleted"); } }
 async function restoreRows(coll,rows){ if(!canWrite||!rows||!rows.length)return; const payload=rows.map(r=>toDB(coll,Object.assign({},r))); const {error}=await sb.from(coll).insert(payload); if(error){ toast("Undo failed"); console.error(error); return; } rows.forEach(r=>logAct("restored",coll,r.id,r.desc||r.name||"")); await fetchColl(coll); render(); toast(rows.length>1?("Restored "+rows.length):"Restored"); }
 function undoToast(msg,coll,rows){ const t=$('toast'); if(!t)return; const hide=()=>{t.classList.remove('show');t.style.pointerEvents='';t.innerHTML='';}; t.innerHTML=`<span>${esc(msg)}</span><button id="undoBtn" class="undobtn">Undo</button>`; t.classList.add('show'); t.style.pointerEvents='auto'; clearTimeout(t._t); t._t=setTimeout(hide,7000); const b=$('undoBtn'); if(b)b.onclick=()=>{clearTimeout(t._t);hide();restoreRows(coll,rows);}; }
-async function createMany(coll,rows){ if(!canWrite){toast("Read-only access");return;} if(!rows.length)return; if(coll==='tasks')rows.forEach(r=>taskDueRule(null,r)); const payload=rows.map(r=>toDB(coll,r)); const {error}=await sb.from(coll).insert(payload); if(error){ toast("Add failed"+errMsg(error)); console.error(error);} else { toast("Added "+rows.length); rows.forEach(r=>logAct("added",coll,r.id,r.desc||"")); await fetchColl(coll); render(); } }
+async function createMany(coll,rows){ if(!canWrite){toast("Read-only access");return;} if(!rows.length)return; if(coll==='tasks')rows.forEach(r=>taskDueRule(null,r)); if(coll==='money')rows.forEach(r=>moneyRule(null,r)); let payload=rows.map(r=>toDB(coll,r)); let {error}=await sb.from(coll).insert(payload);
+  if(isDup(error)){ await fetchColl(coll); renumber(coll,rows); payload=rows.map(r=>toDB(coll,r)); ({error}=await sb.from(coll).insert(payload)); if(!error)toast("Someone added at the same time. Renumbered to "+rows[0].id+(rows.length>1?" onward":""),5000); }
+  if(error){ toast("Add failed"+errMsg(error)); console.error(error);} else { toast("Added "+rows.length); rows.forEach(r=>logAct("added",coll,r.id,r.desc||"")); await fetchColl(coll); render(); } }
 async function removeMany(coll,ids){ if(!canWrite){toast("Read-only access");return;} if(!ids.length)return; const rows=(store[coll]||[]).filter(r=>ids.includes(r.id)); const {error}=await sb.from(coll).delete().in("id",ids); if(error){ toast("Delete failed"+errMsg(error)); console.error(error);} else { ids.forEach(id=>logAct("deleted",coll,id,"")); await fetchColl(coll); render(); undoToast("Deleted "+ids.length,coll,rows); } }
 async function updateMany(coll,ids,patch){ if(!canWrite){toast("Read-only access");return;} if(!ids.length)return; const o=toDB(coll,patch); delete o.id; const {error}=await sb.from(coll).update(o).in("id",ids); if(error){ toast("Save failed"+errMsg(error)); console.error(error);} else { toast("Saved"); await fetchColl(coll); render(); } }
 function nextId(coll,prefix,pad){let mx=0;store[coll].forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});return prefix+String(mx+1).padStart(pad,"0");}
 async function logAct(act,coll,id,label){ try{ await sb.from("activity").insert({who:myName,action:act,coll,doc_id:id,label:label||""}); }catch(e){} }
 function dl(name,text){const blob=new Blob(["﻿"+text],{type:'text/csv;charset=utf-8'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},120);}
-function csvCell(v){v=v==null?"":String(v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
+function csvCell(v){v=v==null?"":String(v);if(/^[=+\-@\t\r]/.test(v)&&!/^-?\d+(\.\d+)?$/.test(v))v="'"+v;return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
 function exportTasksCSV(rows,fname){
   const cols=[["id","Task ID"],["_brand","Brand"],["name","Task"],["owner","Owner"],["priority","Priority"],["reqby","Requested By"],["logged","Logged"],["due","Due"],["done","Done"],["status","Status"],["tags","Tags"],["details","Details"],["output","Output"]];
   const head=cols.map(c=>csvCell(c[1])).join(",");
@@ -472,7 +486,7 @@ function ivpRow(label,issued,paid,collect,type){
   return `<div class="ivp">
     <div class="ivptop"><span class="ivplab">${label}</span><span class="ivpval"><b class="dmlink" data-dm="${type}:paid" title="See which">KD ${KD(paid)}</b> <span class="muted">of</span> <span class="dmlink" data-dm="${type}:issued" title="See which">KD ${KD(issued)}</span></span></div>
     <div class="ivptrack dmlink" data-dm="${type}:issued"><div class="ivpfill" style="width:${Math.min(100,pct)}%;background:${col}"></div></div>
-    <div class="ivpfoot"><span class="muted">${pct}% ${collect?'collected':'paid'}</span><span class="muted">${left>0?('KD '+KD(left)+(collect?' to collect':' to pay')):'all settled'}</span></div>
+    <div class="ivpfoot"><span class="muted">${pct>100?(collect?'More collected than billed: includes older invoices':'More paid than issued: includes older items'):pct+'% '+(collect?'collected':'paid')}</span><span class="muted">${left>0?('KD '+KD(left)+(collect?' to collect':' to pay')):'all settled'}</span></div>
   </div>`;
 }
 // cash-position waterfall: bank now, minus what's committed (pending out), the free cash that leaves,
