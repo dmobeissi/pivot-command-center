@@ -15,6 +15,8 @@ Behaviour checks for data rules (v68).
          phone rows render as labelled cards; dates read "28 Oct 2026"
   - v72: Cancelled tasks are closed; Paid money cannot be deleted; before migration 18 deletes are hard deletes,
          after it they go to Trash (restore works); Activity reads the database audit log with local times
+  - v73: estimated salary allocation adds up; business health; payment details on the PDF; reminder; account
+         program and next step only once migration 19 columns exist; Home My work and Leads panels
 
 Usage: python tests/rules_check.py /path/to/pivot-backup.json   (client data is never committed)
 """
@@ -193,8 +195,44 @@ def main(seed_path):
         at = p2.inner_text("#view")
         if "edited status on" not in at: fails.append(f"Activity does not read the audit log ({at[:120]!r})")
         if p2.evaluate("logAct.toString().includes('if(AUDIT)return')") and not p2.evaluate("AUDIT"): fails.append("AUDIT flag not set when audit_log exists")
+        # v73 after migration 19 shape
+        p2.evaluate("""store.app_settings=[{key:'bank_iban',value:'KW81CBKU0000000000001234560101'},{key:'bank_name',value:'Test Bank'}];SETTINGS_OK=true;""")
+        inv = p2.evaluate("store.money.find(m=>m.dir==='Income'&&owed(m)).id")
+        html = p2.evaluate(f"invoiceHTML(store.money.find(m=>m.id==='{inv}'),AMAP[store.money.find(m=>m.id==='{inv}').acct])")
+        if "KW81CBKU" not in html or "How to pay" not in html: fails.append("payment details missing from unpaid invoice PDF")
+        pdone = p2.evaluate("store.money.find(m=>m.dir==='Income'&&m.status==='Paid').id")
+        if "How to pay" in p2.evaluate(f"invoiceHTML(store.money.find(m=>m.id==='{pdone}'),{{}})"): fails.append("paid invoice shows payment details")
+        p2.evaluate(f"openReminder('{inv}')"); p2.wait_for_timeout(150)
+        body = p2.evaluate("document.getElementById('rm_body').value")
+        if inv not in body and "INV-" not in body: fails.append("reminder text lacks the invoice number")
+        if "KW81CBKU" not in body: fails.append("reminder lacks bank details")
+        p2.evaluate("document.getElementById('modal').classList.remove('show')")
         if e2: fails.append("page errors after migration: " + " | ".join(e2[:3]))
         p2.close()
+        # v73: estimated cost = every salary allocated or explicitly unallocated
+        tot = pg.evaluate("(()=>{const e=estAlloc();let a=0;Object.values(e.alloc).forEach(o=>Object.values(o).forEach(v=>a+=v));const u=Object.values(e.unal).reduce((x,y)=>x+y,0);const sal=store.money.filter(m=>m.dir==='Salary'&&!voided(m)).reduce((x,m)=>x+Math.abs(+m.amt||0),0);return [a+u,sal]})()")
+        if abs(tot[0]-tot[1]) > 0.001: fails.append(f"salary allocation does not add up {tot}")
+        if pg.evaluate("estCost(store.accounts[0].id,'0000-01','9999-12')") < 0: fails.append("negative estimated cost")
+        h = pg.evaluate("bizHealth(moneyStats(store.money,'0000-01-01','9999-12-31'))")
+        if h["mrr"] != pg.evaluate("store.accounts.filter(a=>(+a.retainer_fee||0)&&(a.lifecycle==='Active'||a.lifecycle==='Paused')).reduce((s,a)=>s+Math.abs(+a.retainer_fee),0)"): fails.append("MRR wrong")
+        pg.evaluate("state.view='moneydash';render()"); pg.wait_for_timeout(200)
+        if "business health" not in pg.inner_text("#view").lower(): fails.append("no Business health panel")
+        # before migration 19: no program / next step fields, no crash
+        acc = pg.evaluate("store.accounts.find(a=>a.lifecycle==='Lead').id")
+        pg.evaluate(f"openAccountEdit('{acc}')"); pg.wait_for_timeout(150)
+        if pg.query_selector("#ae_program") or pg.query_selector("#ae_next_step"): fails.append("migration 19 fields shown before the migration")
+        pg.evaluate("document.getElementById('modal').classList.remove('show')")
+        pg.evaluate("state.view='digest';render()"); pg.wait_for_timeout(200)
+        hv = pg.inner_text("#view").lower()
+        if "my work" not in hv or "leads" not in hv: fails.append("Home lacks My work or Leads")
+        # after migration 19 shape: fields appear and save
+        pg.evaluate(f"store.accounts.forEach(a=>{{a.program=null;a.next_step='';a.next_date=null;}})")
+        pg.evaluate(f"openAccountEdit('{acc}')"); pg.wait_for_timeout(150)
+        if not (pg.query_selector("#ae_program") and pg.query_selector("#ae_next_step")): fails.append("migration 19 fields missing after the migration")
+        else:
+            pg.fill("#ae_next_step","Send proposal"); pg.evaluate("window.__writes.length=0"); pg.click("#mkSave"); pg.wait_for_timeout(250)
+            w = pg.evaluate("window.__writes.filter(x=>x.table==='accounts').slice(-1)[0]")
+            if not w or w["row"].get("next_step") != "Send proposal": fails.append(f"next step not saved ({w})")
         # v69: local date at 00:30 Kuwait (21:30 UTC the day before)
         pk = b.new_context(timezone_id="Asia/Kuwait").new_page()
         pk.clock.set_fixed_time("2026-10-27T21:30:00Z")
@@ -206,7 +244,7 @@ def main(seed_path):
         b.close()
     srv.shutdown()
     if fails: print("FAIL\n" + "\n".join(fails)); sys.exit(1)
-    print("PASS: ID descending; due = done rule; local date at 00:30 Kuwait; failed save reverts; retainer badge; MTD comparison; My Tasks default; Accounts default filter; paid date on Paid; duplicate-ID retry; CSV guard; no % above 100; sticky headers; task paging; read-only money tables; phone cards; Cancelled closed; Paid undeletable; hard delete before m18, Trash after; audit log")
+    print("PASS: ID descending; due = done rule; local date at 00:30 Kuwait; failed save reverts; retainer badge; MTD comparison; My Tasks default; Accounts default filter; paid date on Paid; duplicate-ID retry; CSV guard; no % above 100; sticky headers; task paging; read-only money tables; phone cards; Cancelled closed; Paid undeletable; hard delete before m18, Trash after; audit log; estimated cost adds up; business health; payment details; reminder; m19 fields; Home panels")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2: print(__doc__); sys.exit(2)

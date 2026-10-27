@@ -24,12 +24,12 @@ const DIRS=["Income","Expense"];
 const EXPCATS=["Salary","Software","Advertising","Freelancer","Partner Payout","Domain / Hosting","Tax","Office","Other Expense"];
 const TEAM_ACTIVE=["Daoud","Zawar","Arafa"];const TEAM_ARCHIVED=["Amr","Maisoun","Bilal"];let TEAM=[...TEAM_ACTIVE,...TEAM_ARCHIVED];
 const COLLS=["accounts","engagements","tasks","money"];
-const store={accounts:[],engagements:[],tasks:[],money:[],templates:[],people:[],services:[],deals:[],projects:[]};
-const loaded={accounts:false,engagements:false,tasks:false,money:false,templates:false,people:false,services:false,deals:false,projects:false};
-const SOFT=new Set(['people','services','deals','projects']); // tables that may not exist yet; must not block boot
+const store={accounts:[],engagements:[],tasks:[],money:[],templates:[],people:[],services:[],deals:[],projects:[],app_settings:[]};
+const loaded={accounts:false,engagements:false,tasks:false,money:false,templates:false,people:false,services:false,deals:false,projects:false,app_settings:false};
+const SOFT=new Set(['people','services','deals','projects','app_settings']); // tables that may not exist yet; must not block boot
 let AMAP={}, canWrite=false, booted=false, myName="Someone", PEOPLE={};
 let sb=null, session=null;
-const ALLCOLLS=["accounts","engagements","tasks","money","templates","people","services","deals","projects"];
+const ALLCOLLS=["accounts","engagements","tasks","money","templates","people","services","deals","projects","app_settings"];
 const F={brand:"",team:"",status:"",q:"",quick:"open"};
 const state={view:(()=>{try{return localStorage.getItem('pivot_view')||"digest"}catch(e){return"digest"}})(),sortT:{k:"due",dir:1},sortM:{k:"date",dir:-1},me:(()=>{try{return localStorage.getItem('pivot_me')||""}catch(e){return""}})(),
   range:(()=>{try{return JSON.parse(localStorage.getItem('pivot_range'))||{preset:'mtd',from:'',to:''}}catch(e){return{preset:'mtd',from:'',to:''}}})(),
@@ -53,7 +53,7 @@ const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t.onclick=null;t.style.pointerEvents='';
   if(ms===-1){t.style.pointerEvents='auto';t.style.cursor='pointer';t.onclick=()=>{t.classList.remove('show');t.style.pointerEvents='';t.style.cursor='';};return;} // sticky until clicked
   const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v72 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v73 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -142,13 +142,13 @@ document.addEventListener('click',e=>{const d=e.target.closest('[data-menu]');
     rowMenuEl=document.createElement('div');rowMenuEl.className='rowmenu';
     const canOpen=(coll==='tasks'||coll==='money');
     const mRow=coll==='money'?store.money.find(x=>x.id===id):null;
-    const canInv=!!(mRow&&mRow.dir==='Income');
-    rowMenuEl.innerHTML=`${canOpen?'<button data-mi="open">Open</button>':''}${canInv?'<button data-mi="inv">Invoice PDF</button>':''}<button data-mi="del" class="danger">Delete</button>`;
+    const canInv=!!(mRow&&mRow.dir==='Income');const canRem=!!(mRow&&owed(mRow));
+    rowMenuEl.innerHTML=`${canOpen?'<button data-mi="open">Open</button>':''}${canInv?'<button data-mi="inv">Invoice PDF</button>':''}${canRem?'<button data-mi="rem">Payment reminder</button>':''}<button data-mi="del" class="danger">Delete</button>`;
     document.body.appendChild(rowMenuEl);
     const w=160,left=Math.min(window.innerWidth-w-8,Math.max(8,r.right-w));
     rowMenuEl.style.top=(r.bottom+4)+'px';rowMenuEl.style.left=left+'px';
     rowMenuEl.onclick=ev=>{const b=ev.target.closest('[data-mi]');if(!b)return;const mi=b.dataset.mi;closeRowMenu();
-      if(mi==='del')remove(coll,id);else if(mi==='inv')downloadInvoicePDF(id);else if(mi==='open'){if(coll==='tasks')openTask(id);else if(coll==='money')openMoney(id);}};
+      if(mi==='del')remove(coll,id);else if(mi==='inv')downloadInvoicePDF(id);else if(mi==='rem')openReminder(id);else if(mi==='open'){if(coll==='tasks')openTask(id);else if(coll==='money')openMoney(id);}};
     return;}
   if(!e.target.closest('.rowmenu'))closeRowMenu();});
 window.addEventListener('scroll',()=>closeRowMenu(),true);
@@ -167,6 +167,7 @@ function toDB(coll,obj){ const o=Object.assign({},obj);
   return o; }
 async function fetchColl(coll){
   const {data,error}=await sb.from(coll).select('*');
+  if(coll==='app_settings')SETTINGS_OK=!error;
   if(error){ if(SOFT.has(coll)){store[coll]=[];loaded[coll]=true;return;} toast("Load error: "+coll); console.error(coll,error); return; }
   const all=data.map(r=>fromDB(coll,r));
   if(SOFTDEL.has(coll)){HASDEL[coll]=all.length?('deleted_at' in all[0]):HASDEL[coll];trash[coll]=all.filter(r=>r.deleted_at);store[coll]=all.filter(r=>!r.deleted_at);}else store[coll]=all;
@@ -617,8 +618,11 @@ function renderMoneyDash(){
   const topCat=Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,7).map(([l,v])=>({l,v}));
   const series=moneySeries(R.from,R.to);
   const bm={};
-  Mall.forEach(m=>{const b=brandOf(m.acct);if(!b)return;if(!bm[b])bm[b]={rev:0,cost:0};if(m.dir==='Income'&&m.status==='Paid')bm[b].rev+=(+m.amt||0);else if((m.dir==='Expense'||m.dir==='Payout'||m.dir==='Salary')&&m.status==='Paid')bm[b].cost+=Math.abs(+m.amt||0);});
-  const marginRows=Object.entries(bm).map(([l,o])=>({l,v:o.rev-o.cost})).filter(x=>x.v!==0).sort((a,b)=>b.v-a.v).slice(0,8);
+  // estimated profit by brand, all time: collected minus direct expenses minus the estimated salary share
+  store.accounts.forEach(a=>{const rev=Mall.filter(m=>m.acct===a.id&&m.dir==='Income'&&m.status==='Paid').reduce((s,m)=>s+(+m.amt||0),0);
+    const cost=estCost(a.id,'0000-01','9999-12');if(rev||cost)bm[a.brand]={rev,cost};});
+  const marginRows=Object.entries(bm).map(([l,o])=>({l,v:o.rev-o.cost})).filter(x=>Math.abs(x.v)>0.0005).sort((a,b)=>b.v-a.v);
+  const health=bizHealth(S);
   const age={cur:0,b30:0,b60:0,b60p:0};
   unpaid.forEach(m=>{const amt=+m.amt||0;if(!m.due||m.due>=todayISO){age.cur+=amt;return;}const d=daysBetween(m.due,todayISO);if(d<=30)age.b30+=amt;else if(d<=60)age.b60+=amt;else age.b60p+=amt;});
   const bankCls=S.bankBalance<0?'bad':'good';
@@ -630,6 +634,7 @@ function renderMoneyDash(){
       <div class="kpi ${bankCls} kpiclick" data-dm="cashpos" style="grid-column:span 2" title="See the cash position breakdown"><span class="lab">In the bank now</span><span class="val valbig">KD ${KD(S.bankBalance)}</span><span class="kdelta muted">If everything owed clears: KD ${KD(settled)}</span></div>
       <div class="kpiclick" data-dm="collect">${kpi("Still to collect","KD "+KD(S.toCollect),"warn")}</div><div class="kpiclick" data-dm="pay">${kpi("Still to pay out","KD "+KD(S.toPayOut),"bad")}</div>
     </div>
+    ${healthPanel(health)}
     <div class="panel"><h2>Issued vs paid <span class="h2sub">· ${R.from==='2000-01-01'?'All time':esc(fmtD(R.from))+' to '+esc(R.to==='9999-12-31'?'now':fmtD(R.to))} · click a number to see which</span></h2>
       <div class="ivpwrap">
         ${ivpRow("Invoices",S.perType.income.issued,S.perType.income.paid,true,"invoices")}
@@ -656,7 +661,7 @@ function renderMoneyDash(){
     <div class="grid3">
       <div class="panel"><h2>Unpaid invoices ${overdueInv?`<span class="flag-over" style="font-size:11px;font-weight:700">· ${overdueInv} overdue</span>`:""}</h2><div class="attn">${chase.length?chase.map(m=>{const od=m.due&&m.due<todayISO;return `<div class="r" data-goto="invoices" data-hl="${esc(m.id)}" style="cursor:pointer"><span class="t"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||m.id)}</button> <span class="muted">· ${esc(brandOf(m.acct))}</span></span><span class="${od?'flag-over':'flag-soon'}" style="white-space:nowrap">KD ${KD(m.amt)}${m.due?` · ${esc(fmtD(m.due))}`:''}</span></div>`;}).join(""):'<div class="rowcount">All invoices settled.</div>'}</div><div class="rowcount">KD ${KD(chaseTot)} outstanding · ${unpaid.length} invoice${unpaid.length===1?'':'s'} (live, all dates)</div></div>
       <div class="panel"><h2>Expenses by category <span class="h2sub">· issued in range</span></h2><div class="body">${topCat.length?hbars(topCat,'kd'):'<div class="muted">No expenses in range</div>'}</div></div>
-      <div class="panel"><h2>Profit by brand <span class="h2sub">· all time · collected minus paid costs on the brand</span></h2><div class="attn">${marginRows.length?marginRows.map(r=>`<div class="r"><span class="t">${esc(r.l)}</span><span class="num ${r.v<0?'neg':'pos'}">KD ${KD(r.v)}</span></div>`).join(""):'<div class="rowcount">No data yet.</div>'}</div></div>
+      <div class="panel"><h2>Estimated profit by brand <span class="h2sub">· all time</span></h2><div class="attn">${marginRows.length?(marginRows.length>8?marginRows.slice(0,6).concat(marginRows.slice(-2)):marginRows).map(r=>`<div class="r"><span class="t">${esc(r.l)}</span><span class="num ${r.v<0?'neg':'pos'}">KD ${KD(r.v)}</span></div>`).join(""):'<div class="rowcount">No data yet.</div>'}</div><div class="rowcount">Collected minus brand expenses minus an estimated salary share (each person's salary split by their tasks done that month). Payouts are profit shares, not costs.${(()=>{const u=Object.values(estAlloc().unal).reduce((x,y)=>x+y,0);return u>0.0005?` KD ${KD(u)} of salaries falls in months with no completed tasks and is not split.`:'';})()}</div></div>
     </div>
     <div class="panel"><h2>Unpaid invoices by age</h2><div class="attn">
         <div class="r"><span class="t">Not due yet</span><span class="num">KD ${KD(age.cur)}</span></div>
@@ -669,6 +674,52 @@ function renderMoneyDash(){
   if($('repBtn'))$('repBtn').onclick=()=>openReport('money');
 }
 
+// ===== Estimated delivery cost (v73) =====
+// Each salary row is split across brands by that person's share of tasks done in the same month.
+// If the person finished no tasks that month, the team's share that month is used; if nobody did, it stays Unallocated.
+// Payouts are profit shares, not delivery cost, so they are never allocated.
+let _estKey='',_est=null;
+function estAlloc(){
+  const key=store.money.length+':'+store.tasks.length+':'+(store.money[0]||{}).id+':'+store.tasks.filter(t=>t.status==='Done').length;
+  if(_est&&_estKey===key)return _est;
+  const per={},team={};
+  store.tasks.forEach(t=>{if(t.status!=='Done'||!t.done)return;const ym=t.done.slice(0,7),a=t.acct||'';
+    ((per[ym]=per[ym]||{})[t.owner||'']=per[ym][t.owner||'']||{})[a]=(per[ym][t.owner||''][a]||0)+1;
+    (team[ym]=team[ym]||{})[a]=(team[ym][a]||0)+1;});
+  const alloc={},unal={};
+  store.money.forEach(m=>{if(m.dir!=='Salary'||voided(m)||!m.date)return;const ym=m.date.slice(0,7),amt=Math.abs(+m.amt||0);
+    const share=(per[ym]&&per[ym][m.partner||''])||team[ym];
+    if(!share){unal[ym]=(unal[ym]||0)+amt;return;}
+    const tot=Object.values(share).reduce((x,y)=>x+y,0);
+    Object.entries(share).forEach(([a,n])=>{((alloc[ym]=alloc[ym]||{})[a]=(alloc[ym][a]||0)+amt*n/tot);});});
+  _estKey=key;_est={alloc,unal};return _est;}
+// estimated salary share for a brand between two months (YYYY-MM, inclusive)
+function estSalary(acct,fromYm,toYm){const {alloc}=estAlloc();let s=0;Object.keys(alloc).forEach(ym=>{if(ym>=fromYm&&ym<=toYm)s+=(alloc[ym][acct]||0);});return s;}
+// direct costs logged on the brand (expenses only; payouts are profit shares)
+function directCost(acct,fromYm,toYm,paidOnly){return Math.abs(store.money.filter(m=>m.acct===acct&&m.dir==='Expense'&&!voided(m)&&(!paidOnly||m.status==='Paid')&&(m.date||'').slice(0,7)>=fromYm&&(m.date||'').slice(0,7)<=toYm).reduce((s,m)=>s+(+m.amt||0),0));}
+function estCost(acct,fromYm,toYm){return directCost(acct,fromYm,toYm,true)+estSalary(acct,fromYm,toYm);}
+// ===== Business health (v73) =====
+function bizHealth(S){
+  const fee=a=>Math.abs(+a.retainer_fee||0);
+  const rets=store.accounts.filter(a=>fee(a)>0&&(a.lifecycle==='Active'||a.lifecycle==='Paused'));
+  const mrr=rets.reduce((x,a)=>x+fee(a),0);
+  const since=shiftMonths(todayISO,-12);
+  const billed=store.money.filter(m=>m.dir==='Income'&&!voided(m)&&(m.date||'')>=since&&(m.date||'')<=todayISO);
+  const tot=billed.reduce((x,m)=>x+(+m.amt||0),0);const by={};billed.forEach(m=>{const b=brandOf(m.acct)||'No brand';by[b]=(by[b]||0)+(+m.amt||0);});
+  const top=Object.entries(by).sort((a,b)=>b[1]-a[1]).slice(0,3);const topShare=tot?Math.round(top.reduce((x,e)=>x+e[1],0)/tot*100):0;
+  const owedAll=store.money.filter(owed);const owedTot=owedAll.reduce((x,m)=>x+(+m.amt||0),0);
+  const old=owedAll.filter(m=>m.due&&daysBetween(m.due,todayISO)>60).reduce((x,m)=>x+(+m.amt||0),0);
+  const m0=todayISO.slice(0,7)+'-01',from3=shiftMonths(m0,-3),to3=isoAdd(m0,-1);
+  const out3=Math.abs(store.money.filter(m=>(m.dir==='Expense'||m.dir==='Salary')&&m.status==='Paid'&&(m.paid||m.date||'')>=from3&&(m.paid||m.date||'')<=to3).reduce((x,m)=>x+(+m.amt||0),0))/3;
+  return {mrr,nRet:rets.length,tot,top,topShare,owedTot,old,oldShare:owedTot?Math.round(old/owedTot*100):0,out3,runway:out3?S.bankBalance/out3:null};}
+function healthPanel(h){
+  const r=(t,v,cls,sub)=>`<div class="r"><span class="t">${t}${sub?` <span class="muted">· ${sub}</span>`:''}</span><span class="num ${cls||''}">${v}</span></div>`;
+  return `<div class="panel"><h2>Business health <span class="h2sub">· today, not the date range</span></h2><div class="attn">
+    ${r('Monthly recurring revenue','KD '+KD(h.mrr),'pos',h.nRet+' active retainer'+(h.nRet===1?'':'s'))}
+    ${r('Top 3 clients, last 12 months',h.topShare+'% of billing',h.topShare>=60?'neg':'',h.top.map(e=>esc(e[0])).join(', '))}
+    ${r('Owed more than 60 days','KD '+KD(h.old),h.oldShare>=30?'neg':'',h.oldShare+'% of KD '+KD(h.owedTot)+' owed')}
+    ${r('Runway at current costs',h.runway==null?'-':(h.runway<1?'under 1 month':h.runway.toFixed(1)+' months'),h.runway!=null&&h.runway<3?'neg':'pos','bank vs KD '+KD(h.out3)+' a month of expenses and salaries, last 3 months')}
+  </div></div>`;}
 function sortBy(arr,k,dir){return [...arr].sort((a,b)=>{let x=a[k],y=b[k];if(k==='amt'){x=+a.amt||0;y=+b.amt||0;}x=x==null?"":x;y=y==null?"":y;return x>y?dir:x<y?-dir:0;});}
 // ---- data tables: nested multi-sort + per-column Excel-style filter ----
 // default sort for every table: newest ID first (Daoud, 27 Oct). Invoices sort by invoice number, which equals the ID
@@ -1072,7 +1123,7 @@ function renderAccounts(){
     const coll=store.money.filter(m=>m.acct===a.id&&m.dir==="Income"&&m.status==="Paid").reduce((s,m)=>s+(+m.amt||0),0);
     const out=store.money.filter(m=>m.acct===a.id&&m.dir==="Income"&&!voided(m)).reduce((s,m)=>s+(+m.amt||0),0)-coll;
     const eng=store.engagements.filter(e=>e.acct===a.id).length;
-    const cost=Math.abs(store.money.filter(m=>m.acct===a.id&&(m.dir==="Expense"||m.dir==="Payout"||m.dir==="Salary")&&m.status==="Paid").reduce((s,m)=>s+(+m.amt||0),0));
+    const cost=estCost(a.id,'0000-01','9999-12');
     return Object.assign({open,coll,out,eng,cost,margin:coll-cost},a);
   }).filter(a=>(!F.brand||a.brand===F.brand)&&(!F.status||a.lifecycle===F.status)&&(!F.q||((a.id+" "+(a.brand||"")+" "+(a.country||"")+" "+(a.type||"")).toLowerCase().includes(F.q))));
   // the default Lost/Churned filter steps aside when the user searches or picks a brand or lifecycle at the top
@@ -1080,10 +1131,10 @@ function renderAccounts(){
   const _base=rows; rows=arrange(_base,'accounts');
   const ro=canWrite?"":"disabled";
   const hasCountry=store.accounts.some(a=>a.country);
-  const head=[["id","ID"],["brand","Brand"],...(hasCountry?[["country","Country"]]:[]),["type","Type"],["lifecycle","Lifecycle"],["eng","Engagements"],["open","Open"],["coll","Collected"],["out","Outstanding"],["cost","Costs"],["margin","Margin"]];
+  const head=[["id","ID"],["brand","Brand"],...(hasCountry?[["country","Country"]]:[]),["type","Type"],["lifecycle","Lifecycle"],["eng","Engagements"],["open","Open"],["coll","Collected"],["out","Outstanding"],["cost","Est. cost"],["margin","Est. margin"]];
   const hiddenN=_base.length-tableFilter(_base,'accounts').length;
   $('view').innerHTML=`<div class="view"><div class="panel">
-    <div class="addbar"><button class="btn" id="acAdd"${canWrite?"":" disabled"}>+ Add account</button><span class="hint">Click a brand to open its profile.</span></div>
+    <div class="addbar"><button class="btn" id="acAdd"${canWrite?"":" disabled"}>+ Add account</button><span class="hint">Click a brand to open its profile. Est. cost = brand expenses plus an estimated salary share (by tasks done each month).</span></div>
     <div class="tablewrap"><table>
     <thead><tr>${thhead(head)}</tr></thead>
     <tbody>${rows.map(a=>`<tr>
@@ -1130,7 +1181,9 @@ function renderRetainers(){
   const ym=todayISO.slice(0,7);
   const fee=a=>Math.abs(+a.retainer_fee||0);
   const rets=store.accounts.filter(a=>fee(a)>0&&a.lifecycle!=="Churned"&&a.lifecycle!=="Lost");
-  const monthCost=id=>Math.abs(store.money.filter(m=>m.acct===id&&(m.dir==="Expense"||m.dir==="Salary"||m.dir==="Payout")&&(m.date||"").slice(0,7)===ym).reduce((s,m)=>s+(+m.amt||0),0));
+  const lastYm=shiftMonths(ym+'-01',-1).slice(0,7);
+  const monthCost=id=>estCost(id,lastYm,lastYm);
+  const progOf=a=>a.program?(store.services||[]).find(s=>s.id===a.program):null;
   const monthColl=id=>store.money.filter(m=>m.acct===id&&m.dir==="Income"&&m.status==="Paid"&&(m.paid||m.date||"").slice(0,7)===ym).reduce((s,m)=>s+(+m.amt||0),0);
   // service month = Logged if set, else the month before the issue date (retainers bill the 1st of the next month)
   const svcOf=m=>(m.logged||shiftMonths((m.date||'').slice(0,7)+'-01',-1)).slice(0,7);
@@ -1144,20 +1197,20 @@ function renderRetainers(){
   const cards=rows.length?rows.map(r=>{const col=r.burn>=100?'var(--bad)':(r.burn>=80?'var(--warn)':'var(--good)');return `
     <div class="poevent">
       <div class="pohead">
-        <div class="poinfo"><button class="linkname potitle" data-brand="${esc(r.a.id)}">${esc(r.a.brand)}</button><span class="muted"> · KD ${KD(r.f)}/mo</span></div>
+        <div class="poinfo"><button class="linkname potitle" data-brand="${esc(r.a.id)}">${esc(r.a.brand)}</button><span class="muted"> · KD ${KD(r.f)}/mo</span>${(()=>{const pg=progOf(r.a);if(!pg)return r.a.program===undefined?'':' <span class="rtag">no program set</span>';const pr=Math.abs(+pg.price||0);return ` <span class="rtag">${esc(pg.name)}</span>`+(Math.abs(pr-r.f)>0.0005?` <span class="rtag" style="color:var(--warn);background:var(--warn-soft)">price list KD ${KD(pr)}</span>`:'');})()}</div>
         <div class="poact"><span class="pill ${r.billed.ok?'pill-good':'pill-bad'}" title="Latest service month invoiced">${r.billed.l?(r.billed.ok?'Billed through ':'Last billed ')+monLab(r.billed.l):'Not billed yet'}</span></div>
       </div>
       <div class="pobody">
-        <div class="pometa"><span>Delivery cost this month · KD ${KD(r.c)}</span><span style="color:${col};font-weight:700">${r.burn}% of fee</span></div>
+        <div class="pometa"><span>Est. delivery cost, ${esc(monLab(lastYm))} · KD ${KD(r.c)}</span><span style="color:${col};font-weight:700">${r.burn}% of fee</span></div>
         ${bar(r.burn,col)}
-        <div class="pofoot"><span>Margin this month <b class="${r.margin<0?'neg':'pos'}">KD ${KD(r.margin)}</b></span><span class="muted">Collected · KD ${KD(r.coll)}</span></div>
+        <div class="pofoot"><span>Est. margin <b class="${r.margin<0?'neg':'pos'}">KD ${KD(r.margin)}</b></span><span class="muted">Collected · KD ${KD(r.coll)}</span></div>
       </div>
     </div>`;}).join(""):'<div class="rowcount">No retainers yet. Open a brand in Accounts → Edit → set a Monthly retainer, and it appears here.</div>';
   const dueN=retainerInvoicesDue().length;
   $('view').innerHTML=`<div class="view">
-    <div class="kpis">${kpi("Retainers / month","KD "+KD(totFee),"accent")}${kpi("Active retainers",rows.length,"")}${kpi("Delivery cost (mo)","KD "+KD(totCost),"warn")}${kpi("Total margin (mo)","KD "+KD(totFee-totCost),(totFee-totCost)<0?"bad":"good")}</div>
+    <div class="kpis">${kpi("Retainers / month","KD "+KD(totFee),"accent")}${kpi("Active retainers",rows.length,"")}${kpi("Est. cost (last month)","KD "+KD(totCost),"warn")}${kpi("Est. margin (last month)","KD "+KD(totFee-totCost),(totFee-totCost)<0?"bad":"good")}</div>
     <div class="panel">
-      <div class="addbar"><button class="btn" id="genRetInv"${canWrite&&dueN?"":" disabled"}>Generate retainer invoices${dueN?` (${dueN})`:""}</button><span class="hint">Invoices bill the month before on the 1st, due the 10th, titled "Client Month Year support plan", and land Unpaid until marked paid. Burn = this month's delivery cost on the brand vs the fee: amber at 80%, red at 100%.</span></div>
+      <div class="addbar"><button class="btn" id="genRetInv"${canWrite&&dueN?"":" disabled"}>Generate retainer invoices${dueN?` (${dueN})`:""}</button><span class="hint">Invoices bill the month before on the 1st, due the 10th, titled "Client Month Year support plan", and land Unpaid until marked paid. Est. cost = last month's brand expenses plus each person's salary split by tasks done for the brand. Amber at 80% of the fee, red at 100%.</span></div>
       <div class="poevents">${cards}</div></div></div>`;
   if($('genRetInv'))$('genRetInv').onclick=generateRetainerInvoices;
 }
@@ -1633,6 +1686,14 @@ function nextIds(coll,prefix,pad,n){let mx=0;store[coll].forEach(d=>{const m=Str
 function nextProjRef(){let mx=0;store.money.forEach(m=>{const g=String(m.proj_ref||'').match(/PRJ-(\d+)/);if(g)mx=Math.max(mx,+g[1]);});return "PRJ-"+String(mx+1).padStart(4,"0");}
 function projSibs(m){return (m&&m.proj_ref)?store.money.filter(x=>x.proj_ref===m.proj_ref&&x.dir==='Income').sort((a,b)=>((+a.inst_no||0)-(+b.inst_no||0))||String(a.inv_no||'').localeCompare(String(b.inv_no||''))):[];}
 // ---------- invoice PDF (print to PDF, three templates by income type) ----------
+// shared settings (migration 19): key/value rows in app_settings
+const HASSET=()=>loaded.app_settings&&Array.isArray(store.app_settings)&&SETTINGS_OK;
+let SETTINGS_OK=false;
+const getSet=k=>{const r=(store.app_settings||[]).find(x=>x.key===k);return r?(r.value||''):'';};
+async function saveSets(obj){for(const [k,v] of Object.entries(obj)){const ex=(store.app_settings||[]).some(x=>x.key===k);
+    const q=ex?sb.from('app_settings').update({value:v}).eq('key',k):sb.from('app_settings').insert({key:k,value:v});const {error}=await q;
+    if(error){toast("Save failed"+errMsg(error)+". Click to dismiss",-1);return false;}}
+  await fetchColl('app_settings');render();toast("Saved");return true;}
 const PIVOT_CO={name:"The Pivot Strategy",tagline:"Shaping Tomorrow, Today",city:"Kuwait",email:"info@thepivotstrategy.com",web:"www.thepivotstrategy.com"};
 function fmtDate(iso){if(!iso)return"";const MM=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];const p=(iso||"").split("-");return p.length>=3?`${p[2]} ${MM[(+p[1]||1)-1]} ${p[0]}`:iso;}
 function invoiceHTML(m,acct){
@@ -1711,7 +1772,7 @@ function invoiceHTML(m,acct){
   .totals{display:flex;justify-content:flex-end;margin:7mm 16mm 0}.totbox{width:78mm}
   .tr{display:flex;justify-content:space-between;padding:6px 14px;font-size:12px}
   .tr.grand{background:#141414;color:#fff;font-weight:800;font-size:13.5px;margin-top:5px}
-  .duedate{margin:7mm 16mm 0;font-size:12px;color:#444}
+  .duedate{margin:7mm 16mm 0;font-size:12px;color:#444}.paybox{margin:5mm 16mm 0;padding:12px 14px;border:1px solid #e5e7eb;border-radius:10px;font-size:12px}.paybox .k{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#6b7280;margin-bottom:6px;font-weight:700}.paygrid{display:grid;grid-template-columns:110px 1fr;gap:4px 12px}.paygrid span{color:#6b7280}
   .foot{position:absolute;bottom:0;left:0;right:0;padding:0 16mm}
   .thanks b{font-size:13px}.thanks p{color:#555;margin-top:2px}
   .botline{border-top:1px solid #141414;margin-top:7mm;padding:7px 0 9mm;text-align:center;font-size:9.5px;color:#9a9ca2;letter-spacing:.02em}`;
@@ -1737,11 +1798,29 @@ function invoiceHTML(m,acct){
       <div class="tr grand"><span>${esc(totalLabel)}</span><span>KWD ${KD(amt)}</span></div>
     </div></div>
     <div class="duedate">${paid?`Paid${m.paid?` on ${esc(fmtDate(m.paid))}`:""}. Thank you.`:`Please settle ${isInst?'this installment ':''}by <b>${esc(m.due?fmtDate(m.due):'receipt')}</b>.`}</div>
+    ${(!paid&&getSet('bank_iban'))?`<div class="paybox"><div class="k">How to pay · bank transfer</div><div class="paygrid">${[['Bank',getSet('bank_name')],['Account name',getSet('bank_account_name')],['IBAN',getSet('bank_iban')],['SWIFT / BIC',getSet('bank_swift')],['Reference',m.inv_no||m.id]].filter(x=>x[1]).map(x=>`<span>${esc(x[0])}</span><b>${esc(x[1])}</b>`).join('')}</div></div>`:''}
     <div class="foot">
       <div class="thanks"><b>Thank you for choosing PIVOT.</b><p>We look forward to continuing to deliver results. Questions? ${esc(PIVOT_CO.email)}</p></div>
       <div class="botline">${esc(PIVOT_CO.name)} · ${esc(PIVOT_CO.tagline)} · ${esc(PIVOT_CO.web)} · ${esc(PIVOT_CO.email)}</div>
     </div>
   </div></body></html>`;
+}
+function openReminder(id){
+  const m=store.money.find(x=>x.id===id);if(!m)return;const a=AMAP[m.acct]||{};
+  const od=m.due&&m.due<todayISO;const days=m.due?daysBetween(m.due,todayISO):0;
+  const to=a.bill_attn?String(a.bill_attn).split(' ')[0]:'there';
+  const subj=`Payment reminder: ${m.inv_no||m.id} (KD ${KD(+m.amt||0)})`;
+  const bank=getSet('bank_iban')?`\n\nBank transfer details:\n${[['Bank',getSet('bank_name')],['Account name',getSet('bank_account_name')],['IBAN',getSet('bank_iban')],['SWIFT',getSet('bank_swift')]].filter(x=>x[1]).map(x=>x[0]+': '+x[1]).join('\n')}\nReference: ${m.inv_no||m.id}`:'';
+  const body=`Hi ${to},\n\nA friendly reminder that invoice ${m.inv_no||m.id} for ${m.desc||'our services'} (KD ${KD(+m.amt||0)}) ${od?`was due on ${fmtD(m.due)}, ${days} day${days===1?'':'s'} ago`:`is due on ${fmtD(m.due)}`}.${bank}\n\nIf it has already been paid, please ignore this note and share the transfer reference so we can match it.\n\nThank you,\n${firstName()}\nThe Pivot Strategy`;
+  $('modal').innerHTML=`<div class="sheet" style="max-width:560px">
+    <div class="sheethead"><div><div class="id">${esc(m.inv_no||m.id)} · ${esc(a.brand||'')}</div><h3>Payment reminder</h3></div><button class="del" id="mkClose">✕</button></div>
+    <div class="formfull">${fld("Subject",`<input id="rm_subj" value="${esc(subj)}">`)}${fld("Message",`<textarea id="rm_body" rows="12">${esc(body)}</textarea>`)}
+    <div class="hint">${a.bill_email?`Sends from your own email app to ${esc(a.bill_email)}.`:'No representative email on this account: add one in Accounts, or copy the text.'}${getSet('bank_iban')?'':' Bank details are not set: add them in Settings so reminders and invoices say how to pay.'}</div></div>
+    <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="rmCopy">Copy text</button>${a.bill_email?`<button class="btn" id="rmMail">Open in email</button>`:''}</div></div>`;
+  $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
+  $('mkClose').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
+  $('rmCopy').onclick=async()=>{try{await navigator.clipboard.writeText($('rm_subj').value+'\n\n'+$('rm_body').value);toast("Copied");}catch(e){toast("Copy blocked by the browser: select the text and copy it",-1);}};
+  if($('rmMail'))$('rmMail').onclick=()=>{location.href=`mailto:${encodeURIComponent(a.bill_email)}?subject=${encodeURIComponent($('rm_subj').value)}&body=${encodeURIComponent($('rm_body').value)}`;};
 }
 function downloadInvoicePDF(id){
   const m=store.money.find(x=>x.id===id);if(!m||m.dir!=="Income"){toast("Only invoices can be exported");return;}
@@ -1899,7 +1978,10 @@ function openAccountEdit(id){
       ${fld("Parent account",`<select id="ae_parent">${accountOpts(a.parent||"",a.id)}</select>`)}
       ${fld("Date added",`<input type="date" id="ae_date_added" value="${esc(a.date_added||'')}">`)}
       ${fld("Monthly retainer (KD)",`<input type="number" step="0.001" id="ae_retainer_fee" value="${a.retainer_fee!=null?esc(Math.abs(+a.retainer_fee)):''}" placeholder="0 = not a retainer">`)}
+      ${('program' in a)?fld("Retainer program",`<select id="ae_program"><option value="">None</option>${(store.services||[]).filter(sv=>svcGroup(sv)==='Program').map(sv=>`<option value="${esc(sv.id)}"${a.program===sv.id?' selected':''}>${esc(sv.name)} · KD ${KD(Math.abs(+sv.price||0))}</option>`).join('')}</select>`):''}
     </div>
+    ${('next_step' in a)?`<div class="secdiv">Next step <span class="muted" style="font-weight:400">· shows on Home for leads</span></div>
+    <div class="formgrid">${fld("Next step",`<input id="ae_next_step" value="${esc(a.next_step||'')}" placeholder="e.g. Send proposal">`)}${fld("By",`<input type="date" id="ae_next_date" value="${esc(a.next_date||'')}">`)}</div>`:''}
     <div class="secdiv">Billing details <span class="muted" style="font-weight:400">· printed on invoices</span></div>
     <div class="formgrid">
       ${fld("Company name on invoice",`<input id="ae_bill_company" value="${esc(a.bill_company||'')}" placeholder="defaults to brand name">`)}
@@ -1913,8 +1995,10 @@ function openAccountEdit(id){
     <div class="sheetfoot">${canWrite?`<button class="ghost" id="mkDelete" style="color:var(--bad);border-color:var(--bad-soft)">Delete</button>`:""}<span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Save</button></div></div>`;
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
   $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
+  if($('ae_program'))$('ae_program').onchange=e=>{const sv=(store.services||[]).find(x=>x.id===e.target.value);if(sv)$('ae_retainer_fee').value=Math.abs(+sv.price||0);};
   $('mkSave').onclick=async()=>{const g=f=>{const el=$('ae_'+f);return el?el.value:"";};
-    await write("accounts",id,{brand:g('brand'),type:g('type'),country:g('country'),lifecycle:g('lifecycle'),parent:g('parent'),date_added:g('date_added'),notes:g('notes'),retainer_fee:Math.abs(parseFloat(g('retainer_fee'))||0),bill_company:g('bill_company'),bill_addr:g('bill_addr'),bill_attn:g('bill_attn'),bill_tel:g('bill_tel'),bill_email:g('bill_email'),bill_reg:g('bill_reg')});close();};
+    const extra={};if($('ae_program'))extra.program=g('program')||null;if($('ae_next_step')){extra.next_step=g('next_step');extra.next_date=g('next_date')||null;}
+    await write("accounts",id,{...extra,brand:g('brand'),type:g('type'),country:g('country'),lifecycle:g('lifecycle'),parent:g('parent'),date_added:g('date_added'),notes:g('notes'),retainer_fee:Math.abs(parseFloat(g('retainer_fee'))||0),bill_company:g('bill_company'),bill_addr:g('bill_addr'),bill_attn:g('bill_attn'),bill_tel:g('bill_tel'),bill_email:g('bill_email'),bill_reg:g('bill_reg')});close();};
   if($('mkDelete'))$('mkDelete').onclick=()=>{close();remove("accounts",id);};
 }
 function openReport(kind){
@@ -1952,7 +2036,7 @@ function openReport(kind){
       ${tbl(["Type","Issued","Paid","Still open","Lines"],typeRows.map(r=>`<tr><td>${r.l}</td>${td(r.iss)}${td(r.paid)}${td(r.open)}<td class="num">${r.n}</td></tr>`).join("")+`<tr class="totrow"><td><b>Total out</b></td>${td(typeRows.slice(1).reduce((t,r)=>t+r.iss,0))}${td(S.cashOut)}${td(typeRows.slice(1).reduce((t,r)=>t+r.open,0))}<td class="num">${typeRows.slice(1).reduce((t,r)=>t+r.n,0)}</td></tr>`,"")}
       <h4 class="rephd">Paid out by category</h4>
       ${tbl(["Category","Paid (KD)"],catRows.map(r=>`<tr><td>${esc(r[0])}</td>${td(r[1])}</tr>`).join(""),"Nothing paid out in range")}
-      <h4 class="rephd">By brand · collected minus paid costs</h4>
+      <h4 class="rephd">Cash by brand · collected minus everything paid out on the brand, payouts included (not profit: see Estimated profit by brand on the Money overview)</h4>
       ${tbl(["Brand","Billed","Collected","Costs paid","Net"],brandRows.map(([b,o])=>`<tr><td>${esc(b)}</td>${td(o.billed)}${td(o.coll)}${td(o.cost)}<td class="num ${o.coll-o.cost<0?'neg':''}">${KD(o.coll-o.cost)}</td></tr>`).join(""),"No activity in range")}
       <h4 class="rephd">Paid to people</h4>
       ${tbl(["Person","Salary","Payout","Total"],personRows.map(([p,o])=>`<tr><td>${esc(p)}</td>${td(o.sal)}${td(o.po)}${td(o.sal+o.po)}</tr>`).join(""),"No salaries or payouts paid in range")}
@@ -2081,6 +2165,8 @@ function renderDigest(){
   if(pendPay.length)items.push({cls:'bad',goto:'salaries',txt:`<b>${plural(pendPay.length,'payment')}</b> pending to the team · <b>KD ${KD(pendPaySum)}</b>`});
   if(ovTasks.length)items.push({cls:'bad',dq:'overdue',txt:`<b>${plural(ovTasks.length,'task')}</b> overdue`});
   if(dueToday.length)items.push({cls:'warn',dq:'week',txt:`<b>${plural(dueToday.length,'task')}</b> due today`});
+  const leadsNoStep=store.accounts.filter(a=>a.lifecycle==='Lead'&&('next_step' in a)&&(!a.next_step||(a.next_date&&a.next_date<todayISO)));
+  if(leadsNoStep.length)items.push({cls:'warn',goto:'accounts',txt:`<b>${plural(leadsNoStep.length,'lead')}</b> with no next step or a late one`});
   if(pendExp.length)items.push({cls:'muted',goto:'expenses',txt:`<b>${plural(pendExp.length,'bill')}</b> unpaid · <b>KD ${KD(pendExpSum)}</b>`});
   const row=it=>`<div class="r dgrow" style="cursor:pointer"${it.goto?` data-goto="${it.goto}"`:''}${it.dq?` data-dq="${it.dq}"`:''}${it.dm?` data-dm="${it.dm}"`:''}><span class="t"><span class="dgdot ${it.cls}"></span>${it.txt}${it.sub?` <span class="muted">· ${it.sub}</span>`:''}</span><span class="muted" style="flex:0 0 auto">›</span></div>`;
   const clear=dayPick(["Nothing's on fire. Go build something.","All clear. The rare quiet morning.","Clean slate. Nothing needs you right now.","Inbox-zero energy. Enjoy it while it lasts.","Nothing overdue, nothing owed. Breathe."]);
@@ -2094,8 +2180,27 @@ function renderDigest(){
       <div class="kpiclick" data-dm="collect">${kpi("Still to collect","KD "+KD(S.toCollect),"warn")}</div>
       <div class="kpiclick" data-dm="pay">${kpi("Still to pay out","KD "+KD(S.toPayOut),"bad")}</div>
     </div>
+    <div class="grid2">${myWorkPanel()}${leadsPanel()}</div>
   </div>`;
 }
+// Home: the signed-in person's open work, soonest first (overdue, then the next 7 days)
+function myWorkPanel(){
+  const me=TEAM_ACTIVE.includes(myName)?myName:'';
+  if(!me)return '';
+  const wk=isoAdd(todayISO,7);
+  const mine=store.tasks.filter(t=>isOpenT(t)&&t.owner===me&&t.due&&t.due<=wk).sort((a,b)=>a.due.localeCompare(b.due));
+  const noDue=store.tasks.filter(t=>isOpenT(t)&&t.owner===me&&!t.due).length;
+  return `<div class="panel"><h2>My work <span class="h2sub">· overdue and next 7 days</span></h2><div class="attn">${mine.length?mine.slice(0,8).map(t=>{const[fl,fc]=flag(t);return `<div class="r"><span class="t"><button class="linkname" data-open="${esc(t.id)}">${esc(t.name||t.id)}</button> <span class="muted">· ${esc(brandOf(t.acct))}</span></span><span class="${fc} nowrap">${esc(fmtD(t.due))}</span></div>`;}).join(''):'<div class="rowcount">Nothing due in the next 7 days.</div>'}</div>
+    <div class="rowcount">${mine.length>8?mine.length+' in total · ':''}${noDue?`${noDue} of your open tasks have no due date · `:''}<button class="linkmini" data-goto="mytasks">All my tasks</button></div></div>`;}
+// Home: leads and their next step (accounts in Lead)
+function leadsPanel(){
+  const leads=store.accounts.filter(a=>a.lifecycle==='Lead');
+  if(!leads.length)return '';
+  const has=leads.length&&('next_step' in leads[0]);
+  const rows=leads.slice().sort((a,b)=>String(a.next_date||'9999').localeCompare(String(b.next_date||'9999'))).map(a=>{
+    const late=a.next_date&&a.next_date<todayISO;
+    return `<div class="r"><span class="t"><button class="linkname" data-brand="${esc(a.id)}">${esc(a.brand)}</button> <span class="muted">· ${esc(a.next_step||'no next step')}</span></span><span class="nowrap ${!a.next_step?'flag-soon':(late?'flag-over':'')}">${esc(a.next_date?fmtD(a.next_date):'-')}</span></div>`;}).join('');
+  return `<div class="panel"><h2>Leads <span class="h2sub">· next step</span></h2><div class="attn">${rows}</div><div class="rowcount">${has?'Set the next step in the account (Edit).':'Run migration 19 to track a next step per lead.'}</div></div>`;}
 async function generateMonthly(){
   if(!canWrite){toast("Read-only access");return;}
   todayISO=localISO();const ym=todayISO.slice(0,7);
@@ -2148,6 +2253,7 @@ function renderSetup(){
       <div class="tablewrap"><table><thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Email</th><th>Status</th><th></th></tr></thead><tbody>${teamRows}</tbody></table></div>
       <div class="rowcount">${ppl.filter(p=>p.active!=="No").length} active · ${ppl.filter(p=>p.active==="No").length} archived</div>
     </div>
+    ${payPanel()}
     ${trashPanel()}
     <div class="panel"><h2>Appearance</h2><div class="body"><div class="themeseg"><button data-theme="system">System</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></div></div></div>
     <div class="panel"><h2>About</h2><div class="body" style="display:flex;flex-direction:column;gap:10px">
@@ -2158,9 +2264,16 @@ function renderSetup(){
   document.querySelectorAll('.themeseg button').forEach(b=>b.onclick=()=>setTheme(b.dataset.theme));
   applyTheme();
   if($('tmAdd'))$('tmAdd').onclick=openMemberNew;
+  if($('stSave'))$('stSave').onclick=()=>saveSets({bank_name:$('st_bank_name').value.trim(),bank_account_name:$('st_bank_account_name').value.trim(),bank_iban:$('st_bank_iban').value.replace(/\s+/g,'').toUpperCase(),bank_swift:$('st_bank_swift').value.trim().toUpperCase()});
   document.querySelectorAll('[data-trestore]').forEach(b=>b.onclick=()=>restoreTrash(b.dataset.tc,[b.dataset.trestore]));
   document.querySelectorAll('[data-tpurge]').forEach(b=>b.onclick=()=>{if(b.dataset.armed){purge(b.dataset.tc,b.dataset.tpurge);}else{b.dataset.armed='1';b.textContent='Click again to delete for good';b.classList.add('danger');}});
 }
+function payPanel(){
+  if(!HASSET())return `<div class="panel"><h2>Invoice payment details</h2><div class="body hint">Run migration 19 to store the bank details printed on invoices and payment reminders.</div></div>`;
+  const ro=canWrite?"":"disabled";const f=(k,l,ph)=>fld(l,`<input id="st_${k}" value="${esc(getSet(k))}" placeholder="${ph}" ${ro}>`);
+  return `<div class="panel"><h2>Invoice payment details</h2><div class="body">
+    <div class="formgrid">${f('bank_name','Bank','e.g. National Bank of Kuwait')}${f('bank_account_name','Account name','e.g. The Pivot Strategy')}${f('bank_iban','IBAN','KW..')}${f('bank_swift','SWIFT / BIC','optional')}</div>
+    <div class="addbar" style="padding:12px 0 0;border:0;background:none"><button class="btn" id="stSave"${canWrite?'':' disabled'}>Save payment details</button><span class="hint">Printed on unpaid invoices and payment reminders once an IBAN is set.</span></div></div></div>`;}
 function trashPanel(){
   if(!Object.values(HASDEL).some(Boolean))return `<div class="panel"><h2>Trash</h2><div class="body hint">Deleted items go to Trash once migration 18 is run. Until then, deletes are permanent after the 7 second undo.</div></div>`;
   const what={tasks:'Task',money:'Money',accounts:'Account',services:'Service',templates:'Recurring'};

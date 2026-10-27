@@ -107,7 +107,7 @@ begin
   end if;
   lbl := coalesce(n ->> 'name', n ->> 'description', n ->> 'brand', o ->> 'name', o ->> 'description', o ->> 'brand');
   insert into audit_log (actor, op, tbl, row_id, label, changes)
-  values (who, act, tg_table_name, coalesce(n ->> 'id', o ->> 'id'), lbl,
+  values (who, act, tg_table_name, coalesce(n ->> 'id', o ->> 'id', n ->> 'key', o ->> 'key'), lbl,
           case when tg_op = 'UPDATE' then diff when tg_op = 'INSERT' then n else o end);
   return coalesce(new, old);
 end $$;
