@@ -125,6 +125,6 @@ create policy money_no_delete_paid on money as restrictive for delete to authent
 
 commit;
 
--- Checks: each should return 0 rows / 0
+-- Checks: audit_rows_so_far = 0, then 11 rule names listed
 select count(*) as audit_rows_so_far from audit_log;
 select conname from pg_constraint where conname like any (array['tasks_%_ok','money_%_ok','accounts_%_ok','money_paid_not_trashed']) order by 1;
