@@ -7,7 +7,7 @@ const URL = process.env.SUPABASE_URL;
 const KEY = process.env.SUPABASE_SERVICE_KEY;
 if (!URL || !KEY) { console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_KEY"); process.exit(1); }
 
-const TABLES = ["accounts", "engagements", "tasks", "money", "templates", "people", "activity"];
+const TABLES = ["accounts", "engagements", "tasks", "money", "templates", "people", "activity", "services", "deals", "projects"];
 const H = { apikey: KEY, Authorization: `Bearer ${KEY}` };
 
 async function fetchAll(table) {
