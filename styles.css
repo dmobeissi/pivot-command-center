@@ -562,3 +562,7 @@ th.thsort:hover{color:var(--accent)}
 .incbtn{all:unset;cursor:pointer;display:flex;flex-wrap:wrap;gap:4px;max-width:340px}
 .incbtn:hover .tag{background:var(--line)}
 .porperson .id{margin-right:2px}
+
+/* v69: plain text link button (login "Forgot password?") */
+.linkbtn{background:none;border:0;padding:0;margin:0;color:var(--muted);font:inherit;font-size:12px;text-decoration:underline;text-underline-offset:2px;cursor:pointer;align-self:flex-start}
+.linkbtn:hover{color:var(--ink)}
