@@ -611,3 +611,13 @@ th.thsort:hover{color:var(--accent)}
 .alrow select,.alrow input{font-family:var(--font);font-size:13px;padding:7px 9px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface-2);color:var(--ink);min-width:0}
 .alfoot{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .alfoot .ghost{font-size:12px;padding:4px 10px;height:auto}
+
+/* v75: accounts with brands under them */
+.acctog{all:unset;cursor:pointer;display:inline-flex;width:20px;justify-content:center;color:var(--muted);font-size:12px;margin-right:4px}
+.acctog:hover{color:var(--ink)}
+.acctrow td{font-weight:600}
+.acctrow .linkname{font-weight:700}
+.brandrow td{background:var(--surface-2)}
+.brandrow .brandcell{padding-left:26px}
+.brandpip{color:var(--muted);margin-right:6px}
+@media (max-width:720px){.tablewrap tr.brandrow{margin-left:16px;width:calc(100% - 16px)}.brandrow .brandcell{padding-left:0}}

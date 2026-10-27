@@ -621,7 +621,7 @@ function renderMoneyDash(){
   const bm={};
   // estimated profit by brand, all time: collected minus direct expenses minus the estimated salary share
   store.accounts.filter(a=>groupOf(a.id)===a.id).forEach(a=>{const ids=groupIds(a.id);const rev=collectedOn(ids);
-    const cost=groupCost(a.id,'0000-01','9999-12');if(rev||cost)bm[a.brand+(ids.length>1?' (group)':'')]={rev,cost};});
+    const cost=groupCost(a.id,'0000-01','9999-12');if(rev||cost)bm[a.brand]={rev,cost};});
   const marginRows=Object.entries(bm).map(([l,o])=>({l,v:o.rev-o.cost})).filter(x=>Math.abs(x.v)>0.0005).sort((a,b)=>b.v-a.v);
   const health=bizHealth(S);
   const age={cur:0,b30:0,b60:0,b60p:0};
@@ -662,7 +662,7 @@ function renderMoneyDash(){
     <div class="grid3">
       <div class="panel"><h2>Unpaid invoices ${overdueInv?`<span class="flag-over" style="font-size:11px;font-weight:700">· ${overdueInv} overdue</span>`:""}</h2><div class="attn">${chase.length?chase.map(m=>{const od=m.due&&m.due<todayISO;return `<div class="r" data-goto="invoices" data-hl="${esc(m.id)}" style="cursor:pointer"><span class="t"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||m.id)}</button> <span class="muted">· ${esc(brandOf(m.acct))}</span></span><span class="${od?'flag-over':'flag-soon'}" style="white-space:nowrap">KD ${KD(m.amt)}${m.due?` · ${esc(fmtD(m.due))}`:''}</span></div>`;}).join(""):'<div class="rowcount">All invoices settled.</div>'}</div><div class="rowcount">KD ${KD(chaseTot)} outstanding · ${unpaid.length} invoice${unpaid.length===1?'':'s'} (live, all dates)</div></div>
       <div class="panel"><h2>Expenses by category <span class="h2sub">· issued in range</span></h2><div class="body">${topCat.length?hbars(topCat,'kd'):'<div class="muted">No expenses in range</div>'}</div></div>
-      <div class="panel"><h2>Estimated profit by brand <span class="h2sub">· all time</span></h2><div class="attn">${marginRows.length?(marginRows.length>8?marginRows.slice(0,6).concat(marginRows.slice(-2)):marginRows).map(r=>`<div class="r"><span class="t">${esc(r.l)}</span><span class="num ${r.v<0?'neg':'pos'}">KD ${KD(r.v)}</span></div>`).join(""):'<div class="rowcount">No data yet.</div>'}</div><div class="rowcount">By client: a group includes the brands billed through it (Weldon Group with PhotonX and Mesoestetic Egypt). Collected minus brand expenses minus an estimated salary share (each person's salary split by their tasks done that month). Payouts are profit shares, not costs.${(()=>{const u=Object.values(estAlloc().unal).reduce((x,y)=>x+y,0);return u>0.0005?` KD ${KD(u)} of salaries falls in months with no completed tasks and is not split.`:'';})()}</div></div>
+      <div class="panel"><h2>Estimated profit by account <span class="h2sub">· all time</span></h2><div class="attn">${marginRows.length?(marginRows.length>8?marginRows.slice(0,6).concat(marginRows.slice(-2)):marginRows).map(r=>`<div class="r"><span class="t">${esc(r.l)}</span><span class="num ${r.v<0?'neg':'pos'}">KD ${KD(r.v)}</span></div>`).join(""):'<div class="rowcount">No data yet.</div>'}</div><div class="rowcount">Per account, including the brands billed through it (Weldon Group with PhotonX and Mesoestetic Egypt). Collected minus brand expenses minus an estimated salary share (each person's salary split by their tasks done that month). Payouts are profit shares, not costs.${(()=>{const u=Object.values(estAlloc().unal).reduce((x,y)=>x+y,0);return u>0.0005?` KD ${KD(u)} of salaries falls in months with no completed tasks and is not split.`:'';})()}</div></div>
     </div>
     <div class="panel"><h2>Unpaid invoices by age</h2><div class="attn">
         <div class="r"><span class="t">Not due yet</span><span class="num">KD ${KD(age.cur)}</span></div>
@@ -736,7 +736,7 @@ function bizHealth(S){
   const mrr=rets.reduce((x,a)=>x+fee(a),0);
   const since=shiftMonths(todayISO,-12);
   const billed=store.money.filter(m=>m.dir==='Income'&&!voided(m)&&(m.date||'')>=since&&(m.date||'')<=todayISO);
-  const tot=billed.reduce((x,m)=>x+(+m.amt||0),0);const by={};billed.forEach(m=>{const b=brandOf(m.acct)||'No brand';by[b]=(by[b]||0)+(+m.amt||0);});
+  const tot=billed.reduce((x,m)=>x+(+m.amt||0),0);const by={};billed.forEach(m=>{const b=brandOf(groupOf(m.acct))||'No brand';by[b]=(by[b]||0)+(+m.amt||0);});
   const top=Object.entries(by).sort((a,b)=>b[1]-a[1]).slice(0,3);const topShare=tot?Math.round(top.reduce((x,e)=>x+e[1],0)/tot*100):0;
   const owedAll=store.money.filter(owed);const owedTot=owedAll.reduce((x,m)=>x+(+m.amt||0),0);
   const old=owedAll.filter(m=>m.due&&daysBetween(m.due,todayISO)>60).reduce((x,m)=>x+(+m.amt||0),0);
@@ -747,7 +747,7 @@ function healthPanel(h){
   const r=(t,v,cls,sub)=>`<div class="r"><span class="t">${t}${sub?` <span class="muted">· ${sub}</span>`:''}</span><span class="num ${cls||''}">${v}</span></div>`;
   return `<div class="panel"><h2>Business health <span class="h2sub">· today, not the date range</span></h2><div class="attn">
     ${r('Monthly recurring revenue','KD '+KD(h.mrr),'pos',h.nRet+' active retainer'+(h.nRet===1?'':'s'))}
-    ${r('Top 3 clients, last 12 months',h.topShare+'% of billing',h.topShare>=60?'neg':'',h.top.map(e=>esc(e[0])).join(', '))}
+    ${r('Top 3 accounts, last 12 months',h.topShare+'% of billing',h.topShare>=60?'neg':'',h.top.map(e=>esc(e[0])).join(', '))}
     ${r('Owed more than 60 days','KD '+KD(h.old),h.oldShare>=30?'neg':'',h.oldShare+'% of KD '+KD(h.owedTot)+' owed')}
     ${r('Runway at current costs',h.runway==null?'-':(h.runway<1?'under 1 month':h.runway.toFixed(1)+' months'),h.runway!=null&&h.runway<3?'neg':'pos','bank vs KD '+KD(h.out3)+' a month of expenses and salaries, last 3 months')}
   </div></div>`;}
@@ -1148,39 +1148,53 @@ function renderPayouts(){
   document.querySelectorAll('.pytoggle').forEach(b=>b.onclick=()=>{const g=events.find(e=>e.batch===b.dataset.batch);if(!g)return;const to=b.dataset.to;updateMany("money",g.ids,{status:to,paid:(to==='Paid'?(g.date||todayISO):"")});});
   document.querySelectorAll('.pydel').forEach(b=>b.onclick=()=>{const g=events.find(e=>e.batch===b.dataset.batch);if(!g)return;removeMany("money",g.ids);});
 }
+// Accounts (v75): an account is who we bill; brands sit under it. Account rows show totals for everything under them;
+// expand one to see each brand's own numbers. Searching or picking a brand switches to a flat list of brands.
+if(!state.accOpen)state.accOpen=new Set();
+function acctStats(ids,group){
+  const open=store.tasks.filter(t=>ids.includes(t.acct)&&isOpenT(t)).length;
+  const coll=collectedOn(ids);
+  const out=store.money.filter(m=>ids.includes(m.acct)&&owed(m)).reduce((s,m)=>s+(+m.amt||0),0);
+  const eng=store.engagements.filter(e=>ids.includes(e.acct)).length;
+  const cost=group?groupCost(ids[0],'0000-01','9999-12'):ids.reduce((s,x)=>s+estCost(x,'0000-01','9999-12'),0);
+  return {open,coll,out,eng,cost,margin:coll-cost};}
 function renderAccounts(){
-  let rows=store.accounts.map(a=>{
-    const open=store.tasks.filter(t=>t.acct===a.id&&isOpenT(t)).length;
-    const coll=store.money.filter(m=>m.acct===a.id&&m.dir==="Income"&&m.status==="Paid").reduce((s,m)=>s+(+m.amt||0),0);
-    const out=store.money.filter(m=>m.acct===a.id&&m.dir==="Income"&&!voided(m)).reduce((s,m)=>s+(+m.amt||0),0)-coll;
-    const eng=store.engagements.filter(e=>e.acct===a.id).length;
-    const isChild=groupOf(a.id)!==a.id,ids=groupIds(a.id);
-    const cost=isChild?estCost(a.id,'0000-01','9999-12'):groupCost(a.id,'0000-01','9999-12');
-    const margin=isChild?null:collectedOn(ids)-cost;
-    return Object.assign({open,coll,out,eng,cost,margin,isChild,grpN:ids.length},a);
-  }).filter(a=>(!F.brand||a.brand===F.brand)&&(!F.status||a.lifecycle===F.status)&&(!F.q||((a.id+" "+(a.brand||"")+" "+(a.country||"")+" "+(a.type||"")).toLowerCase().includes(F.q))));
+  const flat=!!(F.q||F.brand);
+  const match=a=>(!F.brand||a.brand===F.brand||brandOf(groupOf(a.id))===F.brand)&&(!F.status||a.lifecycle===F.status)&&(!F.q||((a.id+" "+(a.brand||"")+" "+(a.country||"")+" "+(a.type||"")).toLowerCase().includes(F.q)));
   // the default Lost/Churned filter steps aside when the user searches or picks a brand or lifecycle at the top
   const cfA=state.colF.accounts;if((F.brand||F.status||F.q)&&cfA&&cfA.lifecycle&&cfA.lifecycle.join()==='Lead,Active,Paused,Internal')delete cfA.lifecycle;
-  const _base=rows; rows=arrange(_base,'accounts');
+  const kidsOf=id=>groupIds(id).slice(1);
+  let _base,rows;
+  if(flat){_base=store.accounts.filter(match).map(a=>Object.assign({},a,acctStats([a.id],false),{kind:'brand',kids:0}));rows=arrange(_base,'accounts');}
+  else{_base=store.accounts.filter(a=>groupOf(a.id)===a.id&&match(a)).map(a=>{const k=kidsOf(a.id);return Object.assign({},a,acctStats([a.id,...k],k.length>0),{kind:'account',kids:k.length});});
+    rows=[];arrange(_base,'accounts').forEach(r=>{rows.push(r);if(r.kids&&state.accOpen.has(r.id)){
+      const own=AMAP[r.id];rows.push(Object.assign({},own,acctStats([r.id],false),{kind:'brand',own:true}));
+      kidsOf(r.id).map(id=>AMAP[id]).filter(Boolean).sort(byIdDesc).forEach(b=>rows.push(Object.assign({},b,acctStats([b.id],false),{kind:'brand'})));}});}
   const ro=canWrite?"":"disabled";
   const hasCountry=store.accounts.some(a=>a.country);
-  const head=[["id","ID"],["brand","Brand"],...(hasCountry?[["country","Country"]]:[]),["type","Type"],["lifecycle","Lifecycle"],["eng","Engagements"],["open","Open"],["coll","Collected"],["out","Outstanding"],["cost","Est. cost"],["margin","Est. margin"]];
+  const head=[["id","ID"],["brand",flat?"Brand":"Account"],...(hasCountry?[["country","Country"]]:[]),["type","Type"],["lifecycle","Lifecycle"],["eng","Engagements"],["open","Open"],["coll","Collected"],["out","Outstanding"],["cost","Est. cost"],["margin","Est. margin"]];
   const hiddenN=_base.length-tableFilter(_base,'accounts').length;
-  $('view').innerHTML=`<div class="view"><div class="panel tpanel">
-    <div class="addbar"><button class="btn" id="acAdd"${canWrite?"":" disabled"}>+ Add account</button><span class="hint">Click a brand to open its profile. Est. cost = brand expenses plus an estimated salary share. A parent's cost and margin include the brands billed through it.</span></div>
-    <div class="tablewrap"><table>
-    <thead><tr>${thhead(head)}</tr></thead>
-    <tbody>${rows.map(a=>`<tr>
+  const groups=_base.filter(r=>r.kids).length;
+  const row=a=>{const acc=a.kind==='account';const tog=acc&&a.kids?`<button class="acctog" data-acctog="${esc(a.id)}" aria-expanded="${state.accOpen.has(a.id)}" title="${state.accOpen.has(a.id)?'Hide':'Show'} brands">${state.accOpen.has(a.id)?'▾':'▸'}</button>`:'';
+    return `<tr class="${acc?(a.kids?'acctrow':''):(flat?'':'brandrow')}">
       <td class="id">${esc(a.id)}</td>
-      <td class="brandcell"><button class="linkname" data-brand="${esc(a.id)}">${esc(a.brand)}</button></td>
+      <td class="brandcell"><span class="bc">${tog}${!acc&&!flat?'<span class="brandpip">↳</span>':''}<button class="linkname" data-brand="${esc(a.id)}">${esc(a.brand)}</button>${a.own?' <span class="muted">own work</span>':''}${acc&&a.kids?` <span class="rtag">${a.kids+1} brands</span>`:''}${flat&&groupOf(a.id)!==a.id?` <span class="muted">· ${esc(brandOf(groupOf(a.id)))}</span>`:''}</span></td>
       ${hasCountry?`<td><input class="edit" style="width:104px" data-c="accounts" data-id="${esc(a.id)}" data-f="country" value="${esc(a.country||'')}" ${ro}></td>`:''}
       <td class="muted">${esc(a.type||'')}</td>
       <td>${csel("life","accounts",a.id,"lifecycle",a.lifecycle,LIFE,ro)}</td>
       <td class="num">${a.eng}</td><td class="num">${a.open}</td>
       <td class="num pos">${KD(a.coll)}</td><td class="num ${a.out>0?'neg':''}">${KD(a.out)}</td>
-      <td class="num ${a.cost>0?'neg':''}">${KD(a.cost)}</td>${a.isChild?`<td class="num muted" title="Billed through ${esc(brandOf(groupOf(a.id)))}: its cost counts in that group's margin">in ${esc(brandOf(groupOf(a.id)))}</td>`:`<td class="num ${a.margin<0?'neg':'pos'}"${a.grpN>1?` title="Includes ${a.grpN-1} brand${a.grpN>2?'s':''} billed through it"`:''}>${KD(a.margin)}${a.grpN>1?' <span class="muted">(group)</span>':''}</td>`}</tr>`).join("")}</tbody></table></div>
-    <div class="rowcount">${rows.length} accounts${hiddenN?` · ${hiddenN} hidden by filters (Lost and Churned are hidden by default; Clear filters shows all)`:''}</div></div></div>`;
+      <td class="num ${a.cost>0?'neg':''}">${KD(a.cost)}</td><td class="num ${a.margin<0?'neg':'pos'}">${KD(a.margin)}</td></tr>`;};
+  $('view').innerHTML=`<div class="view"><div class="panel tpanel">
+    <div class="addbar"><button class="btn" id="acAdd"${canWrite?"":" disabled"}>+ Add account</button>${!flat&&groups?`<button class="ghost" id="acOpenAll">Show all brands</button><button class="ghost" id="acCloseAll">Hide brands</button>`:''}<span class="hint">${flat?'Brands matching your filter, each with its own numbers.':'Account rows total every brand billed through them. Expand an account for each brand\'s own numbers.'} Est. cost = brand expenses plus an estimated salary share.</span></div>
+    <div class="tablewrap"><table>
+    <thead><tr>${thhead(head)}</tr></thead>
+    <tbody>${rows.map(row).join("")}</tbody></table></div>
+    <div class="rowcount">${flat?`${rows.length} brands`:`${_base.length-hiddenN} accounts · ${store.accounts.length} brands in all`}${hiddenN?` · ${hiddenN} hidden by filters (Lost and Churned are hidden by default; Clear filters shows all)`:''}</div></div></div>`;
   if($('acAdd'))$('acAdd').onclick=openAccountNew;
+  document.querySelectorAll('[data-acctog]').forEach(b=>b.onclick=e=>{e.stopPropagation();const id=b.dataset.acctog;state.accOpen.has(id)?state.accOpen.delete(id):state.accOpen.add(id);renderAccounts();});
+  if($('acOpenAll'))$('acOpenAll').onclick=()=>{_base.filter(r=>r.kids).forEach(r=>state.accOpen.add(r.id));renderAccounts();};
+  if($('acCloseAll'))$('acCloseAll').onclick=()=>{state.accOpen.clear();renderAccounts();};
   bindTable('accounts',_base,renderAccounts);
 }
 
