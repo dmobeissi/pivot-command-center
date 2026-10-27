@@ -43,7 +43,7 @@ const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 const KD=n=>(n==null||isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
 const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v67 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v68 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -173,17 +173,21 @@ function applyLocal(coll,id,patch){ const arr=store[coll]; if(!arr)return; const
 const errMsg=e=>{const s=(e&&(e.message||e.hint||e.details))||"";return s?(": "+String(s).slice(0,140)):"";};
 const ready=()=>COLLS.every(c=>loaded[c]);
 
+// Rule (27 Oct): a Done task with a done date but no due date gets due = done on save. Status Done without a due date stays allowed
+function byIdDesc(a,b){return String(b.id||'').localeCompare(String(a.id||''),undefined,{numeric:true});}
+function taskDueRule(cur,patch){const m=Object.assign({},cur||{},patch);if(m.status==='Done'&&!m.due&&m.done)patch.due=m.done;return patch;}
 async function write(coll,id,patch){
   if(!canWrite){toast("Read-only access");return;}
+  if(coll==='tasks')taskDueRule((store.tasks||[]).find(x=>x.id===id),patch);
   const o=toDB(coll,patch); delete o.id;              // never try to update the primary key
   const {error}=await sb.from(coll).update(o).eq('id',id);
   if(error){ toast("Save failed"+errMsg(error)); console.error(error); } else { toast("Saved"); applyLocal(coll,id,patch); }
 }
-async function create(coll,id,data){ if(!canWrite){toast("Read-only access");return;} const row=Object.assign({id},toDB(coll,data)); const {error}=await sb.from(coll).insert(row); if(error){ toast("Add failed"+errMsg(error)); console.error(error);} else { toast("Added"); logAct("added",coll,id,data.name||data.desc||""); await fetchColl(coll); render(); } }
+async function create(coll,id,data){ if(!canWrite){toast("Read-only access");return;} if(coll==='tasks')taskDueRule(null,data); const row=Object.assign({id},toDB(coll,data)); const {error}=await sb.from(coll).insert(row); if(error){ toast("Add failed"+errMsg(error)); console.error(error);} else { toast("Added"); logAct("added",coll,id,data.name||data.desc||""); await fetchColl(coll); render(); } }
 async function remove(coll,id){ if(!canWrite){toast("Read-only access");return;} const row=(store[coll]||[]).find(r=>r.id===id); const {error}=await sb.from(coll).delete().eq("id",id); if(error){ toast("Delete failed"+errMsg(error)); console.error(error);} else { logAct("deleted",coll,id,""); await fetchColl(coll); render(); if(row)undoToast("Deleted",coll,[row]); else toast("Deleted"); } }
 async function restoreRows(coll,rows){ if(!canWrite||!rows||!rows.length)return; const payload=rows.map(r=>toDB(coll,Object.assign({},r))); const {error}=await sb.from(coll).insert(payload); if(error){ toast("Undo failed"); console.error(error); return; } rows.forEach(r=>logAct("restored",coll,r.id,r.desc||r.name||"")); await fetchColl(coll); render(); toast(rows.length>1?("Restored "+rows.length):"Restored"); }
 function undoToast(msg,coll,rows){ const t=$('toast'); if(!t)return; const hide=()=>{t.classList.remove('show');t.style.pointerEvents='';t.innerHTML='';}; t.innerHTML=`<span>${esc(msg)}</span><button id="undoBtn" class="undobtn">Undo</button>`; t.classList.add('show'); t.style.pointerEvents='auto'; clearTimeout(t._t); t._t=setTimeout(hide,7000); const b=$('undoBtn'); if(b)b.onclick=()=>{clearTimeout(t._t);hide();restoreRows(coll,rows);}; }
-async function createMany(coll,rows){ if(!canWrite){toast("Read-only access");return;} if(!rows.length)return; const payload=rows.map(r=>toDB(coll,r)); const {error}=await sb.from(coll).insert(payload); if(error){ toast("Add failed"+errMsg(error)); console.error(error);} else { toast("Added "+rows.length); rows.forEach(r=>logAct("added",coll,r.id,r.desc||"")); await fetchColl(coll); render(); } }
+async function createMany(coll,rows){ if(!canWrite){toast("Read-only access");return;} if(!rows.length)return; if(coll==='tasks')rows.forEach(r=>taskDueRule(null,r)); const payload=rows.map(r=>toDB(coll,r)); const {error}=await sb.from(coll).insert(payload); if(error){ toast("Add failed"+errMsg(error)); console.error(error);} else { toast("Added "+rows.length); rows.forEach(r=>logAct("added",coll,r.id,r.desc||"")); await fetchColl(coll); render(); } }
 async function removeMany(coll,ids){ if(!canWrite){toast("Read-only access");return;} if(!ids.length)return; const rows=(store[coll]||[]).filter(r=>ids.includes(r.id)); const {error}=await sb.from(coll).delete().in("id",ids); if(error){ toast("Delete failed"+errMsg(error)); console.error(error);} else { ids.forEach(id=>logAct("deleted",coll,id,"")); await fetchColl(coll); render(); undoToast("Deleted "+ids.length,coll,rows); } }
 async function updateMany(coll,ids,patch){ if(!canWrite){toast("Read-only access");return;} if(!ids.length)return; const o=toDB(coll,patch); delete o.id; const {error}=await sb.from(coll).update(o).in("id",ids); if(error){ toast("Save failed"+errMsg(error)); console.error(error);} else { toast("Saved"); await fetchColl(coll); render(); } }
 function nextId(coll,prefix,pad){let mx=0;store[coll].forEach(d=>{const m=String(d.id).match(/(\d+)$/);if(m)mx=Math.max(mx,+m[1]);});return prefix+String(mx+1).padStart(pad,"0");}
@@ -611,16 +615,16 @@ function renderMoneyDash(){
 
 function sortBy(arr,k,dir){return [...arr].sort((a,b)=>{let x=a[k],y=b[k];if(k==='amt'){x=+a.amt||0;y=+b.amt||0;}x=x==null?"":x;y=y==null?"":y;return x>y?dir:x<y?-dir:0;});}
 // ---- data tables: nested multi-sort + per-column Excel-style filter ----
-// default sort per table: the date first, then the entry sequence number, so same-date rows read in order
-const DEFSORT={invoices:[{k:'date',dir:-1},{k:'seq',dir:-1}],expenses:[{k:'date',dir:-1},{k:'seq',dir:-1}],tasks:[{k:'due',dir:1},{k:'seq',dir:1}],accounts:[{k:'date_added',dir:-1},{k:'seq',dir:-1}],services:[{k:'active',dir:-1},{k:'name',dir:1}],svc_build:[{k:'id',dir:1}],svc_run:[{k:'id',dir:1}],svc_prog:[{k:'price',dir:1}]};
+// default sort for every table: newest ID first (Daoud, 27 Oct). Invoices sort by invoice number, which equals the ID
+const DEFSORT={invoices:[{k:'inv_no',dir:-1},{k:'id',dir:-1}]};
 const NUMCOLS=new Set(['amt','coll','out','cost','margin','eng','open','price','retainer_fee','value','seq']);
 const DATECOLS=new Set(['date','due','done','logged','paid','date_added','start_date','due_date','signed_date','contract_date','close_date']);
 const TEXTCOLS=new Set(['inv_no','id','desc','name','notes','output','details','title']);       // sort + text search
 const CATCOLS=new Set(['brand','income_type','status','owner','priority','country','type','lifecycle','cat','tags','active','stage','role','reqby','unit']); // sort + value checklist
 function seqOf(r){const m=String(r.inv_no||r.id||'').match(/(\d+)(?!.*\d)/);return m?+m[1]:0;}
 function colVal(r,k){ if(k==='seq')return seqOf(r); if(k==='brand')return brandOf(r.acct)||''; let v=r[k]; if(NUMCOLS.has(k))return +v||0; return v==null?'':String(v); }
-function sortByMulti(arr,keys){ return [...arr].sort((a,b)=>{ for(const s of keys){let x=colVal(a,s.k),y=colVal(b,s.k); if(typeof x==='string'||typeof y==='string'){x=(''+x).toLowerCase();y=(''+y).toLowerCase();} if(x<y)return -s.dir; if(x>y)return s.dir;} return 0; }); }
-function effSort(tbl){const m=state.msort[tbl];return (m&&m.length)?m:(DEFSORT[tbl]||[]);}
+function sortByMulti(arr,keys){ return [...arr].sort((a,b)=>{ for(const s of keys){let x=colVal(a,s.k),y=colVal(b,s.k); if(typeof x==='string'||typeof y==='string'){const c=(''+x).localeCompare(''+y,undefined,{numeric:true,sensitivity:'base'});if(c)return c*s.dir;continue;} if(x<y)return -s.dir; if(x>y)return s.dir;} return 0; }); }
+function effSort(tbl){const m=state.msort[tbl];return (m&&m.length)?m:(DEFSORT[tbl]||[{k:'id',dir:-1}]);}
 function tableFilter(rows,tbl){const f=state.colF[tbl]||{};const rng=state.colRange[tbl]||{};const txt=state.colText[tbl]||{};
   const fks=Object.keys(f).filter(k=>f[k]&&f[k].length);
   const rks=Object.keys(rng).filter(k=>rng[k]&&(rng[k].from||rng[k].to));
@@ -819,7 +823,7 @@ function renderExpenses(){
   const top=Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([l,v])=>({l,v}));
   const head=[["id","ID"],["date","Date"],["brand","Brand"],["cat","Category"],["desc","Description"],["amt","Amount"],["status","Status"],["",""]];
   const ro=canWrite?"":"disabled";
-  const rtpls=(store.templates||[]).filter(t=>t.kind==="expense");
+  const rtpls=(store.templates||[]).filter(t=>t.kind==="expense").sort(byIdDesc);
   const dueCount=recurringExpenseDue().length;
   const rtHtml=rtpls.length?rtpls.map(t=>`<div class="por"><span class="porperson"><button class="linkname" data-etpl="${esc(t.id)}">${esc(t.name||t.cat||t.id)}</button><span class="rtag">${esc(t.freq||'Monthly')}</span>${(t.active||"Yes")==="No"?'<span class="rtag" style="color:var(--bad);background:var(--bad-soft)">paused</span>':''}</span><span class="num neg">KD ${KD(Math.abs(+t.amt||0))}${(t.freq==='Yearly'?' /yr':' /mo')}</span></div>`).join(""):'<div class="rowcount">No recurring expenses yet.</div>';
   $('view').innerHTML=`<div class="view">
@@ -2038,7 +2042,7 @@ async function generateMonthly(){
   toast("Generated "+made+", skipped "+skip+" already there");
 }
 function renderRecurring(){
-  const tpls=(store.templates||[]).filter(t=>t.kind!=="expense");const ro=canWrite?"":"disabled";
+  const tpls=(store.templates||[]).filter(t=>t.kind!=="expense").sort(byIdDesc);const ro=canWrite?"":"disabled";
   const trows=tpls.length?tpls.map(t=>`<tr>
     <td class="id">${esc(t.id)}</td>
     <td><select class="edit" data-c="templates" data-id="${esc(t.id)}" data-f="acct" ${ro}>${brandOpts(t.acct)}</select></td>
