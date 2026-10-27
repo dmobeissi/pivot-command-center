@@ -28,7 +28,7 @@ const SOFT=new Set(['people','services','deals','projects']); // tables that may
 let AMAP={}, canWrite=false, booted=false, myName="Someone", PEOPLE={};
 let sb=null, session=null;
 const ALLCOLLS=["accounts","engagements","tasks","money","templates","people","services","deals","projects"];
-const F={brand:"",team:"",status:"",q:"",quick:""};
+const F={brand:"",team:"",status:"",q:"",quick:"open"};
 const state={view:(()=>{try{return localStorage.getItem('pivot_view')||"digest"}catch(e){return"digest"}})(),sortT:{k:"due",dir:1},sortM:{k:"date",dir:-1},me:(()=>{try{return localStorage.getItem('pivot_me')||""}catch(e){return""}})(),
   range:(()=>{try{return JSON.parse(localStorage.getItem('pivot_range'))||{preset:'mtd',from:'',to:''}}catch(e){return{preset:'mtd',from:'',to:''}}})(),
   cmp:(()=>{try{return localStorage.getItem('pivot_cmp')||'prev_period'}catch(e){return'prev_period'}})(),
@@ -39,6 +39,9 @@ const state={view:(()=>{try{return localStorage.getItem('pivot_view')||"digest"}
 // today in the user's local time (Kuwait), refreshed on every render so a tab left open overnight moves to the new day
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 let todayISO=localISO();
+const MONS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+// display dates as "28 Oct 2026" (ISO stays in data and CSV)
+function fmtD(iso){if(!iso)return '';const m=String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);return m?(+m[3])+' '+MONS[+m[2]-1]+' '+m[1]:String(iso);}
 const RECOVERY=/type=recovery/.test(location.hash||'');
 
 const $=id=>document.getElementById(id);
@@ -48,7 +51,7 @@ const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t.onclick=null;t.style.pointerEvents='';
   if(ms===-1){t.style.pointerEvents='auto';t.style.cursor='pointer';t.onclick=()=>{t.classList.remove('show');t.style.pointerEvents='';t.style.cursor='';};return;} // sticky until clicked
   const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v70 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v71 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -316,6 +319,7 @@ function tasksF(){return store.tasks.filter(t=>{
   return true;});}
 function applyQuick(arr){if(!F.quick)return arr;return arr.filter(t=>{
   if(F.quick==='open')return t.status!=='Done';
+  if(F.quick==='nodue')return t.status!=='Done'&&!t.due;
   if(F.quick==='done')return t.status==='Done';
   if(F.quick==='overdue')return t.status!=='Done'&&t.due&&t.due<todayISO;
   if(F.quick==='week')return t.status!=='Done'&&t.due&&t.due>=todayISO&&(new Date(t.due)-new Date(todayISO))<=7*864e5;
@@ -400,7 +404,7 @@ function rangeBar(actions){
   const presets=[['today','Today'],['yesterday','Yesterday'],['last7','Last 7 days'],['last30','Last 30 days'],['last90','Last 90 days'],['wtd','Week to date'],['mtd','Month to date'],['qtd','Quarter to date'],['ytd','Year to date'],['lastmonth','Last month'],['all','All time'],['custom','Custom']];
   const cmps=[['none','No comparison'],['prev_period','Previous period'],['prev_month','Previous month'],['prev_year','Previous year']];
   const isC=state.range.preset==='custom';const R=activeRange();const C=cmpRange(R.from,R.to);
-  const span=(a,b)=>a==='2000-01-01'?'All time':`${esc(a)} → ${esc(b==='9999-12-31'?'now':b)}`;
+  const span=(a,b)=>a==='2000-01-01'?'All time':`${esc(fmtD(a))} to ${esc(b==='9999-12-31'?'now':fmtD(b))}`;
   return `<div class="rangebar">
     <div class="rgrp"><select id="dPreset" aria-label="Date range">${presets.map(p=>`<option value="${p[0]}"${state.range.preset===p[0]?' selected':''}>${p[1]}</option>`).join("")}</select>
     ${isC?`<input type="date" id="dFrom" value="${esc(state.range.from)}"><span class="hint">to</span><input type="date" id="dTo" value="${esc(state.range.to)}">`:`<span class="rdates">${span(R.from,R.to)}</span>`}</div>
@@ -447,7 +451,7 @@ function renderTasksDash(){
     ${rangeBar(`<button class="ghost" id="repBtn">Export report</button>`)}
     <div class="kpis k4">${kpi("Logged in range",curT.created,"accent",prevT?delta(curT.created,prevT.created,true):"")}${kpi("Completed in range",curT.completed,"good",prevT?delta(curT.completed,prevT.completed,true):"")}${kpi("Open tasks",open,"accent")}${kpi("Overdue",overdue,"bad")}${kpi("High open",high,"warn")}${kpi("Done",done,"good")}${kpi("Active brands",store.accounts.filter(a=>a.lifecycle==="Active").length,"")}${kpi("Engagements",store.engagements.length,"")}</div>
     <div class="grid3">
-      <div class="panel"><h2>Needs attention, soonest due</h2><div class="attn">${attn.length?attn.map(t=>{const[fl,fc]=flag(t);return `<div class="r"><span class="t"><button class="linkname" data-open="${esc(t.id)}">${esc(t.name||t.id)}</button> <span class="muted">· ${esc(brandOf(t.acct))}</span></span><span class="${fc}">${esc(t.due||'')}</span></div>`;}).join(""):'<div class="rowcount">Nothing due.</div>'}</div></div>
+      <div class="panel"><h2>Needs attention, soonest due</h2><div class="attn">${attn.length?attn.map(t=>{const[fl,fc]=flag(t);return `<div class="r"><span class="t"><button class="linkname" data-open="${esc(t.id)}">${esc(t.name||t.id)}</button> <span class="muted">· ${esc(brandOf(t.acct))}</span></span><span class="${fc}">${esc(fmtD(t.due))}</span></div>`;}).join(""):'<div class="rowcount">Nothing due.</div>'}</div></div>
       <div class="panel"><h2>Tasks by status</h2><div class="body" style="display:flex;justify-content:center">${donut(sParts.map(p=>({v:p.v,c:p.c,k:p.name})))}</div><div class="legend">${sParts.map(p=>`<span class="drill" data-drill="status" data-val="${esc(p.name)}"><span class="sw" style="background:${p.c}"></span>${p.name} ${p.v}</span>`).join("")}</div></div>
       <div class="panel"><h2>Open tasks by owner</h2><div class="body">${ownerItems.length?hbars(ownerItems,null,'team'):'<div class="muted">No open tasks</div>'}</div></div>
     </div>
@@ -521,7 +525,7 @@ function cashWaterfall(items){
 function drillList(title,rows,viewKey,viewLabel){
   rows=[...rows].sort((a,b)=>(((b.paid||b.date||'')+'').localeCompare((a.paid||a.date||''))));
   const tot=rows.reduce((s,m)=>s+Math.abs(+m.amt||0),0);
-  const body=rows.length?rows.map(m=>`<div class="r"><span class="t"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||m.inv_no||m.id)}</button> <span class="muted">· ${esc(brandOf(m.acct)||m.partner||'')}</span></span><span style="display:flex;gap:8px;align-items:center;white-space:nowrap"><span class="num">KD ${KD(Math.abs(+m.amt||0))}</span><span class="dchip ${m.status==='Paid'?'dchip-good':(owed(m)||owedOut(m)?'dchip-warn':'')}">${esc(m.status||'')}</span> <span class="muted">${esc(m.paid||m.date||'')}</span></span></div>`).join(""):'<div class="rowcount">Nothing here.</div>';
+  const body=rows.length?rows.map(m=>`<div class="r"><span class="t"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||m.inv_no||m.id)}</button> <span class="muted">· ${esc(brandOf(m.acct)||m.partner||'')}</span></span><span style="display:flex;gap:8px;align-items:center;white-space:nowrap"><span class="num">KD ${KD(Math.abs(+m.amt||0))}</span><span class="dchip ${m.status==='Paid'?'dchip-good':(owed(m)||owedOut(m)?'dchip-warn':'')}">${esc(m.status||'')}</span> <span class="muted">${esc(fmtD(m.paid||m.date))}</span></span></div>`).join(""):'<div class="rowcount">Nothing here.</div>';
   $('modal').innerHTML=`<div class="sheet">
     <div class="sheethead"><div><div class="id">${rows.length} item${rows.length===1?'':'s'} · KD ${KD(tot)}</div><h3>${esc(title)}</h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
     <div class="formfull"><div class="attn">${body}</div></div>
@@ -564,7 +568,7 @@ function drillMoney(tok){
   const R=activeRange();
   const inIssue=m=>(m.date||'')>=R.from&&(m.date||'')<=R.to;
   const inPaid=m=>m.status==='Paid'&&(m.paid||m.date||'')>=R.from&&(m.paid||m.date||'')<=R.to;
-  const rng=R.from+' → '+(R.to==='9999-12-31'?'now':R.to);
+  const rng=R.from==='2000-01-01'?'All time':fmtD(R.from)+' to '+(R.to==='9999-12-31'?'now':fmtD(R.to));
   const dirOf={invoices:'Income',expenses:'Expense',salaries:'Salary',payouts:'Payout'};
   const labelOf={invoices:'Invoices',expenses:'Expenses',salaries:'Salaries',payouts:'Payouts'};
   let set=[],title='',view='',vlabel='';
@@ -606,7 +610,7 @@ function renderMoneyDash(){
       <div class="kpi ${bankCls} kpiclick" data-dm="cashpos" style="grid-column:span 2" title="See the cash position breakdown"><span class="lab">In the bank now</span><span class="val valbig">KD ${KD(S.bankBalance)}</span><span class="kdelta muted">If everything owed clears: KD ${KD(settled)}</span></div>
       <div class="kpiclick" data-dm="collect">${kpi("Still to collect","KD "+KD(S.toCollect),"warn")}</div><div class="kpiclick" data-dm="pay">${kpi("Still to pay out","KD "+KD(S.toPayOut),"bad")}</div>
     </div>
-    <div class="panel"><h2>Issued vs paid <span class="h2sub">· ${esc(R.from)} → ${esc(R.to==='9999-12-31'?'now':R.to)} · click a number to see which</span></h2>
+    <div class="panel"><h2>Issued vs paid <span class="h2sub">· ${R.from==='2000-01-01'?'All time':esc(fmtD(R.from))+' to '+esc(R.to==='9999-12-31'?'now':fmtD(R.to))} · click a number to see which</span></h2>
       <div class="ivpwrap">
         ${ivpRow("Invoices",S.perType.income.issued,S.perType.income.paid,true,"invoices")}
         ${ivpRow("Expenses",S.perType.expense.issued,S.perType.expense.paid,false,"expenses")}
@@ -630,7 +634,7 @@ function renderMoneyDash(){
     </div>
     <div class="panel"><h2>Collected over time <span class="h2sub">· by the date paid</span></h2><div class="body">${series.length?vbars(series,'kd'):'<div class="muted">Nothing collected in range</div>'}</div></div>
     <div class="grid3">
-      <div class="panel"><h2>Unpaid invoices ${overdueInv?`<span class="flag-over" style="font-size:11px;font-weight:700">· ${overdueInv} overdue</span>`:""}</h2><div class="attn">${chase.length?chase.map(m=>{const od=m.due&&m.due<todayISO;return `<div class="r" data-goto="invoices" data-hl="${esc(m.id)}" style="cursor:pointer"><span class="t"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||m.id)}</button> <span class="muted">· ${esc(brandOf(m.acct))}</span></span><span class="${od?'flag-over':'flag-soon'}" style="white-space:nowrap">KD ${KD(m.amt)}${m.due?` · ${esc(m.due)}`:''}</span></div>`;}).join(""):'<div class="rowcount">All invoices settled.</div>'}</div><div class="rowcount">KD ${KD(chaseTot)} outstanding · ${unpaid.length} invoice${unpaid.length===1?'':'s'} (live, all dates)</div></div>
+      <div class="panel"><h2>Unpaid invoices ${overdueInv?`<span class="flag-over" style="font-size:11px;font-weight:700">· ${overdueInv} overdue</span>`:""}</h2><div class="attn">${chase.length?chase.map(m=>{const od=m.due&&m.due<todayISO;return `<div class="r" data-goto="invoices" data-hl="${esc(m.id)}" style="cursor:pointer"><span class="t"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||m.id)}</button> <span class="muted">· ${esc(brandOf(m.acct))}</span></span><span class="${od?'flag-over':'flag-soon'}" style="white-space:nowrap">KD ${KD(m.amt)}${m.due?` · ${esc(fmtD(m.due))}`:''}</span></div>`;}).join(""):'<div class="rowcount">All invoices settled.</div>'}</div><div class="rowcount">KD ${KD(chaseTot)} outstanding · ${unpaid.length} invoice${unpaid.length===1?'':'s'} (live, all dates)</div></div>
       <div class="panel"><h2>Expenses by category <span class="h2sub">· issued in range</span></h2><div class="body">${topCat.length?hbars(topCat,'kd'):'<div class="muted">No expenses in range</div>'}</div></div>
       <div class="panel"><h2>Profit by brand <span class="h2sub">· all time · collected minus paid costs on the brand</span></h2><div class="attn">${marginRows.length?marginRows.map(r=>`<div class="r"><span class="t">${esc(r.l)}</span><span class="num ${r.v<0?'neg':'pos'}">KD ${KD(r.v)}</span></div>`).join(""):'<div class="rowcount">No data yet.</div>'}</div></div>
     </div>
@@ -684,7 +688,7 @@ function thhead(head,tbl){if(tbl)_TBL=tbl;const t=_TBL;const keys=effSort(t);con
     const txtOn=state.colText[t]&&state.colText[t][h[0]];
     const filt=((state.colF[t]&&state.colF[t][h[0]]&&state.colF[t][h[0]].length)||rngOn||txtOn)?' <span class="thfilt" title="Filtered">\u25BC</span>':'';
     return `<th data-k="${esc(h[0])}" data-lbl="${esc(h[1])}" class="thsort">${h[1]}${arrow}${pri}${filt}</th>`;}).join("");}
-function bindTable(tbl,baseRows,rerender,scope){_TBL=tbl;
+function bindTable(tbl,baseRows,rerender,scope){_TBL=tbl;labelTables();
   (scope||document).querySelectorAll('thead th[data-k]').forEach(th=>{th.onclick=e=>{e.stopPropagation();openColMenu(th,th.dataset.k,th.dataset.lbl||th.dataset.k,baseRows,tbl,rerender);};});}
 const DATEPRESETS=[['all','All dates'],['today','Today'],['yesterday','Yesterday'],['last7','Last 7 days'],['last30','Last 30 days'],['last90','Last 90 days'],['wtd','Week to date'],['mtd','Month to date'],['qtd','Quarter to date'],['ytd','Year to date'],['lastmonth','Last month'],['custom','Custom range']];
 function openColMenu(th,k,label,baseRows,tbl,rerender){
@@ -759,11 +763,13 @@ function closeColMenu(){const m=document.getElementById('colmenu');if(m)m.remove
 function renderTasks(){
   const _base=applyQuick(tasksF());
   let T=arrange(_base,'tasks');
-  const cap=T.length>350?350:T.length;
-  const chips=[["","All"],["open","Open"],["overdue","Overdue"],["week","Due this week"],["unassigned","Unassigned"],["high","High priority"],["done","Done"]];
+  const sig=JSON.stringify([F,state.colF.tasks||{},state.colText.tasks||{},state.colRange.tasks||{}]);if(state.tSig!==sig){state.tSig=sig;state.tShow=100;}
+  const cap=Math.min(T.length,state.tShow||100);
+  const openAll=tasksF().filter(t=>t.status!=="Done");
+  const chips=[["open","Open"],["overdue","Overdue"],["nodue","No due date"],["week","Due this week"],["unassigned","Unassigned"],["high","High priority"],["done","Done"],["","All"]];
   const head=[["id","ID"],["brand","Brand"],["name","Task"],["owner","Owner"],["priority","Priority"],["due","Due"],["status","Status"],["done","Done"],["flag","Flag"],["",""]];
   $('view').innerHTML=`<div class="view">
-    <div class="kpis">${kpi("Shown",T.length,"accent")}${kpi("Open",T.filter(t=>t.status!=="Done").length,"")}${kpi("Overdue",T.filter(t=>t.status!=="Done"&&t.due&&t.due<todayISO).length,"bad")}${kpi("High open",T.filter(t=>t.status!=="Done"&&t.priority==="High").length,"warn")}</div>
+    <div class="kpis">${kpi("Open",openAll.length,"accent")}${kpi("Overdue",openAll.filter(t=>t.due&&t.due<todayISO).length,"bad")}${kpi("No due date",openAll.filter(t=>!t.due).length,"warn")}${kpi("High open",openAll.filter(t=>t.priority==="High").length,"warn")}</div>
     <div class="panel">
       <div class="addbar">
         <button class="btn" id="ntAdd"${canWrite?"":" disabled"}>+ Add task</button>
@@ -784,9 +790,11 @@ function renderTasks(){
         <td>${(t.status==='Done'||t.done)?`<input type="date" class="edit" data-c="tasks" data-id="${esc(t.id)}" data-f="done" value="${esc(t.done||'')}" ${ro}>`:'<span class="muted">-</span>'}</td>
         <td class="${fc}">${fl}</td>
         <td>${canWrite?rowMenu("tasks",t.id):""}</td></tr>`;}).join("")}</tbody></table></div>
-      <div class="rowcount">${T.length>cap?`Showing first ${cap} of ${T.length}. Narrow with filters.`:`${T.length} tasks`}</div>
+      <div class="rowcount">${T.length>cap?`Showing ${cap} of ${T.length} <button class="ghost" id="tMore">Show 100 more</button> <button class="ghost" id="tAll">Show all</button>`:`${T.length} tasks`}</div>
     </div></div>`;
   $('ntAdd').onclick=openTaskNew;
+  if($('tMore'))$('tMore').onclick=()=>{state.tShow=(state.tShow||100)+100;renderTasks();};
+  if($('tAll'))$('tAll').onclick=()=>{state.tShow=1e9;renderTasks();};
   if($('ntImport'))$('ntImport').onclick=openImportTasks;
   $('tExport').onclick=()=>{const nm="PIVOT tasks"+(F.brand?" - "+F.brand:"")+(F.quick?" ("+F.quick+")":"")+" "+todayISO+".csv";exportTasksCSV(T,nm);};
   bindTable('tasks',_base,renderTasks);
@@ -803,7 +811,7 @@ function renderMyTasks(){
   const ro=canWrite?"":"disabled";
   const card=(title,arr,cls)=>`<div class="panel"><h2>${title} · ${arr.length}</h2><div class="attn">${arr.length?arr.map(t=>`
      <div class="r"><span class="t"><button class="linkname" data-open="${esc(t.id)}">${esc(t.name||t.id)}</button> <span class="muted">· ${esc(brandOf(t.acct))}</span></span>
-     <span style="display:flex;gap:8px;align-items:center;flex:0 0 auto"><span class="${cls}">${esc(t.due||'no date')}</span>
+     <span style="display:flex;gap:8px;align-items:center;flex:0 0 auto"><span class="${cls}">${esc(t.due?fmtD(t.due):'no date')}</span>
      ${csel("status","tasks",t.id,"status",t.status,STATUSES,ro)}</span></div>`).join(""):'<div class="rowcount">Nothing here.</div>'}</div></div>`;
   $('view').innerHTML=`<div class="view">
     <div class="panel"><div class="addbar"><span class="muted">Show tasks for</span>
@@ -826,17 +834,17 @@ function renderInvoices(){
   $('view').innerHTML=`<div class="view">
     <div class="kpis">${kpi("Billed","KD "+KD(billed),"accent")}${kpi("Collected","KD "+KD(collected),"good")}${kpi("Outstanding","KD "+KD(billed-collected),"bad")}${kpi("Overdue","KD "+KD(overdue),"warn")}</div>
     <div class="panel">
-      <div class="addbar"><button class="btn" id="niAdd"${canWrite?"":" disabled"}>+ Add invoice</button><span class="hint">Click a field to edit it. Click the invoice number to open the full record. Retainers bill the 1st of the next month, due the 10th.</span></div>
+      <div class="addbar"><button class="btn" id="niAdd"${canWrite?"":" disabled"}>+ Add invoice</button><span class="hint">Click an invoice to edit it. Status changes right here.</span></div>
       <div class="tablewrap"><table><thead><tr>${thhead(head)}</tr></thead>
       <tbody>${M.map(m=>{const od=owed(m)&&m.due&&m.due<todayISO;return `<tr id="mrow-${esc(m.id)}">
         <td class="id"><button class="linkname" data-mopen="${esc(m.id)}" title="Open full record">${esc(m.inv_no||m.id)}</button>${m.notes?` <span class="tag" style="color:var(--hold);background:var(--hold-soft)">note</span>`:""}</td>
-        <td><input type="date" class="edit" data-c="money" data-id="${esc(m.id)}" data-f="date" value="${esc(m.date||'')}" ${ro}></td>
-        <td><select class="edit" data-c="money" data-id="${esc(m.id)}" data-f="acct" ${ro}>${brandOpts(m.acct)}</select></td>
-        <td><select class="edit" data-c="money" data-id="${esc(m.id)}" data-f="income_type" ${ro}>${opts(INCOME_TYPES,m.income_type||"Project")}</select></td>
-        <td style="min-width:200px"><input class="edit" style="width:100%" data-c="money" data-id="${esc(m.id)}" data-f="desc" value="${esc(m.desc||'')}" ${ro} placeholder="Invoice title"></td>
-        <td class="num pos"><input type="number" step="0.001" class="edit num" style="width:104px" data-c="money" data-id="${esc(m.id)}" data-f="amt" value="${esc(m.amt)}" ${ro}></td>
+        <td class="nowrap">${esc(fmtD(m.date))}</td>
+        <td>${esc(brandOf(m.acct))}</td>
+        <td class="muted">${esc(m.income_type||'')}</td>
+        <td style="min-width:200px"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||'Untitled invoice')}</button></td>
+        <td class="num pos nowrap">${KD(+m.amt||0)}</td>
         <td>${csel("pay","money",m.id,"status",m.status,PAY,ro)}</td>
-        <td class="${od?'flag-over':''}"><input type="date" class="edit" data-c="money" data-id="${esc(m.id)}" data-f="due" value="${esc(m.due||'')}" ${ro}></td>
+        <td class="nowrap ${od?'flag-over':''}">${esc(fmtD(m.due))}</td>
         <td>${canWrite?rowMenu("money",m.id):""}</td></tr>`;}).join("")}</tbody></table></div>
       <div class="rowcount">${M.length} invoices</div>
     </div></div>`;
@@ -868,15 +876,15 @@ function renderExpenses(){
       </div>
     </div>
     <div class="panel">
-      <div class="addbar"><button class="btn" id="neAdd"${canWrite?"":" disabled"}>+ Add expense</button><span class="hint">Click a field to edit it. Recurring lines stay pending until marked paid.</span></div>
+      <div class="addbar"><button class="btn" id="neAdd"${canWrite?"":" disabled"}>+ Add expense</button><span class="hint">Click an expense to edit it. Status changes right here.</span></div>
       <div class="tablewrap"><table><thead><tr>${thhead(head)}</tr></thead>
       <tbody>${M.map(m=>`<tr id="mrow-${esc(m.id)}">
         <td class="id">${esc(m.id)}</td>
-        <td><input type="date" class="edit" data-c="money" data-id="${esc(m.id)}" data-f="date" value="${esc(m.date||'')}" ${ro}></td>
-        <td><select class="edit" data-c="money" data-id="${esc(m.id)}" data-f="acct" ${ro}>${brandOpts(m.acct)}</select></td>
-        <td><select class="edit" data-c="money" data-id="${esc(m.id)}" data-f="cat" ${ro}>${opts(EXPCATS.includes(m.cat)?EXPCATS:[m.cat].concat(EXPCATS),m.cat)}</select></td>
+        <td class="nowrap">${esc(fmtD(m.date))}</td>
+        <td>${esc(brandOf(m.acct))}</td>
+        <td class="muted">${esc(m.cat||'')}</td>
         <td style="min-width:200px"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||m.id)}</button></td>
-        <td class="num neg"><input type="number" step="0.001" class="edit num" style="width:104px" data-c="money" data-id="${esc(m.id)}" data-f="amt" value="${esc(m.amt)}" ${ro}></td>
+        <td class="num neg nowrap">${KD(Math.abs(+m.amt||0))}</td>
         <td>${csel("pay","money",m.id,"status",m.status,PAY,ro)}</td>
         <td>${canWrite?rowMenu("money",m.id):""}</td></tr>`).join("")}</tbody></table></div>
       <div class="rowcount">${M.length} expenses</div>
@@ -1016,7 +1024,7 @@ function renderPayouts(){
     <div class="poevent${EXPANDED.has('pay:'+g.batch)?'':' collapsed'}" data-grp="pay:${esc(g.batch)}">
       <div class="pohead">
         <button class="pocaret" data-tog="pay:${esc(g.batch)}" title="Collapse">▾</button>
-        <div class="poinfo" data-tog="pay:${esc(g.batch)}"><span class="pototal">KD ${KD(g.total)}</span><span class="muted"> · ${esc(g.date||'—')} · ${esc(g.desc)}</span></div>
+        <div class="poinfo" data-tog="pay:${esc(g.batch)}"><span class="pototal">KD ${KD(g.total)}</span><span class="muted"> · ${esc(g.date?fmtD(g.date):'-')}</span><div class="muted pdesc">${esc(g.desc)}</div></div>
         <div class="poact">
           <span class="pill ${g.status==='Paid'?'pill-good':'pill-bad'}">${g.status}</span>
           ${ro?"":`<button class="ghost pytoggle" data-batch="${esc(g.batch)}" data-to="${g.status==='Paid'?'Pending':'Paid'}">Mark ${g.status==='Paid'?'pending':'paid'}</button>`}
@@ -1413,6 +1421,8 @@ function setupFilters(view){
   if(fs){ const opts=cfg.status||[]; if(F.status&&!opts.includes(F.status))F.status="";
     const cur=F.status; fs.innerHTML=""; fs.add(new Option(cfg.statusLabel||"All status","")); opts.forEach(s=>fs.add(new Option(s,s))); fs.value=cur; fs.style.display=opts.length?'':'none'; }
 }
+function labelTables(){document.querySelectorAll('#view table').forEach(tb=>{const hs=[...tb.querySelectorAll('thead th')].map(th=>(th.dataset.lbl||th.textContent||'').replace(/[▲▼]/g,'').replace(/\d+$/,'').trim());
+  tb.querySelectorAll('tbody tr').forEach(tr=>[...tr.children].forEach((td,i)=>{if(!td.hasAttribute('data-label'))td.setAttribute('data-label',td.colSpan>1?'':(hs[i]||''));}));});}
 let rafP=false;
 function render(){
   todayISO=localISO();
@@ -1426,6 +1436,7 @@ function render(){
     document.querySelectorAll('#nav button').forEach(b=>b.setAttribute('aria-current',b.dataset.view===state.view));
     renderNavContext(TITLES);
     VIEWS[state.view]();
+    labelTables();
   });
 }
 
@@ -1887,7 +1898,7 @@ function openAccountEdit(id){
   if($('mkDelete'))$('mkDelete').onclick=()=>{close();remove("accounts",id);};
 }
 function openReport(kind){
-  const R=activeRange();const lbl=R.from==='2000-01-01'?'All time':`${R.from} → ${R.to==='9999-12-31'?'now':R.to}`;let title,html,csv,fname;
+  const R=activeRange();const lbl=R.from==='2000-01-01'?'All time':`${fmtD(R.from)} to ${R.to==='9999-12-31'?'now':fmtD(R.to)}`;let title,html,csv,fname;
   if(kind==='money'){
     // Same set and same maths as the Money dashboard (all brands, moneyStats), so every figure here matches it.
     const Mall=store.money;const S=moneyStats(Mall,R.from,R.to);const rng=R.to==='9999-12-31'?'now':R.to;
@@ -2017,7 +2028,7 @@ function openBrand(acctId){
     <div class="formfull">
       ${famHtml}
       <label class="fld"><span>Engagements · ${engs.length}</span><div class="attn">${engs.length?engs.map(e=>`<div class="r"><span class="t">${esc(e.name||e.service||e.id)}${e.model?` <span class="muted">· ${esc(e.model)}</span>`:''}</span><span class="muted" style="white-space:nowrap">${esc(e.status||'')}${e.team?' · '+esc(e.team):''}</span></div>`).join(""):'<div class="rowcount">No engagements recorded.</div>'}</div></label>
-      <label class="fld"><span style="display:flex;align-items:center;gap:8px"><span style="flex:1">Open tasks · ${openT.length}</span>${tasks.length?`<button class="linkmini" id="vaTasks">View all →</button>`:''}</span><div class="attn">${topOpen.length?topOpen.map(t=>{const[fl,fc]=flag(t);return `<div class="r"><span class="t"><button class="linkname" data-open="${esc(t.id)}">${esc(t.name||t.id)}</button></span><span class="${fc}" style="white-space:nowrap">${esc(t.due||'—')}</span></div>`;}).join(""):'<div class="rowcount">No open tasks.</div>'}</div></label>
+      <label class="fld"><span style="display:flex;align-items:center;gap:8px"><span style="flex:1">Open tasks · ${openT.length}</span>${tasks.length?`<button class="linkmini" id="vaTasks">View all →</button>`:''}</span><div class="attn">${topOpen.length?topOpen.map(t=>{const[fl,fc]=flag(t);return `<div class="r"><span class="t"><button class="linkname" data-open="${esc(t.id)}">${esc(t.name||t.id)}</button></span><span class="${fc}" style="white-space:nowrap">${esc(t.due?fmtD(t.due):'-')}</span></div>`;}).join(""):'<div class="rowcount">No open tasks.</div>'}</div></label>
       <label class="fld"><span style="display:flex;align-items:center;gap:8px"><span style="flex:1">Invoices · ${inc.length}</span>${inc.length?`<button class="linkmini" id="vaInv">View all →</button>`:''}</span><div class="attn">${recentInv.length?recentInv.map(m=>`<div class="r"><span class="t"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.inv_no||m.id)}</button> <span class="muted">· ${esc(m.desc||m.date||'')}</span></span><span style="display:flex;gap:8px;align-items:center;white-space:nowrap"><span class="num">KD ${KD(m.amt)}</span><span class="dchip ${m.status==='Paid'?'dchip-good':(owed(m)?'dchip-warn':'')}">${esc(m.status||'')}</span></span></div>`).join(""):'<div class="rowcount">No invoices.</div>'}</div></label>
     </div>
     <div class="sheetfoot"><span class="muted">Paid costs: KD ${KD(exp+payo)}</span><span style="flex:1"></span>${canWrite?`<button class="ghost" id="mkBrandEdit">Edit</button>`:""}<button class="ghost" id="mkBrandExport">Export tasks</button></div>

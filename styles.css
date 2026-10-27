@@ -566,3 +566,28 @@ th.thsort:hover{color:var(--accent)}
 /* v69: plain text link button (login "Forgot password?") */
 .linkbtn{background:none;border:0;padding:0;margin:0;color:var(--muted);font:inherit;font-size:12px;text-decoration:underline;text-underline-offset:2px;cursor:pointer;align-self:flex-start}
 .linkbtn:hover{color:var(--ink)}
+
+/* ===== v71 ===== */
+/* sticky table headers: on desktop and tablet each table scrolls inside its card, so the header row stays in view */
+@media (min-width:721px){
+  .tablewrap{max-height:calc(100dvh - 120px);overflow:auto;overscroll-behavior:contain}
+  .tablewrap thead th{position:sticky;top:0;z-index:3;box-shadow:inset 0 -1px 0 var(--line)}
+}
+.nowrap{white-space:nowrap}
+.pdesc{font-size:12px;margin-top:2px;overflow-wrap:anywhere}
+.rowcount .ghost{margin-left:8px;padding:4px 10px;font-size:12px;height:auto}
+/* phone: table rows become labelled cards, no sideways scrolling */
+@media (max-width:720px){
+  .tablewrap{overflow:visible}
+  .tablewrap table,.tablewrap tbody,.tablewrap tr,.tablewrap td{display:block;width:100%}
+  .tablewrap thead{display:none}
+  .tablewrap tr{border:1px solid var(--line);border-radius:var(--r-lg,12px);background:var(--surface);margin:0 0 10px;padding:8px 12px}
+  .tablewrap td{display:grid;grid-template-columns:96px minmax(0,1fr);align-items:center;gap:8px;padding:5px 0;border:0;min-height:0;text-align:left}
+  .tablewrap td::before{content:attr(data-label);font-family:var(--font);font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  .tablewrap td[data-label=""]{display:block}
+  .tablewrap td[data-label=""]::before{content:none}
+  .tablewrap td.num{text-align:left}
+  .tablewrap td input.edit,.tablewrap td select.edit{width:100%;max-width:100%}
+  .tablewrap td .tagrow{grid-column:2}
+  .tablewrap tr:hover td{background:transparent}
+}

@@ -11,6 +11,8 @@ Behaviour checks for data rules (v68).
   - v69: My Tasks defaults to the signed-in person; Accounts hides Lost and Churned by default
   - v70: Paid money rows always get a paid date; a duplicate-ID insert is renumbered and retried;
          CSV cells that look like formulas are neutralized while numbers stay numbers; no "247% collected"
+  - v71: sticky table headers; tasks open by default and paged at 100; money tables read-only except status;
+         phone rows render as labelled cards; dates read "28 Oct 2026"
 
 Usage: python tests/rules_check.py /path/to/pivot-backup.json   (client data is never committed)
 """
@@ -116,6 +118,35 @@ def main(seed_path):
         pg.evaluate("state.view='moneydash';render()"); pg.wait_for_timeout(200)
         import re as _re
         if any(int(x) > 100 for x in _re.findall(r"(\d+)% (?:collected|paid)", pg.inner_text("#view"))): fails.append("dashboard still shows a percentage above 100")
+        # v71: sticky header inside the table card
+        pg.evaluate("F.quick='';state.view='tasks';render()"); pg.wait_for_timeout(250)
+        st = pg.evaluate("(()=>{const w=document.querySelector('#view .tablewrap');w.scrollTop=600;const th=w.querySelector('thead th');return [w.scrollTop, Math.round(th.getBoundingClientRect().top-w.getBoundingClientRect().top)]})()")
+        if st[0] < 100 or abs(st[1]) > 2: fails.append(f"table header not sticky (scrollTop, offset) = {st}")
+        rows = pg.evaluate("document.querySelectorAll('#view tbody tr').length")
+        if rows != 100: fails.append(f"tasks not paged at 100 ({rows})")
+        if pg.query_selector("#tMore"):
+            pg.click("#tMore"); pg.wait_for_timeout(250)
+            if pg.evaluate("document.querySelectorAll('#view tbody tr').length") != 200: fails.append("Show 100 more does not add rows")
+        else: fails.append("no Show 100 more button")
+        pg.evaluate("F.quick='open';state.tSig=null;render()"); pg.wait_for_timeout(200)
+        # v71: money tables read-only except status
+        for v in ("invoices", "expenses"):
+            pg.evaluate(f"state.view='{v}';render()"); pg.wait_for_timeout(200)
+            bad = pg.evaluate("[...document.querySelectorAll('#view tbody .edit')].filter(e=>e.dataset.f!=='status').length")
+            if bad: fails.append(f"{v}: {bad} inline editable fields besides status")
+            if pg.evaluate("/\\d{4}-\\d{2}-\\d{2}/.test(document.querySelector('#view tbody').innerText)"): fails.append(f"{v}: ISO dates still shown")
+        # v71: phone cards
+        pp = b.new_page(viewport={"width": 390, "height": 800})
+        pp.add_init_script("window.__SEED=" + json.dumps(seed) + ";")
+        pp.route("**/supabase.min.js", lambda r: r.fulfill(body=smoke.MOCK, content_type="application/javascript"))
+        pp.route("https://fonts.googleapis.com/**", lambda r: r.fulfill(body="", content_type="text/css"))
+        pp.goto(url); pp.wait_for_function("booted && ready()")
+        for v in ("tasks", "invoices", "expenses", "accounts", "services"):
+            pp.evaluate(f"state.view='{v}';render()"); pp.wait_for_timeout(250)
+            r = pp.evaluate("(()=>{const t=[...document.querySelectorAll('#view table')];return [t.every(x=>x.getBoundingClientRect().right<=innerWidth+1), [...document.querySelectorAll('#view tbody td')].filter(td=>td.dataset.label===undefined).length]})()")
+            if not r[0]: fails.append(f"phone {v}: table wider than the screen")
+            if r[1]: fails.append(f"phone {v}: {r[1]} cells without a label")
+        pp.close()
         if errs: fails.append("page errors: " + " | ".join(errs[:3]))
         # v69: local date at 00:30 Kuwait (21:30 UTC the day before)
         pk = b.new_context(timezone_id="Asia/Kuwait").new_page()
@@ -128,7 +159,7 @@ def main(seed_path):
         b.close()
     srv.shutdown()
     if fails: print("FAIL\n" + "\n".join(fails)); sys.exit(1)
-    print("PASS: ID descending; due = done rule; local date at 00:30 Kuwait; failed save reverts; retainer badge; MTD comparison; My Tasks default; Accounts default filter; paid date on Paid; duplicate-ID retry; CSV guard; no % above 100")
+    print("PASS: ID descending; due = done rule; local date at 00:30 Kuwait; failed save reverts; retainer badge; MTD comparison; My Tasks default; Accounts default filter; paid date on Paid; duplicate-ID retry; CSV guard; no % above 100; sticky headers; task paging; read-only money tables; phone cards")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2: print(__doc__); sys.exit(2)
