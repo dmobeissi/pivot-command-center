@@ -33,6 +33,14 @@ TABLES = {"tasks": "tasks", "invoices": "invoices", "expenses": "expenses", "acc
 
 def main(seed_path):
     seed = json.load(open(seed_path)); seed = seed.get("tables", seed)
+    # the main checks run on the pre-migration-18 shape; post-migration behaviour is tested on seed2 below.
+    # Live backups now carry the migration 18 to 20 columns, so strip them here.
+    MIG_COLS = ("deleted_at", "deleted_by", "program", "next_step", "next_date", "alloc")
+    for t in list(seed):
+        if t in ("audit_log", "app_settings"): del seed[t]; continue
+        for r in seed[t]:
+            if isinstance(r, dict):
+                for c in MIG_COLS: r.pop(c, None)
     srv = smoke.serve(); url = f"http://127.0.0.1:{srv.server_address[1]}/index.html"
     fails = []
     with sync_playwright() as p:
@@ -218,6 +226,7 @@ def main(seed_path):
         if abs(tot[0]-tot[1]) > 0.001: fails.append(f"salary allocation does not add up {tot}")
         if pg.evaluate("estCost(store.accounts[0].id,'0000-01','9999-12')") < 0: fails.append("negative estimated cost")
         h = pg.evaluate("bizHealth(moneyStats(store.money,'0000-01-01','9999-12-31'))")
+        if h.get("payNow") is not None and h["out3"] + 1e-9 < h["payNow"]: fails.append(f"runway ignores today's pay rate {h['out3']} < {h['payNow']}")
         if h["mrr"] != pg.evaluate("store.accounts.filter(a=>(+a.retainer_fee||0)&&(a.lifecycle==='Active'||a.lifecycle==='Paused')).reduce((s,a)=>s+Math.abs(+a.retainer_fee),0)"): fails.append("MRR wrong")
         pg.evaluate("state.view='moneydash';render()"); pg.wait_for_timeout(200)
         if "business health" not in pg.inner_text("#view").lower(): fails.append("no Business health panel")
@@ -300,8 +309,9 @@ def main(seed_path):
         pg.evaluate(f"openAccountEdit('{mz}')"); pg.wait_for_timeout(150)
         eng = pg.evaluate("(store.services||[]).find(s=>svcGroup(s)==='Program'&&/engine/i.test(s.name))")
         if eng and pg.query_selector("#ae_program"):
+            before = pg.evaluate("parseFloat(document.getElementById('ae_retainer_fee').value)")
             pg.select_option("#ae_program", eng["id"]); pg.wait_for_timeout(100)
-            if pg.evaluate("parseFloat(document.getElementById('ae_retainer_fee').value)") != 650: fails.append("choosing a program overwrote the agreed fee")
+            if before > 0 and pg.evaluate("parseFloat(document.getElementById('ae_retainer_fee').value)") != before: fails.append("choosing a program overwrote the agreed fee")
         pg.evaluate("document.getElementById('modal').classList.remove('show')")
         # v69: local date at 00:30 Kuwait (21:30 UTC the day before)
         pk = b.new_context(timezone_id="Asia/Kuwait").new_page()

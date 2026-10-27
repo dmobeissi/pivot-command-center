@@ -53,7 +53,7 @@ const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t.onclick=null;t.style.pointerEvents='';
   if(ms===-1){t.style.pointerEvents='auto';t.style.cursor='pointer';t.onclick=()=>{t.classList.remove('show');t.style.pointerEvents='';t.style.cursor='';};return;} // sticky until clicked
   const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v75 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v76 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -742,14 +742,21 @@ function bizHealth(S){
   const old=owedAll.filter(m=>m.due&&daysBetween(m.due,todayISO)>60).reduce((x,m)=>x+(+m.amt||0),0);
   const m0=todayISO.slice(0,7)+'-01',from3=shiftMonths(m0,-3),to3=isoAdd(m0,-1);
   const out3=Math.abs(store.money.filter(m=>(m.dir==='Expense'||m.dir==='Salary')&&m.status==='Paid'&&(m.paid||m.date||'')>=from3&&(m.paid||m.date||'')<=to3).reduce((x,m)=>x+(+m.amt||0),0))/3;
-  return {mrr,nRet:rets.length,tot,top,topShare,owedTot,old,oldShare:owedTot?Math.round(old/owedTot*100):0,out3,runway:out3?S.bankBalance/out3:null};}
+  // runway uses today's pay rate when it is higher than the 3-month average (pay rose in Oct 2026: the average lagged)
+  const salMonths=[...new Set(store.money.filter(m=>m.dir==='Salary'&&!voided(m)&&m.date).map(m=>m.date.slice(0,7)))].sort();
+  const lastSal=salMonths.length?salMonths[salMonths.length-1]:'';
+  const payNow=Math.abs(store.money.filter(m=>m.dir==='Salary'&&!voided(m)&&(m.date||'').startsWith(lastSal)).reduce((x,m)=>x+(+m.amt||0),0));
+  const exp3=Math.abs(store.money.filter(m=>m.dir==='Expense'&&m.status==='Paid'&&(m.paid||m.date||'')>=from3&&(m.paid||m.date||'')<=to3).reduce((x,m)=>x+(+m.amt||0),0))/3;
+  const burn=Math.max(out3,payNow+exp3);
+  return {mrr,nRet:rets.length,tot,top,topShare,owedTot,old,oldShare:owedTot?Math.round(old/owedTot*100):0,out3:burn,payNow,runway:burn?S.bankBalance/burn:null,cover:payNow?mrr/payNow:null};}
 function healthPanel(h){
   const r=(t,v,cls,sub)=>`<div class="r"><span class="t">${t}${sub?` <span class="muted">· ${sub}</span>`:''}</span><span class="num ${cls||''}">${v}</span></div>`;
   return `<div class="panel"><h2>Business health <span class="h2sub">· today, not the date range</span></h2><div class="attn">
     ${r('Monthly recurring revenue','KD '+KD(h.mrr),'pos',h.nRet+' active retainer'+(h.nRet===1?'':'s'))}
     ${r('Top 3 accounts, last 12 months',h.topShare+'% of billing',h.topShare>=60?'neg':'',h.top.map(e=>esc(e[0])).join(', '))}
     ${r('Owed more than 60 days','KD '+KD(h.old),h.oldShare>=30?'neg':'',h.oldShare+'% of KD '+KD(h.owedTot)+' owed')}
-    ${r('Runway at current costs',h.runway==null?'-':(h.runway<1?'under 1 month':h.runway.toFixed(1)+' months'),h.runway!=null&&h.runway<3?'neg':'pos','bank vs KD '+KD(h.out3)+' a month of expenses and salaries, last 3 months')}
+    ${r('Runway at current costs',h.runway==null?'-':(h.runway<1?'under 1 month':h.runway.toFixed(1)+' months'),h.runway!=null&&h.runway<3?'neg':'pos','bank vs KD '+KD(h.out3)+' a month of pay and expenses')}
+    ${h.cover==null?'':r('Recurring revenue vs team pay',h.cover.toFixed(1)+'x',h.cover<1.5?'neg':'pos','KD '+KD(h.mrr)+' against KD '+KD(h.payNow)+' pay last month')}
   </div></div>`;}
 function sortBy(arr,k,dir){return [...arr].sort((a,b)=>{let x=a[k],y=b[k];if(k==='amt'){x=+a.amt||0;y=+b.amt||0;}x=x==null?"":x;y=y==null?"":y;return x>y?dir:x<y?-dir:0;});}
 // ---- data tables: nested multi-sort + per-column Excel-style filter ----
