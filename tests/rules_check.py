@@ -360,6 +360,11 @@ def main(seed_path):
                 pd.evaluate("sb.functions={invoke:async()=>({data:null,error:{message:'x',context:{json:async()=>({error:'not_configured'})}}})}")
                 pd.evaluate(f"openEmail('{target['id']}')"); pd.wait_for_timeout(200); pd.click("#emSend"); pd.wait_for_timeout(4000)
                 if "not connected" not in pd.evaluate("document.getElementById('em_msg').textContent"): fails.append("not-configured error is not explained")
+                # v81: ErrorAccessDenied names missing Mail.Send vs mailbox restriction
+                for roles, want in ((["User.Read.All"], "Grant admin consent"), (["Mail.Send"], "not taken effect")):
+                    pd.evaluate("""r=>{sb.functions={invoke:async(n,o)=>o.body.diag?{data:{diag:{sign_in_ok:true,roles:r}},error:null}:{data:null,error:{message:'x',context:{json:async()=>({error:'Microsoft 365 refused the email.',detail:'{"error":{"code":"ErrorAccessDenied","message":"Access is denied."}}'})}}}}}""", roles)
+                    pd.evaluate(f"openEmail('{target['id']}')"); pd.wait_for_timeout(200); pd.click("#emSend"); pd.wait_for_timeout(4000)
+                    if want not in pd.evaluate("document.getElementById('em_msg').textContent"): fails.append(f"access denied with roles {roles} not explained")
         ctxd.close()
         # v69: local date at 00:30 Kuwait (21:30 UTC the day before)
         pk = b.new_context(timezone_id="Asia/Kuwait").new_page()
@@ -372,7 +377,7 @@ def main(seed_path):
         b.close()
     srv.shutdown()
     if fails: print("FAIL\n" + "\n".join(fails)); sys.exit(1)
-    print("PASS: ID descending; due = done rule; local date at 00:30 Kuwait; failed save reverts; retainer badge; MTD comparison; My Tasks default; Accounts default filter; paid date on Paid; duplicate-ID retry; CSV guard; no % above 100; sticky headers; task paging; read-only money tables; phone cards; Cancelled closed; Paid undeletable; hard delete before m18, Trash after; audit log; estimated cost adds up; business health; payment details; reminder; m19 fields; Home panels; fixed table layout and wheel; salary charging and month editor; client groups; program keeps fee; invoice PDF download; invoice emails")
+    print("PASS: ID descending; due = done rule; local date at 00:30 Kuwait; failed save reverts; retainer badge; MTD comparison; My Tasks default; Accounts default filter; paid date on Paid; duplicate-ID retry; CSV guard; no % above 100; sticky headers; task paging; read-only money tables; phone cards; Cancelled closed; Paid undeletable; hard delete before m18, Trash after; audit log; estimated cost adds up; business health; payment details; reminder; m19 fields; Home panels; fixed table layout and wheel; salary charging and month editor; client groups; program keeps fee; invoice PDF download; invoice emails; access denied explained")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2: print(__doc__); sys.exit(2)

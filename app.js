@@ -53,7 +53,7 @@ const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t.onclick=null;t.style.pointerEvents='';
   if(ms===-1){t.style.pointerEvents='auto';t.style.cursor='pointer';t.onclick=()=>{t.classList.remove('show');t.style.pointerEvents='';t.style.cursor='';};return;} // sticky until clicked
   const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v80 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v81 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -1960,6 +1960,14 @@ function openEmail(id,kind){
           if(!d.client_matches_app)notes.push('MS_CLIENT_ID does not match the PIVOT Command Center mail app');
           if(!d.tenant_is_guid)notes.push('MS_TENANT_ID is not a Directory ID (dashed code)');
           const e=$('em_msg');if(e)e.textContent+=' Check: '+(notes.length?notes.join('; '):`settings look well formed (secret ${d.secret_length} characters). The Value may be from an older or deleted secret: create a new one and paste its Value`)+'.';}}catch(_){}}
+      // mailbox refused: tell missing permission apart from the mailbox restriction
+      if(/ErrorAccessDenied/.test(JSON.stringify(res||{}))){const det=String((res&&res.detail)||'');let why='';
+        if(/AppOnly AccessPolicy|RAOP/i.test(det))why='the mailbox restriction blocks info@: check that info@ is in the PIVOT App Mail group (changes can take up to an hour)';
+        else{try{const r=await sb.functions.invoke('send-invoice',{body:{diag:true}});const d=r&&r.data&&r.data.diag;
+          if(d&&d.sign_in_ok){const roles=d.roles||[];
+            why=roles.includes('Mail.Send')?'Mail.Send is granted, so the mailbox restriction has not taken effect yet: retry in 30 to 60 minutes':
+              `the app token has ${roles.length?'only '+roles.join(', '):'no application permissions'}: add Mail.Send as an Application permission (not Delegated) and click Grant admin consent`;}}catch(_){}}
+        const e=$('em_msg');if(e&&why)e.textContent=`Microsoft 365 refused the email: ${why}.`;}
     }catch(e){console.error(e);say('Sending failed: '+(e.message||e),true);}
     btn.disabled=false;btn.textContent='Send from info@thepivotstrategy.com';};
 }

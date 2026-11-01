@@ -1,4 +1,4 @@
-// PIVOT send-invoice (v80)
+// PIVOT send-invoice (v81)
 // Sends an invoice email with its PDF from the PIVOT mailbox (info@thepivotstrategy.com) through Microsoft Graph,
 // so it lands in that mailbox's Sent Items. Only signed-in team members (people table, active, matching email)
 // can send. Records sent_at / reminded_at on the invoice with the sender's own login (audit log shows who).
@@ -19,6 +19,22 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 function toHtml(text: string) {
   const paras = text.trim().split(/\n{2,}/).map((p) => `<p style="margin:0 0 14px">${esc(p).replace(/\n/g, "<br>")}</p>`);
   return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.55;color:#141414">${paras.join("")}</div>`;
+}
+
+// diag only: which Graph application permissions Microsoft put in the app token (names, never the token)
+async function tokenRoles(tenant: string, clientId: string, secret: string) {
+  try {
+    const r = await fetch(`https://login.microsoftonline.com/${tenant.trim()}/oauth2/v2.0/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: clientId.trim(), client_secret: secret.trim().replace(/^["']|["']$/g, ""), grant_type: "client_credentials", scope: "https://graph.microsoft.com/.default" }),
+    });
+    if (!r.ok) return { sign_in_ok: false };
+    const t = (await r.json()).access_token as string;
+    const b = t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const p = JSON.parse(atob(b + "=".repeat((4 - (b.length % 4)) % 4)));
+    return { sign_in_ok: true, roles: Array.isArray(p.roles) ? p.roles : [] };
+  } catch { return { sign_in_ok: false }; }
 }
 
 Deno.serve(async (req) => {
@@ -53,6 +69,7 @@ Deno.serve(async (req) => {
       client_is_guid: G.test(clientId.trim()),
       client_matches_app: clientId.trim() === "96b93900-b910-4e04-9b7e-85480d444853",
       mail_from: from,
+      ...(await tokenRoles(tenant, clientId, secret)),
     } });
   }
   const to: string[] = (b.to || []).map((x: string) => String(x).trim()).filter(Boolean);
