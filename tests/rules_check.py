@@ -23,6 +23,8 @@ Behaviour checks for data rules (v68).
          choosing a program does not overwrite a fee already set
   - v77: invoice PDF downloads straight to a file (set PDF_LIBS_DIR to a folder with node_modules/html2canvas and
          node_modules/jspdf to test the download offline); with the CDN blocked it falls back to the print view
+  - v78: invoice emails: templates by type (retainer with brands covered, project, paid receipt, reminder),
+         the send call carries the PDF and recipients, and "not connected yet" is explained, not swallowed
 
 Usage: python tests/rules_check.py /path/to/pivot-backup.json   (client data is never committed)
 """
@@ -216,8 +218,8 @@ def main(seed_path):
         if "KW81CBKU" not in html or "How to pay" not in html: fails.append("payment details missing from unpaid invoice PDF")
         pdone = p2.evaluate("store.money.find(m=>m.dir==='Income'&&m.status==='Paid').id")
         if "How to pay" in p2.evaluate(f"invoiceHTML(store.money.find(m=>m.id==='{pdone}'),{{}})"): fails.append("paid invoice shows payment details")
-        p2.evaluate(f"openReminder('{inv}')"); p2.wait_for_timeout(150)
-        body = p2.evaluate("document.getElementById('rm_body').value")
+        p2.evaluate(f"openEmail('{inv}','reminder')"); p2.wait_for_timeout(150)
+        body = p2.evaluate("document.getElementById('em_body').value")
         if inv not in body and "INV-" not in body: fails.append("reminder text lacks the invoice number")
         if "KW81CBKU" not in body: fails.append("reminder lacks bank details")
         p2.evaluate("document.getElementById('modal').classList.remove('show')")
@@ -336,6 +338,28 @@ def main(seed_path):
         else:
             pd.evaluate(f"downloadInvoicePDF('{inv}')"); pd.wait_for_timeout(1500)
             if not pops: fails.append("no print-view fallback when the PDF libraries cannot load")
+        # v78: email templates and send flow
+        wg = pd.evaluate("store.money.find(m=>m.dir==='Income'&&isRetainerInv(m)&&AMAP[groupOf(m.acct)]&&groupIds(groupOf(m.acct)).length>1)")
+        if wg:
+            d = pd.evaluate(f"emailDraft(store.money.find(m=>m.id==='{wg['id']}'),'invoice',{{}})")
+            if "monthly support plan" not in d["body"] or "This covers" not in d["body"]: fails.append("retainer email lacks the plan line or the brands covered")
+            if "\u2014" in d["body"] + d["subject"]: fails.append("em dash in email template")
+        paidinv = pd.evaluate("store.money.find(m=>m.dir==='Income'&&m.status==='Paid').id")
+        if "for your records" not in pd.evaluate(f"emailDraft(store.money.find(m=>m.id==='{paidinv}'),'invoice',{{}}).body"): fails.append("paid invoice email does not read as a receipt")
+        od = pd.evaluate("store.money.find(m=>m.dir==='Income'&&owed(m)&&m.due&&m.due<todayISO)")
+        if od:
+            r = pd.evaluate(f"emailDraft(store.money.find(m=>m.id==='{od['id']}'),'reminder',{{}})")
+            if "reminder" not in r["subject"].lower() or "days ago" not in r["body"]: fails.append("reminder template wrong")
+        if lib:
+            target = pd.evaluate("store.money.find(m=>m.dir==='Income'&&(AMAP[m.acct]||{}).bill_email)")
+            if target:
+                pd.evaluate("sb.functions={invoke:async(n,o)=>{window.__fn={n,body:o.body};return {data:{ok:true,from:'info@x.com'},error:null};}}")
+                pd.evaluate(f"openEmail('{target['id']}')"); pd.wait_for_timeout(200); pd.click("#emSend"); pd.wait_for_timeout(4000)
+                fn = pd.evaluate("window.__fn&&{n:window.__fn.n,to:window.__fn.body.to,len:(window.__fn.body.pdf_base64||'').length}")
+                if not fn or fn["n"] != "send-invoice" or not fn["to"] or fn["len"] < 10000: fails.append(f"send call incomplete {fn}")
+                pd.evaluate("sb.functions={invoke:async()=>({data:null,error:{message:'x',context:{json:async()=>({error:'not_configured'})}}})}")
+                pd.evaluate(f"openEmail('{target['id']}')"); pd.wait_for_timeout(200); pd.click("#emSend"); pd.wait_for_timeout(4000)
+                if "not connected" not in pd.evaluate("document.getElementById('em_msg').textContent"): fails.append("not-configured error is not explained")
         ctxd.close()
         # v69: local date at 00:30 Kuwait (21:30 UTC the day before)
         pk = b.new_context(timezone_id="Asia/Kuwait").new_page()
@@ -348,7 +372,7 @@ def main(seed_path):
         b.close()
     srv.shutdown()
     if fails: print("FAIL\n" + "\n".join(fails)); sys.exit(1)
-    print("PASS: ID descending; due = done rule; local date at 00:30 Kuwait; failed save reverts; retainer badge; MTD comparison; My Tasks default; Accounts default filter; paid date on Paid; duplicate-ID retry; CSV guard; no % above 100; sticky headers; task paging; read-only money tables; phone cards; Cancelled closed; Paid undeletable; hard delete before m18, Trash after; audit log; estimated cost adds up; business health; payment details; reminder; m19 fields; Home panels; fixed table layout and wheel; salary charging and month editor; client groups; program keeps fee; invoice PDF download")
+    print("PASS: ID descending; due = done rule; local date at 00:30 Kuwait; failed save reverts; retainer badge; MTD comparison; My Tasks default; Accounts default filter; paid date on Paid; duplicate-ID retry; CSV guard; no % above 100; sticky headers; task paging; read-only money tables; phone cards; Cancelled closed; Paid undeletable; hard delete before m18, Trash after; audit log; estimated cost adds up; business health; payment details; reminder; m19 fields; Home panels; fixed table layout and wheel; salary charging and month editor; client groups; program keeps fee; invoice PDF download; invoice emails")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2: print(__doc__); sys.exit(2)

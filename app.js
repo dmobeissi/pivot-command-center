@@ -53,7 +53,7 @@ const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t.onclick=null;t.style.pointerEvents='';
   if(ms===-1){t.style.pointerEvents='auto';t.style.cursor='pointer';t.onclick=()=>{t.classList.remove('show');t.style.pointerEvents='';t.style.cursor='';};return;} // sticky until clicked
   const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v77 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v78 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -143,12 +143,12 @@ document.addEventListener('click',e=>{const d=e.target.closest('[data-menu]');
     const canOpen=(coll==='tasks'||coll==='money');
     const mRow=coll==='money'?store.money.find(x=>x.id===id):null;
     const canInv=!!(mRow&&mRow.dir==='Income');const canRem=!!(mRow&&owed(mRow));
-    rowMenuEl.innerHTML=`${canOpen?'<button data-mi="open">Open</button>':''}${canInv?'<button data-mi="inv">Download PDF</button>':''}${canRem?'<button data-mi="rem">Payment reminder</button>':''}<button data-mi="del" class="danger">Delete</button>`;
+    rowMenuEl.innerHTML=`${canOpen?'<button data-mi="open">Open</button>':''}${canInv?'<button data-mi="inv">Download PDF</button>':''}${canInv?'<button data-mi="rem">Email invoice</button>':''}<button data-mi="del" class="danger">Delete</button>`;
     document.body.appendChild(rowMenuEl);
     const w=160,left=Math.min(window.innerWidth-w-8,Math.max(8,r.right-w));
     rowMenuEl.style.top=(r.bottom+4)+'px';rowMenuEl.style.left=left+'px';
     rowMenuEl.onclick=ev=>{const b=ev.target.closest('[data-mi]');if(!b)return;const mi=b.dataset.mi;closeRowMenu();
-      if(mi==='del')remove(coll,id);else if(mi==='inv')downloadInvoicePDF(id);else if(mi==='rem')openReminder(id);else if(mi==='open'){if(coll==='tasks')openTask(id);else if(coll==='money')openMoney(id);}};
+      if(mi==='del')remove(coll,id);else if(mi==='inv')downloadInvoicePDF(id);else if(mi==='rem')openEmail(id);else if(mi==='open'){if(coll==='tasks')openTask(id);else if(coll==='money')openMoney(id);}};
     return;}
   if(!e.target.closest('.rowmenu'))closeRowMenu();});
 window.addEventListener('scroll',()=>closeRowMenu(),true);
@@ -950,7 +950,7 @@ function renderInvoices(){
         <td class="nowrap">${esc(fmtD(m.date))}</td>
         <td>${esc(brandOf(m.acct))}</td>
         <td class="muted">${esc(m.income_type||'')}</td>
-        <td style="min-width:200px"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||'Untitled invoice')}</button></td>
+        <td style="min-width:200px"><button class="linkname" data-mopen="${esc(m.id)}">${esc(m.desc||'Untitled invoice')}</button>${m.sent_at?`<div class="hint">Emailed ${esc(fmtD(localISO(new Date(m.sent_at))))}${(+m.reminders||0)?` · ${m.reminders} reminder${m.reminders>1?'s':''}`:''}</div>`:''}</td>
         <td class="num pos nowrap">${KD(+m.amt||0)}</td>
         <td>${csel("pay","money",m.id,"status",m.status,PAY,ro)}</td>
         <td class="nowrap ${od?'flag-over':''}">${esc(fmtD(m.due))}</td>
@@ -1860,22 +1860,98 @@ function invoiceHTML(m,acct){
     </div>
   </div></body></html>`;
 }
-function openReminder(id){
-  const m=store.money.find(x=>x.id===id);if(!m)return;const a=AMAP[m.acct]||{};
-  const od=m.due&&m.due<todayISO;const days=m.due?daysBetween(m.due,todayISO):0;
-  const to=a.bill_attn?String(a.bill_attn).split(' ')[0]:'there';
-  const subj=`Payment reminder: ${m.inv_no||m.id} (KD ${KD(+m.amt||0)})`;
-  const bank=getSet('bank_iban')?`\n\nBank transfer details:\n${[['Bank',getSet('bank_name')],['Account name',getSet('bank_account_name')],['IBAN',getSet('bank_iban')],['SWIFT',getSet('bank_swift')]].filter(x=>x[1]).map(x=>x[0]+': '+x[1]).join('\n')}\nReference: ${m.inv_no||m.id}`:'';
-  const body=`Hi ${to},\n\nA friendly reminder that invoice ${m.inv_no||m.id} for ${m.desc||'our services'} (KD ${KD(+m.amt||0)}) ${od?`was due on ${fmtD(m.due)}, ${days} day${days===1?'':'s'} ago`:`is due on ${fmtD(m.due)}`}.${bank}\n\nIf it has already been paid, please ignore this note and share the transfer reference so we can match it.\n\nThank you,\n${firstName()}\nThe Pivot Strategy`;
-  $('modal').innerHTML=`<div class="sheet" style="max-width:560px">
-    <div class="sheethead"><div><div class="id">${esc(m.inv_no||m.id)} · ${esc(a.brand||'')}</div><h3>Payment reminder</h3></div><button class="del" id="mkClose">✕</button></div>
-    <div class="formfull">${fld("Subject",`<input id="rm_subj" value="${esc(subj)}">`)}${fld("Message",`<textarea id="rm_body" rows="12">${esc(body)}</textarea>`)}
-    <div class="hint">${a.bill_email?`Sends from your own email app to ${esc(a.bill_email)}.`:'No representative email on this account: add one in Accounts, or copy the text.'}${getSet('bank_iban')?'':' Bank details are not set: add them in Settings so reminders and invoices say how to pay.'}</div></div>
-    <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="rmCopy">Copy text</button>${a.bill_email?`<button class="btn" id="rmMail">Open in email</button>`:''}</div></div>`;
+// ===== Invoice emails (v78) =====
+// Two templates: "invoice" (first send) and "reminder" (follow-up). Wording follows the invoice type:
+// retainer (service month, brands covered), project (full value or installment), one-time; paid invoices read as a receipt.
+const listJoin=a=>a.length<2?(a[0]||''):a.slice(0,-1).join(', ')+' and '+a[a.length-1];
+function svcMonthOf(m){return (m.logged||shiftMonths((m.date||todayISO).slice(0,7)+'-01',-1)).slice(0,7);}
+function emailDraft(m,kind,o){o=o||{};
+  const a=AMAP[m.acct]||{},g=AMAP[groupOf(m.acct)]||a;
+  const inv='PVT-'+(m.inv_no||m.id),amt='KD '+KD(Math.abs(+m.amt||0)),due=m.due?fmtD(m.due):'';
+  const first=String(a.bill_attn||g.bill_attn||'').trim().split(/\s+/)[0];
+  const type=m.income_type||(isRetainerInv(m)?'Retainer':'Project');
+  const parts=String(m.desc||'').split('//').map(x=>x.trim()).filter(Boolean);
+  const what=parts[0]||'our services';
+  const svc=monthLabel(svcMonthOf(m));
+  const kids=groupIds(g.id||m.acct).slice(1).map(id=>(AMAP[id]||{}).brand).filter(Boolean);
+  const sibs=projSibs(m),isInst=sibs.length>1&&(+m.inst_count>1);
+  const total=isInst?sibs.reduce((x,y)=>x+Math.abs(+y.amt||0),0):0;
+  const paid=m.status==='Paid';
+  const subjectWhat=type==='Retainer'?svc+' support plan':what;
+  const bank=getSet('bank_iban')?['Payment details',getSet('bank_name')&&'Bank: '+getSet('bank_name'),getSet('bank_account_name')&&'Account name: '+getSet('bank_account_name'),'IBAN: '+getSet('bank_iban'),getSet('bank_swift')&&'SWIFT: '+getSet('bank_swift'),'Reference: '+inv].filter(Boolean).join('\n'):'';
+  const sign='Best regards,\nThe PIVOT Team\nThe Pivot Strategy · info@thepivotstrategy.com · www.thepivotstrategy.com';
+  const hello=(first?`Dear ${first},`:'Dear Team,')+'\n\nWe hope you are doing well.';
+  let subject,lines;
+  if(kind==='reminder'){
+    const od=m.due&&m.due<todayISO,days=m.due?daysBetween(m.due,todayISO):0,again=(+m.reminders||0)>=1;
+    const forWhat=type==='Retainer'?`the ${svc} monthly support plan`:(type==='Project'?`the ${what} project`:what);
+    subject=`${again?'Second reminder':'Payment reminder'} // Invoice ${inv} // ${g.brand||a.brand||''}`;
+    lines=[hello,
+      `This is a ${again?'second':'friendly'} reminder that invoice ${inv} for ${forWhat} (${amt}) ${od?`was due on ${due}, ${days} day${days===1?'':'s'} ago`:(due?`is due on ${due}`:'is now due')}. We have attached it again for convenience.`,
+      again?'We would appreciate settlement within the next 7 days.':'',
+      bank,
+      'If payment has already been made, please share the transfer reference so we can update our records.',
+      'Thank you for your support.',sign];
+  }else{
+    subject=`Invoice ${inv} // ${g.brand||a.brand||''} // ${subjectWhat}`;
+    let line;
+    if(type==='Retainer')line=`Please find attached invoice ${inv} for the ${svc} monthly support plan, covering support activities, maintenance and issue resolution for the month.`;
+    else if(isInst)line=`Please find attached invoice ${inv} for the ${what} project: installment ${m.inst_no} of ${m.inst_count}${m.inst_label?` (${m.inst_label})`:''}. The full project value is KD ${KD(total)}.`;
+    else if(type==='Project')line=parts.length>1?`Please find attached invoice ${inv} for the ${what} project (${parts.slice(1).join(', ')}).`:`Please find attached invoice ${inv} for the ${what} project, covering the full project value.`;
+    else line=`Please find attached invoice ${inv} for ${what}.`;
+    lines=[hello,line,
+      kids.length?`This covers ${listJoin([g.brand,...kids])}.`:'',
+      paid?`Amount: ${amt}\nStatus: paid${m.paid?' on '+fmtD(m.paid):''}. Thank you, this copy is for your records.`:`Amount: ${amt}${due?'\nDue date: '+due:''}`,
+      paid?'':bank,
+      (o.retainer&&type!=='Retainer')?'On a separate note, we will shortly share the proposed deliverables for a monthly retainer plan. These can be tailored to your priorities and business needs.':'',
+      'If you have any questions or need any clarification, we are happy to help.',sign];
+  }
+  return {subject,body:lines.filter(Boolean).join('\n\n')};
+}
+function openEmail(id,kind){
+  const m=store.money.find(x=>x.id===id);if(!m||m.dir!=='Income')return;const a=AMAP[m.acct]||{},g=AMAP[groupOf(m.acct)]||a;
+  kind=kind||((m.sent_at&&m.status!=='Paid')?'reminder':'invoice');
+  const type=m.income_type||(isRetainerInv(m)?'Retainer':'Project');
+  const to=a.bill_email||g.bill_email||'';
+  const hist=[m.sent_at?'Sent '+fmtD(localISO(new Date(m.sent_at)))+(m.sent_to?' to '+m.sent_to:''):'',(+m.reminders||0)?`${m.reminders} reminder${m.reminders>1?'s':''}, last ${fmtD(localISO(new Date(m.reminded_at)))}`:''].filter(Boolean).join(' · ');
+  $('modal').innerHTML=`<div class="sheet" style="max-width:640px">
+    <div class="sheethead"><div><div class="id">PVT-${esc(m.inv_no||m.id)} · ${esc(g.brand||a.brand||'')} · KD ${KD(Math.abs(+m.amt||0))}</div><h3>Email invoice</h3>${hist?`<div class="hint" style="margin-top:4px">${esc(hist)}</div>`:''}</div><button class="del" id="mkClose">✕</button></div>
+    <div class="formfull">
+      <div class="seg" role="tablist"><button data-tpl="invoice" class="${kind==='invoice'?'on':''}">Invoice</button><button data-tpl="reminder" class="${kind==='reminder'?'on':''}"${m.status==='Paid'?' disabled title="Already paid"':''}>Reminder</button>
+        ${type!=='Retainer'?`<label class="hint" style="display:inline-flex;align-items:center;gap:6px;margin-left:10px"><input type="checkbox" id="em_ret"> Mention a monthly retainer</label>`:''}</div>
+      ${fld("To",`<input id="em_to" value="${esc(to)}" placeholder="name@client.com, second@client.com">`)}
+      ${fld("CC",`<input id="em_cc" placeholder="optional">`)}
+      ${fld("Subject",`<input id="em_subj">`)}
+      ${fld("Message",`<textarea id="em_body" rows="16"></textarea>`)}
+      <div class="hint">Attached: ${esc(invoiceFileName(m))}${to?'':' · No representative email on this account: add one in Accounts > Edit.'}${getSet('bank_iban')?'':' · Bank details are not set (Settings), so the email cannot say how to pay.'}</div>
+      <div id="em_msg" class="hint" style="min-height:16px"></div>
+    </div>
+    <div class="sheetfoot"><button class="ghost" id="emApp" title="Downloads the PDF and opens a draft in your own email app">Open in my email app</button><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="emSend">Send from info@thepivotstrategy.com</button></div></div>`;
   $('modal').classList.add('show');const close=()=>{$('modal').classList.remove('show');$('modal').innerHTML='';};
-  $('mkClose').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
-  $('rmCopy').onclick=async()=>{try{await navigator.clipboard.writeText($('rm_subj').value+'\n\n'+$('rm_body').value);toast("Copied");}catch(e){toast("Copy blocked by the browser: select the text and copy it",-1);}};
-  if($('rmMail'))$('rmMail').onclick=()=>{location.href=`mailto:${encodeURIComponent(a.bill_email)}?subject=${encodeURIComponent($('rm_subj').value)}&body=${encodeURIComponent($('rm_body').value)}`;};
+  $('mkClose').onclick=$('mkCancel').onclick=close;$('modal').onclick=e=>{if(e.target===$('modal'))close();};
+  const fill=()=>{const d=emailDraft(m,kind,{retainer:$('em_ret')&&$('em_ret').checked});$('em_subj').value=d.subject;$('em_body').value=d.body;};
+  fill();
+  document.querySelectorAll('[data-tpl]').forEach(b=>b.onclick=()=>{kind=b.dataset.tpl;document.querySelectorAll('[data-tpl]').forEach(x=>x.classList.toggle('on',x===b));fill();});
+  if($('em_ret'))$('em_ret').onchange=fill;
+  const list=v=>String(v||'').split(/[,;\s]+/).map(x=>x.trim()).filter(Boolean);
+  const say=(t,bad)=>{const e=$('em_msg');e.textContent=t;e.style.color=bad?'var(--bad)':'var(--muted)';};
+  $('emApp').onclick=async()=>{await downloadInvoicePDF(m.id);
+    location.href=`mailto:${encodeURIComponent(list($('em_to').value).join(','))}?${list($('em_cc').value).length?'cc='+encodeURIComponent(list($('em_cc').value).join(','))+'&':''}subject=${encodeURIComponent($('em_subj').value)}&body=${encodeURIComponent($('em_body').value)}`;
+    say('The PDF is in Downloads. Attach it to the draft that opened.');};
+  $('emSend').onclick=async()=>{
+    const tos=list($('em_to').value),ccs=list($('em_cc').value);
+    if(!tos.length){say('Add at least one recipient.',true);return;}
+    const btn=$('emSend');btn.disabled=true;btn.textContent='Sending…';say('Building the PDF…');
+    try{
+      const pdf=await buildInvoicePDF(m);const b64=pdf.output('datauristring').split(',')[1];
+      say('Sending…');
+      const {data,error}=await sb.functions.invoke('send-invoice',{body:{invoice_id:m.id,kind,to:tos,cc:ccs,subject:$('em_subj').value,body:$('em_body').value,pdf_base64:b64,filename:invoiceFileName(m)}});
+      let res=data;if(error){try{res=await error.context.json();}catch(_){res={error:error.message||'Sending failed'};}}
+      if(res&&res.ok){toast(`Sent from ${res.from} to ${tos.join(', ')}`,6000);close();await fetchColl('money');render();return;}
+      if(res&&res.error==='not_configured')say('Sending from info@ is not connected yet (Microsoft 365 setup pending). Use "Open in my email app" for now.',true);
+      else say((res&&res.error)||'Sending failed.',true);
+    }catch(e){console.error(e);say('Sending failed: '+(e.message||e),true);}
+    btn.disabled=false;btn.textContent='Send from info@thepivotstrategy.com';};
 }
 // Invoice PDF (v77): rendered in a hidden frame and saved straight to Downloads as "PVT-INV-0068 Mizyana.pdf".
 // The two libraries load on first use only. If they cannot load, the old print view opens instead.
@@ -1884,16 +1960,14 @@ let _pdfLibs=null;
 function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=()=>rej(new Error('Could not load '+src));document.head.appendChild(s);});}
 function pdfLibs(){if(!_pdfLibs)_pdfLibs=Promise.all(PDF_LIBS.map((u,i)=>(i===0?window.html2canvas:(window.jspdf&&window.jspdf.jsPDF))?null:loadScript(u))).catch(e=>{_pdfLibs=null;throw e;});return _pdfLibs;}
 function invoiceFileName(m){const a=AMAP[m.acct];return ("PVT-"+(m.inv_no||m.id)+" "+((a&&a.brand)||"")).replace(/[\\/:*?"<>|]+/g,"").replace(/\s+/g," ").trim()+".pdf";}
-async function downloadInvoicePDF(id){
-  const m=store.money.find(x=>x.id===id);if(!m||m.dir!=="Income"){toast("Only invoices can be exported");return;}
-  toast("Preparing the PDF…",15000);
-  let f=null;
+// builds the invoice PDF in a hidden frame; returns the jsPDF document (download or attach it)
+async function buildInvoicePDF(m){
+  await pdfLibs();
+  const f=document.createElement('iframe');
+  f.setAttribute('aria-hidden','true');
+  f.style.cssText='position:fixed;left:-10000px;top:0;width:794px;height:1123px;border:0;visibility:hidden';
+  document.body.appendChild(f);
   try{
-    await pdfLibs();
-    f=document.createElement('iframe');
-    f.setAttribute('aria-hidden','true');
-    f.style.cssText='position:fixed;left:-10000px;top:0;width:794px;height:1123px;border:0;visibility:hidden';
-    document.body.appendChild(f);
     const d=f.contentDocument;d.open();d.write(invoiceHTML(m,AMAP[m.acct]));d.close();
     await new Promise(r=>setTimeout(r,60));
     try{if(d.fonts&&d.fonts.ready)await d.fonts.ready;}catch(_){}
@@ -1901,20 +1975,22 @@ async function downloadInvoicePDF(id){
     const canvas=await window.html2canvas(page,{scale:2,backgroundColor:'#ffffff',useCORS:true,logging:false,windowWidth:794});
     const pdf=new window.jspdf.jsPDF({unit:'mm',format:'a4',orientation:'portrait'});
     const W=210,H=297,imgH=canvas.height*W/canvas.width,img=canvas.toDataURL('image/jpeg',0.95);
-    // one page when it fits (with 1 mm of slack for rounding); otherwise slice down the image page by page
+    // one page when it fits (1 mm slack for rounding); otherwise slice down the image page by page
     if(imgH<=H+1)pdf.addImage(img,'JPEG',0,0,W,Math.min(imgH,H));
     else{for(let y=0,n=0;y<imgH-0.5;y+=H,n++){if(n)pdf.addPage();pdf.addImage(img,'JPEG',0,-y,W,imgH);}}
     pdf.setProperties({title:"PVT-"+(m.inv_no||m.id),author:PIVOT_CO.name,creator:"PIVOT Command Center"});
-    pdf.save(invoiceFileName(m));
-    toast("Saved to Downloads · "+invoiceFileName(m));
-  }catch(e){
-    console.error(e);
-    toast("Could not build the PDF here, opening the print view instead",6000);
-    const w=window.open('','_blank');if(!w){toast("Allow pop-ups to open the invoice",-1);return;}
-    w.document.write(invoiceHTML(m,AMAP[m.acct]));w.document.close();
-    const go=()=>{try{w.focus();w.print();}catch(_){}};
-    if(w.document.readyState==='complete')setTimeout(go,250);else w.onload=()=>setTimeout(go,250);
-  }finally{if(f)f.remove();}
+    return pdf;
+  }finally{f.remove();}
+}
+function openPrintView(m){const w=window.open('','_blank');if(!w){toast("Allow pop-ups to open the invoice",-1);return;}
+  w.document.write(invoiceHTML(m,AMAP[m.acct]));w.document.close();
+  const go=()=>{try{w.focus();w.print();}catch(_){}};
+  if(w.document.readyState==='complete')setTimeout(go,250);else w.onload=()=>setTimeout(go,250);}
+async function downloadInvoicePDF(id){
+  const m=store.money.find(x=>x.id===id);if(!m||m.dir!=="Income"){toast("Only invoices can be exported");return;}
+  toast("Preparing the PDF…",15000);
+  try{const pdf=await buildInvoicePDF(m);pdf.save(invoiceFileName(m));toast("Saved to Downloads · "+invoiceFileName(m));}
+  catch(e){console.error(e);toast("Could not build the PDF here, opening the print view instead",6000);openPrintView(m);}
 }
 function openExpenseNew(){
   if(!canWrite){toast("Read-only access");return;}
