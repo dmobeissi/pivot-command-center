@@ -55,21 +55,13 @@ function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');
   const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
 let saveStateText="waking up…",pendingHL="";
 // Releases (from 2.0.0): MAJOR.MINOR.FIX. FIX = bug fix or wording, MINOR = new feature or any migration, MAJOR = new way of working.
-// BUILD rises by 1 on every deploy and matches ?v= in index.html (cache buster). Newest first; team-facing wording, no client names or amounts.
-const BUILD=82;
+// One version per day: later deploys that day raise BUILD and add notes to the same entry. BUILD rises by 1 on every deploy and matches ?v= in index.html (cache buster).
+// Newest first; team-facing wording, no client names or amounts.
+const BUILD=83;
 const RELEASES=[
-  {v:"2.0.0",build:82,date:"2026-11-01",notes:["Version numbers now read MAJOR.MINOR.FIX (for example 2.1.0 for a new feature, 2.1.1 for a fix). The build number stays under About","Settings > What's new lists every release, newest first, and the app tells you once after each update","Invoice emails now send from info@thepivotstrategy.com, with a copy in its Sent Items","Clearer messages when an email cannot be sent, naming the setting to fix"]},
-  {v:"1.x",build:78,date:"2026-11-01",notes:["Invoice emails: Email invoice in the row menu, with first-send and reminder templates that follow the invoice type (retainer, project, installment, one-time, receipt)","Sent and reminder dates show under the invoice title"]},
-  {v:"1.x",build:77,date:"2026-11-01",notes:["Download PDF saves the invoice straight to Downloads, named by invoice number and brand"]},
-  {v:"1.x",build:76,date:"2026-10-27",notes:["Runway uses the higher of the 3-month and latest month team pay","Business health shows recurring revenue against team pay"]},
-  {v:"1.x",build:75,date:"2026-10-27",notes:["Accounts show totals per billing account; expand one to see each brand's own numbers","Brands billed through a parent account no longer show as losses","Choosing a retainer program keeps an agreed fee"]},
-  {v:"1.x",build:74,date:"2026-10-27",notes:["Tables fit the window: only the table scrolls, the mouse wheel works from anywhere on the page","Salaries are charged to the brands each person worked on, with percent splits per month"]},
-  {v:"1.x",build:73,date:"2026-10-27",notes:["Estimated profit by brand (collected minus expenses minus a salary share)","Business health panel on Money overview","Invoice payment details in Settings","Home: My work and Leads panels; accounts carry a retainer program and next step"]},
-  {v:"1.x",build:72,date:"2026-10-27",notes:["Deletes go to Settings > Trash and can be restored; Paid money cannot be deleted","Task status Cancelled","Database rules block invalid values; the Activity Log shows who changed what"]},
-  {v:"1.x",build:71,date:"2026-10-27",notes:["Sticky table headers","All Tasks shows 100 rows at a time with Show more","Phone: table rows show as labelled cards","Dates read as 28 Oct 2026"]},
-  {v:"1.x",build:70,date:"2026-10-27",notes:["Paid always carries a paid date","Two people adding at once no longer fails","Safer CSV exports"]},
-  {v:"1.x",build:69,date:"2026-10-27",notes:["Today follows the Kuwait date, also after midnight","A failed save shows a message and puts the old value back","Forgot password on the login screen","Fairer period comparisons"]},
-  {v:"1.x",build:68,date:"2026-10-27",notes:["A Done task with no due date takes its done date as due","Every table opens sorted by ID, newest first"]},
+  {v:"2.0.0",build:83,date:"2026-11-01",notes:["Version numbers now read MAJOR.MINOR.FIX (for example 2.1.0 for a new feature, 2.1.1 for a fix). The build number stays under About","Settings > What's new lists every release, newest first, and the app tells you once after each update","Invoice emails now send from info@thepivotstrategy.com, with a copy in its Sent Items","Clearer messages when an email cannot be sent, naming the setting to fix","Releases group a day's work under one version; a later update the same day shows the notice again"]},
+  {v:"1.x",build:78,label:"Builds 77 to 81",date:"2026-11-01",notes:["Invoice emails: Email invoice in the row menu, with first-send and reminder templates that follow the invoice type (retainer, project, installment, one-time, receipt)","Sent and reminder dates show under the invoice title","Download PDF saves the invoice straight to Downloads, named by invoice number and brand"]},
+  {v:"1.x",build:76,label:"Builds 68 to 76",date:"2026-10-27",notes:["Runway uses the higher of the 3-month and latest month team pay","Business health shows recurring revenue against team pay","Accounts show totals per billing account; expand one to see each brand's own numbers","Brands billed through a parent account no longer show as losses","Choosing a retainer program keeps an agreed fee","Tables fit the window: only the table scrolls, the mouse wheel works from anywhere on the page","Salaries are charged to the brands each person worked on, with percent splits per month","Estimated profit by brand (collected minus expenses minus a salary share)","Business health panel on Money overview","Invoice payment details in Settings","Home: My work and Leads panels; accounts carry a retainer program and next step","Deletes go to Settings > Trash and can be restored; Paid money cannot be deleted","Task status Cancelled","Database rules block invalid values; the Activity Log shows who changed what","Sticky table headers","All Tasks shows 100 rows at a time with Show more","Phone: table rows show as labelled cards","Dates read as 28 Oct 2026","Paid always carries a paid date","Two people adding at once no longer fails","Safer CSV exports","Today follows the Kuwait date, also after midnight","A failed save shows a message and puts the old value back","Forgot password on the login screen","Fairer period comparisons","A Done task with no due date takes its done date as due","Every table opens sorted by ID, newest first"]},
   {v:"1.x",build:67,label:"Builds 1 to 67",date:"",notes:["The move from the Excel workspace to this app (tasks, invoices, expenses, salaries, accounts, services, dashboards, backups and the daily digest)"]},
 ];
 const APPV=RELEASES[0].v;
@@ -2489,9 +2481,10 @@ function releasesPanel(){
   const cur=RELEASES.filter(r=>r.v!=='1.x'),old=RELEASES.filter(r=>r.v==='1.x');
   return `<div class="panel" id="whatsnew"><h2>What's new</h2><div class="body">${cur.map(item).join('')}${old.length?`<div class="relhead">Before 2.0</div>${old.map((r,i)=>item(r,1)).join('')}`:''}</div></div>`;}
 function announceRelease(){let seen='';try{seen=localStorage.getItem('pivot_seen_v')||'';}catch(_){}
-  if(seen===APPV)return;try{localStorage.setItem('pivot_seen_v',APPV);}catch(_){}
+  // keyed on version and build, so a second deploy the same day (same version, more notes) is announced again
+  const key=APPV+'#'+BUILD;if(seen===key)return;try{localStorage.setItem('pivot_seen_v',key);}catch(_){}
   if(!seen&&APPV!=='2.0.0')return;
-  toast(`Updated to v${APPV}. Click to see what's new`,-1);const t=$('toast');const prev=t.onclick;
+  toast(seen.split('#')[0]===APPV?`v${APPV} updated. Click to see what's new`:`Updated to v${APPV}. Click to see what's new`,-1);const t=$('toast');const prev=t.onclick;
   t.onclick=()=>{prev&&prev();state.view='setup';try{localStorage.setItem('pivot_view','setup');}catch(_){}render();setTimeout(()=>{const w=$('whatsnew');w&&w.scrollIntoView({block:'start'});},50);};}
 function payPanel(){
   if(!HASSET())return `<div class="panel"><h2>Invoice payment details</h2><div class="body hint">Run migration 19 to store the bank details printed on invoices and payment reminders.</div></div>`;

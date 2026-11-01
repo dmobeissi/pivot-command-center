@@ -67,6 +67,8 @@ def main(seed_path):
         if pg.evaluate("state.view") != "setup" or not pg.evaluate("!!document.getElementById('whatsnew')&&document.querySelectorAll('#whatsnew details').length>=2"): fails.append("What's new panel missing")
         pg.evaluate("document.getElementById('toast').textContent=''"); pg.reload(); pg.wait_for_function("booted && ready()")
         if "Updated to v" in pg.evaluate("document.getElementById('toast').textContent"): fails.append("update notice shows twice")
+        pg.evaluate("localStorage.setItem('pivot_seen_v',APPV+'#1');document.getElementById('toast').textContent=''"); pg.reload(); pg.wait_for_function("booted && ready()")
+        if "updated. Click" not in pg.evaluate("document.getElementById('toast').textContent"): fails.append("a second deploy the same day is not announced")
         pg.evaluate("state.view='digest';try{localStorage.setItem('pivot_view','digest')}catch(e){};render()")
         # 1. default sort: first column ID cells descending
         for view, tbl in TABLES.items():

@@ -629,9 +629,13 @@ th.thsort:hover{color:var(--accent)}
 .seg>button:disabled{opacity:.45;cursor:not-allowed}
 
 /* v2.0.0 What's new */
-details.rel{border-top:1px solid var(--line);padding:10px 0}
-details.rel:first-child{border-top:0;padding-top:0}
-details.rel summary{cursor:pointer;list-style-position:outside}
-details.rel ul{margin:8px 0 0 18px;padding:0;display:flex;flex-direction:column;gap:4px;color:var(--ink2,inherit)}
-.relhead{margin:16px 0 4px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 #whatsnew{scroll-margin-top:72px}
+details.rel{border-top:1px solid var(--line);padding:12px 0}
+details.rel:first-child{border-top:0;padding-top:2px}
+details.rel summary{cursor:pointer;list-style:none;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+details.rel summary::-webkit-details-marker{display:none}
+details.rel summary::before{content:"";flex:none;width:6px;height:6px;border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:rotate(-45deg);transition:transform .15s;position:relative;top:-1px}
+details.rel[open] summary::before{transform:rotate(45deg)}
+details.rel summary .muted{font-size:13px}
+details.rel ul{margin:10px 0 2px 14px;padding:0 0 0 16px;display:flex;flex-direction:column;gap:6px;line-height:1.45}
+.relhead{margin:18px 0 2px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
