@@ -53,7 +53,7 @@ const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t.onclick=null;t.style.pointerEvents='';
   if(ms===-1){t.style.pointerEvents='auto';t.style.cursor='pointer';t.onclick=()=>{t.classList.remove('show');t.style.pointerEvents='';t.style.cursor='';};return;} // sticky until clicked
   const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v78 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v79 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -1949,7 +1949,9 @@ function openEmail(id,kind){
       let res=data;if(error){try{res=await error.context.json();}catch(_){res={error:error.message||'Sending failed'};}}
       if(res&&res.ok){toast(`Sent from ${res.from} to ${tos.join(', ')}`,6000);close();await fetchColl('money');render();return;}
       if(res&&res.error==='not_configured')say('Sending from info@ is not connected yet (Microsoft 365 setup pending). Use "Open in my email app" for now.',true);
-      else say((res&&res.error)||'Sending failed.',true);
+      else{const det=String((res&&res.detail)||'');const code=(det.match(/AADSTS\d+/)||det.match(/"code"\s*:\s*"([^"]+)"/)||[])[1]||(det.match(/AADSTS\d+/)||[])[0]||'';
+        const hints={AADSTS7000215:'the client secret is wrong: paste the secret Value, not the Secret ID',AADSTS7000222:'the client secret has expired: create a new one',AADSTS700016:'the client ID is not found in this tenant: check MS_CLIENT_ID and MS_TENANT_ID',AADSTS90002:'the tenant ID is wrong: check MS_TENANT_ID',AADSTS900023:'the tenant ID is not valid: check MS_TENANT_ID',ErrorAccessDenied:'the app lacks Mail.Send (Application) consent, or the access policy blocks this mailbox',MailboxNotEnabledForRESTAPI:'the sending mailbox is not a licensed Exchange mailbox'};
+        say(((res&&res.error)||'Sending failed.')+(code?` (${code}${hints[code]?': '+hints[code]:''})`:'')+(det&&!code?' '+det.slice(0,160):''),true);}
     }catch(e){console.error(e);say('Sending failed: '+(e.message||e),true);}
     btn.disabled=false;btn.textContent='Send from info@thepivotstrategy.com';};
 }
