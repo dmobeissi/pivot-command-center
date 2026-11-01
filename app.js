@@ -53,7 +53,7 @@ const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t.onclick=null;t.style.pointerEvents='';
   if(ms===-1){t.style.pointerEvents='auto';t.style.cursor='pointer';t.onclick=()=>{t.classList.remove('show');t.style.pointerEvents='';t.style.cursor='';};return;} // sticky until clicked
   const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v76 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v77 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -143,7 +143,7 @@ document.addEventListener('click',e=>{const d=e.target.closest('[data-menu]');
     const canOpen=(coll==='tasks'||coll==='money');
     const mRow=coll==='money'?store.money.find(x=>x.id===id):null;
     const canInv=!!(mRow&&mRow.dir==='Income');const canRem=!!(mRow&&owed(mRow));
-    rowMenuEl.innerHTML=`${canOpen?'<button data-mi="open">Open</button>':''}${canInv?'<button data-mi="inv">Invoice PDF</button>':''}${canRem?'<button data-mi="rem">Payment reminder</button>':''}<button data-mi="del" class="danger">Delete</button>`;
+    rowMenuEl.innerHTML=`${canOpen?'<button data-mi="open">Open</button>':''}${canInv?'<button data-mi="inv">Download PDF</button>':''}${canRem?'<button data-mi="rem">Payment reminder</button>':''}<button data-mi="del" class="danger">Delete</button>`;
     document.body.appendChild(rowMenuEl);
     const w=160,left=Math.min(window.innerWidth-w-8,Math.max(8,r.right-w));
     rowMenuEl.style.top=(r.bottom+4)+'px';rowMenuEl.style.left=left+'px';
@@ -1877,12 +1877,44 @@ function openReminder(id){
   $('rmCopy').onclick=async()=>{try{await navigator.clipboard.writeText($('rm_subj').value+'\n\n'+$('rm_body').value);toast("Copied");}catch(e){toast("Copy blocked by the browser: select the text and copy it",-1);}};
   if($('rmMail'))$('rmMail').onclick=()=>{location.href=`mailto:${encodeURIComponent(a.bill_email)}?subject=${encodeURIComponent($('rm_subj').value)}&body=${encodeURIComponent($('rm_body').value)}`;};
 }
-function downloadInvoicePDF(id){
+// Invoice PDF (v77): rendered in a hidden frame and saved straight to Downloads as "PVT-INV-0068 Mizyana.pdf".
+// The two libraries load on first use only. If they cannot load, the old print view opens instead.
+const PDF_LIBS=["https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js","https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"];
+let _pdfLibs=null;
+function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=()=>rej(new Error('Could not load '+src));document.head.appendChild(s);});}
+function pdfLibs(){if(!_pdfLibs)_pdfLibs=Promise.all(PDF_LIBS.map((u,i)=>(i===0?window.html2canvas:(window.jspdf&&window.jspdf.jsPDF))?null:loadScript(u))).catch(e=>{_pdfLibs=null;throw e;});return _pdfLibs;}
+function invoiceFileName(m){const a=AMAP[m.acct];return ("PVT-"+(m.inv_no||m.id)+" "+((a&&a.brand)||"")).replace(/[\\/:*?"<>|]+/g,"").replace(/\s+/g," ").trim()+".pdf";}
+async function downloadInvoicePDF(id){
   const m=store.money.find(x=>x.id===id);if(!m||m.dir!=="Income"){toast("Only invoices can be exported");return;}
-  const w=window.open('','_blank');if(!w){toast("Allow pop-ups to download the invoice");return;}
-  w.document.write(invoiceHTML(m,AMAP[m.acct]));w.document.close();
-  const go=()=>{try{w.focus();w.print();}catch(_){}};
-  if(w.document.readyState==='complete')setTimeout(go,250);else w.onload=()=>setTimeout(go,250);
+  toast("Preparing the PDF…",15000);
+  let f=null;
+  try{
+    await pdfLibs();
+    f=document.createElement('iframe');
+    f.setAttribute('aria-hidden','true');
+    f.style.cssText='position:fixed;left:-10000px;top:0;width:794px;height:1123px;border:0;visibility:hidden';
+    document.body.appendChild(f);
+    const d=f.contentDocument;d.open();d.write(invoiceHTML(m,AMAP[m.acct]));d.close();
+    await new Promise(r=>setTimeout(r,60));
+    try{if(d.fonts&&d.fonts.ready)await d.fonts.ready;}catch(_){}
+    const page=d.querySelector('.page')||d.body;
+    const canvas=await window.html2canvas(page,{scale:2,backgroundColor:'#ffffff',useCORS:true,logging:false,windowWidth:794});
+    const pdf=new window.jspdf.jsPDF({unit:'mm',format:'a4',orientation:'portrait'});
+    const W=210,H=297,imgH=canvas.height*W/canvas.width,img=canvas.toDataURL('image/jpeg',0.95);
+    // one page when it fits (with 1 mm of slack for rounding); otherwise slice down the image page by page
+    if(imgH<=H+1)pdf.addImage(img,'JPEG',0,0,W,Math.min(imgH,H));
+    else{for(let y=0,n=0;y<imgH-0.5;y+=H,n++){if(n)pdf.addPage();pdf.addImage(img,'JPEG',0,-y,W,imgH);}}
+    pdf.setProperties({title:"PVT-"+(m.inv_no||m.id),author:PIVOT_CO.name,creator:"PIVOT Command Center"});
+    pdf.save(invoiceFileName(m));
+    toast("Saved to Downloads · "+invoiceFileName(m));
+  }catch(e){
+    console.error(e);
+    toast("Could not build the PDF here, opening the print view instead",6000);
+    const w=window.open('','_blank');if(!w){toast("Allow pop-ups to open the invoice",-1);return;}
+    w.document.write(invoiceHTML(m,AMAP[m.acct]));w.document.close();
+    const go=()=>{try{w.focus();w.print();}catch(_){}};
+    if(w.document.readyState==='complete')setTimeout(go,250);else w.onload=()=>setTimeout(go,250);
+  }finally{if(f)f.remove();}
 }
 function openExpenseNew(){
   if(!canWrite){toast("Read-only access");return;}

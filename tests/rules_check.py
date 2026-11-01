@@ -21,6 +21,8 @@ Behaviour checks for data rules (v68).
          salaries are charged to their brand or split (migration 20), partners on the internal account by tasks
   - v75: profit is read per client group (children billed through the parent); group totals equal brand totals;
          choosing a program does not overwrite a fee already set
+  - v77: invoice PDF downloads straight to a file (set PDF_LIBS_DIR to a folder with node_modules/html2canvas and
+         node_modules/jspdf to test the download offline); with the CDN blocked it falls back to the print view
 
 Usage: python tests/rules_check.py /path/to/pivot-backup.json   (client data is never committed)
 """
@@ -313,6 +315,28 @@ def main(seed_path):
             pg.select_option("#ae_program", eng["id"]); pg.wait_for_timeout(100)
             if before > 0 and pg.evaluate("parseFloat(document.getElementById('ae_retainer_fee').value)") != before: fails.append("choosing a program overwrote the agreed fee")
         pg.evaluate("document.getElementById('modal').classList.remove('show')")
+        # v77: invoice PDF download
+        import os
+        lib = os.environ.get("PDF_LIBS_DIR")
+        ctxd = b.new_context(accept_downloads=True); pd = ctxd.new_page(); pops = []; pd.on("popup", lambda x: pops.append(x))
+        pd.add_init_script("window.__SEED=" + json.dumps(seed) + ";")
+        pd.route("**/supabase.min.js", lambda r: r.fulfill(body=smoke.MOCK, content_type="application/javascript"))
+        pd.route("https://fonts.googleapis.com/**", lambda r: r.fulfill(body="", content_type="text/css"))
+        if lib:
+            pd.route("**/html2canvas@1.4.1/dist/html2canvas.min.js", lambda r: r.fulfill(path=lib + "/node_modules/html2canvas/dist/html2canvas.min.js", content_type="application/javascript"))
+            pd.route("**/jspdf@2.5.1/dist/jspdf.umd.min.js", lambda r: r.fulfill(path=lib + "/node_modules/jspdf/dist/jspdf.umd.min.js", content_type="application/javascript"))
+        else:
+            pd.route("https://cdn.jsdelivr.net/npm/html2canvas**", lambda r: r.abort()); pd.route("https://cdn.jsdelivr.net/npm/jspdf**", lambda r: r.abort())
+        pd.goto(url); pd.wait_for_function("booted && ready()")
+        inv = pd.evaluate("store.money.find(m=>m.dir==='Income').id")
+        if lib:
+            with pd.expect_download(timeout=30000) as dl: pd.evaluate(f"downloadInvoicePDF('{inv}')")
+            if not dl.value.suggested_filename.endswith(".pdf") or "PVT-" not in dl.value.suggested_filename: fails.append(f"bad PDF file name {dl.value.suggested_filename}")
+            if pops: fails.append("PDF download opened a window")
+        else:
+            pd.evaluate(f"downloadInvoicePDF('{inv}')"); pd.wait_for_timeout(1500)
+            if not pops: fails.append("no print-view fallback when the PDF libraries cannot load")
+        ctxd.close()
         # v69: local date at 00:30 Kuwait (21:30 UTC the day before)
         pk = b.new_context(timezone_id="Asia/Kuwait").new_page()
         pk.clock.set_fixed_time("2026-10-27T21:30:00Z")
@@ -324,7 +348,7 @@ def main(seed_path):
         b.close()
     srv.shutdown()
     if fails: print("FAIL\n" + "\n".join(fails)); sys.exit(1)
-    print("PASS: ID descending; due = done rule; local date at 00:30 Kuwait; failed save reverts; retainer badge; MTD comparison; My Tasks default; Accounts default filter; paid date on Paid; duplicate-ID retry; CSV guard; no % above 100; sticky headers; task paging; read-only money tables; phone cards; Cancelled closed; Paid undeletable; hard delete before m18, Trash after; audit log; estimated cost adds up; business health; payment details; reminder; m19 fields; Home panels; fixed table layout and wheel; salary charging and month editor; client groups; program keeps fee")
+    print("PASS: ID descending; due = done rule; local date at 00:30 Kuwait; failed save reverts; retainer badge; MTD comparison; My Tasks default; Accounts default filter; paid date on Paid; duplicate-ID retry; CSV guard; no % above 100; sticky headers; task paging; read-only money tables; phone cards; Cancelled closed; Paid undeletable; hard delete before m18, Trash after; audit log; estimated cost adds up; business health; payment details; reminder; m19 fields; Home panels; fixed table layout and wheel; salary charging and month editor; client groups; program keeps fee; invoice PDF download")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2: print(__doc__); sys.exit(2)
