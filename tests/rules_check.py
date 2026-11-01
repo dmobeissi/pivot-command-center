@@ -1,3 +1,4 @@
+import os
 """
 Behaviour checks for data rules (v68).
 
@@ -54,6 +55,19 @@ def main(seed_path):
         pg.route("**/supabase.min.js", lambda r: r.fulfill(body=smoke.MOCK, content_type="application/javascript"))
         pg.route("https://fonts.googleapis.com/**", lambda r: r.fulfill(body="", content_type="text/css"))
         pg.goto(url); pg.wait_for_function("booted && ready()")
+        # 2.0.0: version scheme in lockstep, What's new panel, update notice once
+        import re as _re, os as _os
+        html = open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "index.html")).read()
+        vs = set(_re.findall(r"\?v=(\d+)", html))
+        vi = pg.evaluate("({b:BUILD,r:RELEASES[0].build,v:APPV,a:APPVER})")
+        if vs != {str(vi["b"])} or vi["r"] != vi["b"]: fails.append(f"build not in lockstep: index {vs}, BUILD {vi['b']}, newest release {vi['r']}")
+        if not _re.fullmatch(r"\d+\.\d+\.\d+", vi["v"]) or vi["a"] != f"v{vi['v']} · build {vi['b']}": fails.append(f"bad version label {vi}")
+        if "Updated to v" not in pg.evaluate("document.getElementById('toast').textContent"): fails.append("no update notice after a new version")
+        pg.evaluate("document.getElementById('toast').click()"); pg.wait_for_timeout(200)
+        if pg.evaluate("state.view") != "setup" or not pg.evaluate("!!document.getElementById('whatsnew')&&document.querySelectorAll('#whatsnew details').length>=2"): fails.append("What's new panel missing")
+        pg.evaluate("document.getElementById('toast').textContent=''"); pg.reload(); pg.wait_for_function("booted && ready()")
+        if "Updated to v" in pg.evaluate("document.getElementById('toast').textContent"): fails.append("update notice shows twice")
+        pg.evaluate("state.view='digest';try{localStorage.setItem('pivot_view','digest')}catch(e){};render()")
         # 1. default sort: first column ID cells descending
         for view, tbl in TABLES.items():
             pg.evaluate(f"state.view='{view}';render()"); pg.wait_for_timeout(150)
@@ -136,7 +150,7 @@ def main(seed_path):
         if c != ["'=HYPERLINK(1)", "-100.5", "'+cmd", "Plain"]: fails.append(f"CSV guard wrong {c}")
         # v70: no percentage above 100
         pg.evaluate("state.view='moneydash';render()"); pg.wait_for_timeout(200)
-        import re as _re
+        import re as _re, os as _os
         if any(int(x) > 100 for x in _re.findall(r"(\d+)% (?:collected|paid)", pg.inner_text("#view"))): fails.append("dashboard still shows a percentage above 100")
         # v71: sticky header inside the table card
         pg.evaluate("F.quick='';state.view='tasks';render()"); pg.wait_for_timeout(250)
@@ -377,7 +391,7 @@ def main(seed_path):
         b.close()
     srv.shutdown()
     if fails: print("FAIL\n" + "\n".join(fails)); sys.exit(1)
-    print("PASS: ID descending; due = done rule; local date at 00:30 Kuwait; failed save reverts; retainer badge; MTD comparison; My Tasks default; Accounts default filter; paid date on Paid; duplicate-ID retry; CSV guard; no % above 100; sticky headers; task paging; read-only money tables; phone cards; Cancelled closed; Paid undeletable; hard delete before m18, Trash after; audit log; estimated cost adds up; business health; payment details; reminder; m19 fields; Home panels; fixed table layout and wheel; salary charging and month editor; client groups; program keeps fee; invoice PDF download; invoice emails; access denied explained")
+    print("PASS: ID descending; due = done rule; local date at 00:30 Kuwait; failed save reverts; retainer badge; MTD comparison; My Tasks default; Accounts default filter; paid date on Paid; duplicate-ID retry; CSV guard; no % above 100; sticky headers; task paging; read-only money tables; phone cards; Cancelled closed; Paid undeletable; hard delete before m18, Trash after; audit log; estimated cost adds up; business health; payment details; reminder; m19 fields; Home panels; fixed table layout and wheel; salary charging and month editor; client groups; program keeps fee; invoice PDF download; invoice emails; access denied explained; version scheme and What's new")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2: print(__doc__); sys.exit(2)

@@ -53,7 +53,27 @@ const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t.onclick=null;t.style.pointerEvents='';
   if(ms===-1){t.style.pointerEvents='auto';t.style.cursor='pointer';t.onclick=()=>{t.classList.remove('show');t.style.pointerEvents='';t.style.cursor='';};return;} // sticky until clicked
   const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v81 · Supabase";
+let saveStateText="waking up…",pendingHL="";
+// Releases (from 2.0.0): MAJOR.MINOR.FIX. FIX = bug fix or wording, MINOR = new feature or any migration, MAJOR = new way of working.
+// BUILD rises by 1 on every deploy and matches ?v= in index.html (cache buster). Newest first; team-facing wording, no client names or amounts.
+const BUILD=82;
+const RELEASES=[
+  {v:"2.0.0",build:82,date:"2026-11-01",notes:["Version numbers now read MAJOR.MINOR.FIX (for example 2.1.0 for a new feature, 2.1.1 for a fix). The build number stays under About","Settings > What's new lists every release, newest first, and the app tells you once after each update","Invoice emails now send from info@thepivotstrategy.com, with a copy in its Sent Items","Clearer messages when an email cannot be sent, naming the setting to fix"]},
+  {v:"1.x",build:78,date:"2026-11-01",notes:["Invoice emails: Email invoice in the row menu, with first-send and reminder templates that follow the invoice type (retainer, project, installment, one-time, receipt)","Sent and reminder dates show under the invoice title"]},
+  {v:"1.x",build:77,date:"2026-11-01",notes:["Download PDF saves the invoice straight to Downloads, named by invoice number and brand"]},
+  {v:"1.x",build:76,date:"2026-10-27",notes:["Runway uses the higher of the 3-month and latest month team pay","Business health shows recurring revenue against team pay"]},
+  {v:"1.x",build:75,date:"2026-10-27",notes:["Accounts show totals per billing account; expand one to see each brand's own numbers","Brands billed through a parent account no longer show as losses","Choosing a retainer program keeps an agreed fee"]},
+  {v:"1.x",build:74,date:"2026-10-27",notes:["Tables fit the window: only the table scrolls, the mouse wheel works from anywhere on the page","Salaries are charged to the brands each person worked on, with percent splits per month"]},
+  {v:"1.x",build:73,date:"2026-10-27",notes:["Estimated profit by brand (collected minus expenses minus a salary share)","Business health panel on Money overview","Invoice payment details in Settings","Home: My work and Leads panels; accounts carry a retainer program and next step"]},
+  {v:"1.x",build:72,date:"2026-10-27",notes:["Deletes go to Settings > Trash and can be restored; Paid money cannot be deleted","Task status Cancelled","Database rules block invalid values; the Activity Log shows who changed what"]},
+  {v:"1.x",build:71,date:"2026-10-27",notes:["Sticky table headers","All Tasks shows 100 rows at a time with Show more","Phone: table rows show as labelled cards","Dates read as 28 Oct 2026"]},
+  {v:"1.x",build:70,date:"2026-10-27",notes:["Paid always carries a paid date","Two people adding at once no longer fails","Safer CSV exports"]},
+  {v:"1.x",build:69,date:"2026-10-27",notes:["Today follows the Kuwait date, also after midnight","A failed save shows a message and puts the old value back","Forgot password on the login screen","Fairer period comparisons"]},
+  {v:"1.x",build:68,date:"2026-10-27",notes:["A Done task with no due date takes its done date as due","Every table opens sorted by ID, newest first"]},
+  {v:"1.x",build:67,label:"Builds 1 to 67",date:"",notes:["The move from the Excel workspace to this app (tasks, invoices, expenses, salaries, accounts, services, dashboards, backups and the daily digest)"]},
+];
+const APPV=RELEASES[0].v;
+const APPVER=`v${APPV} · build ${BUILD}`;
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -104,6 +124,7 @@ async function startApp(){
   booted=true;
   if(RECOVERY){ try{history.replaceState(null,'',location.pathname);}catch(e){} openChangePassword(); toast('Set a new password to finish the reset',6000); }
   await loadAll();
+  if(!RECOVERY)announceRelease();
 }
 function renderUserChip(){
   const nu=$('navuser'); if(!nu)return;
@@ -2451,9 +2472,10 @@ function renderSetup(){
     ${trashPanel()}
     <div class="panel"><h2>Appearance</h2><div class="body"><div class="themeseg"><button data-theme="system">System</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></div></div></div>
     <div class="panel"><h2>About</h2><div class="body" style="display:flex;flex-direction:column;gap:10px">
-      <div class="aboutrow"><div><span class="muted">Build</span> &nbsp; <b>PIVOT Command Center ${APPVER}</b></div><div><span class="muted">Status</span> &nbsp; <span id="savestate">${esc(saveStateText)}</span></div></div>
+      <div class="aboutrow"><div><span class="muted">Version</span> &nbsp; <b>PIVOT Command Center ${esc(APPVER)}</b></div><div><span class="muted">Status</span> &nbsp; <span id="savestate">${esc(saveStateText)}</span></div></div>
       <div class="hint">If the app looks unstyled or an update hasn't shown up, use Refresh data in the ⋯ menu beside your name. It clears the cache and reloads the newest data and version. Data lives in your Supabase database; a nightly backup pushes to a private repo and a daily digest posts to Teams.</div>
     </div></div>
+    ${releasesPanel()}
   </div>`;
   document.querySelectorAll('.themeseg button').forEach(b=>b.onclick=()=>setTheme(b.dataset.theme));
   applyTheme();
@@ -2462,6 +2484,15 @@ function renderSetup(){
   document.querySelectorAll('[data-trestore]').forEach(b=>b.onclick=()=>restoreTrash(b.dataset.tc,[b.dataset.trestore]));
   document.querySelectorAll('[data-tpurge]').forEach(b=>b.onclick=()=>{if(b.dataset.armed){purge(b.dataset.tc,b.dataset.tpurge);}else{b.dataset.armed='1';b.textContent='Click again to delete for good';b.classList.add('danger');}});
 }
+function releasesPanel(){
+  const item=(r,i)=>`<details class="rel"${i===0?' open':''}><summary><b>${esc(r.label||(r.v==='1.x'?'Build '+r.build:'v'+r.v))}</b>${r.date?` <span class="muted">· ${esc(fmtD(r.date))}${r.v!=='1.x'?' · build '+r.build:''}</span>`:''}</summary><ul>${r.notes.map(n=>`<li>${esc(n)}</li>`).join('')}</ul></details>`;
+  const cur=RELEASES.filter(r=>r.v!=='1.x'),old=RELEASES.filter(r=>r.v==='1.x');
+  return `<div class="panel" id="whatsnew"><h2>What's new</h2><div class="body">${cur.map(item).join('')}${old.length?`<div class="relhead">Before 2.0</div>${old.map((r,i)=>item(r,1)).join('')}`:''}</div></div>`;}
+function announceRelease(){let seen='';try{seen=localStorage.getItem('pivot_seen_v')||'';}catch(_){}
+  if(seen===APPV)return;try{localStorage.setItem('pivot_seen_v',APPV);}catch(_){}
+  if(!seen&&APPV!=='2.0.0')return;
+  toast(`Updated to v${APPV}. Click to see what's new`,-1);const t=$('toast');const prev=t.onclick;
+  t.onclick=()=>{prev&&prev();state.view='setup';try{localStorage.setItem('pivot_view','setup');}catch(_){}render();setTimeout(()=>{const w=$('whatsnew');w&&w.scrollIntoView({block:'start'});},50);};}
 function payPanel(){
   if(!HASSET())return `<div class="panel"><h2>Invoice payment details</h2><div class="body hint">Run migration 19 to store the bank details printed on invoices and payment reminders.</div></div>`;
   const ro=canWrite?"":"disabled";const f=(k,l,ph)=>fld(l,`<input id="st_${k}" value="${esc(getSet(k))}" placeholder="${ph}" ${ro}>`);
