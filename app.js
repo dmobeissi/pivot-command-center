@@ -53,7 +53,7 @@ const brandOf=id=>AMAP[id]?AMAP[id].brand:(id||"");
 function toast(m,ms){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t.onclick=null;t.style.pointerEvents='';
   if(ms===-1){t.style.pointerEvents='auto';t.style.cursor='pointer';t.onclick=()=>{t.classList.remove('show');t.style.pointerEvents='';t.style.cursor='';};return;} // sticky until clicked
   const dur=ms||(/fail|error|not able|read-only|violates|constraint/i.test(m)?8000:3000);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
-let saveStateText="waking up…",pendingHL="";const APPVER="v79 · Supabase";
+let saveStateText="waking up…",pendingHL="";const APPVER="v80 · Supabase";
 function setSave(t){saveStateText=t;const e=$('savestate');if(e)e.textContent=t;}
 
 (async function boot(){
@@ -1952,6 +1952,14 @@ function openEmail(id,kind){
       else{const det=String((res&&res.detail)||'');const code=(det.match(/AADSTS\d+/)||det.match(/"code"\s*:\s*"([^"]+)"/)||[])[1]||(det.match(/AADSTS\d+/)||[])[0]||'';
         const hints={AADSTS7000215:'the client secret is wrong: paste the secret Value, not the Secret ID',AADSTS7000222:'the client secret has expired: create a new one',AADSTS700016:'the client ID is not found in this tenant: check MS_CLIENT_ID and MS_TENANT_ID',AADSTS90002:'the tenant ID is wrong: check MS_TENANT_ID',AADSTS900023:'the tenant ID is not valid: check MS_TENANT_ID',ErrorAccessDenied:'the app lacks Mail.Send (Application) consent, or the access policy blocks this mailbox',MailboxNotEnabledForRESTAPI:'the sending mailbox is not a licensed Exchange mailbox'};
         say(((res&&res.error)||'Sending failed.')+(code?` (${code}${hints[code]?': '+hints[code]:''})`:'')+(det&&!code?' '+det.slice(0,160):''),true);}
+      // sign-in problems: ask the function what the saved settings look like (shape only, never the values)
+      if(/AADSTS(7000215|700016|90002|900023)/.test(JSON.stringify(res||{}))){try{const r=await sb.functions.invoke('send-invoice',{body:{diag:true}});const d=r&&r.data&&r.data.diag;
+        if(d){const notes=[];if(d.secret_looks_like_secret_id)notes.push('MS_CLIENT_SECRET holds the Secret ID (a dashed code), not the Value');
+          else if(d.secret_length&&(d.secret_length<34||d.secret_length>48))notes.push(`MS_CLIENT_SECRET is ${d.secret_length} characters; a secret Value is about 40`);
+          if(d.secret_has_spaces_or_quotes)notes.push('MS_CLIENT_SECRET has spaces or quotes around it');
+          if(!d.client_matches_app)notes.push('MS_CLIENT_ID does not match the PIVOT Command Center mail app');
+          if(!d.tenant_is_guid)notes.push('MS_TENANT_ID is not a Directory ID (dashed code)');
+          const e=$('em_msg');if(e)e.textContent+=' Check: '+(notes.length?notes.join('; '):`settings look well formed (secret ${d.secret_length} characters). The Value may be from an older or deleted secret: create a new one and paste its Value`)+'.';}}catch(_){}}
     }catch(e){console.error(e);say('Sending failed: '+(e.message||e),true);}
     btn.disabled=false;btn.textContent='Send from info@thepivotstrategy.com';};
 }

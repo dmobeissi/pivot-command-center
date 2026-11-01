@@ -1,4 +1,4 @@
-// PIVOT send-invoice (v78)
+// PIVOT send-invoice (v80)
 // Sends an invoice email with its PDF from the PIVOT mailbox (info@thepivotstrategy.com) through Microsoft Graph,
 // so it lands in that mailbox's Sent Items. Only signed-in team members (people table, active, matching email)
 // can send. Records sent_at / reminded_at on the invoice with the sender's own login (audit log shows who).
@@ -42,6 +42,19 @@ Deno.serve(async (req) => {
 
   let b: any;
   try { b = await req.json(); } catch { return json(400, { error: "Bad request" }); }
+  // diagnostics for the team: describes the shape of the saved settings, never their values
+  if (b && b.diag === true) {
+    const G = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    return json(200, { diag: {
+      secret_length: secret.length,
+      secret_looks_like_secret_id: G.test(secret.trim()),
+      secret_has_spaces_or_quotes: /^\s|\s$|["']/.test(secret),
+      tenant_is_guid: G.test(tenant.trim()),
+      client_is_guid: G.test(clientId.trim()),
+      client_matches_app: clientId.trim() === "96b93900-b910-4e04-9b7e-85480d444853",
+      mail_from: from,
+    } });
+  }
   const to: string[] = (b.to || []).map((x: string) => String(x).trim()).filter(Boolean);
   const cc: string[] = (b.cc || []).map((x: string) => String(x).trim()).filter(Boolean);
   if (!to.length || [...to, ...cc].some((x) => !EMAIL.test(x)) || to.length + cc.length > 10) return json(400, { error: "Check the email addresses." });
@@ -53,10 +66,10 @@ Deno.serve(async (req) => {
   if (invErr || !inv || inv.dir !== "Income") return json(404, { error: "Invoice not found." });
 
   // Microsoft Graph: app token, then sendMail from the PIVOT mailbox
-  const tok = await fetch(`https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`, {
+  const tok = await fetch(`https://login.microsoftonline.com/${tenant.trim()}/oauth2/v2.0/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ client_id: clientId, client_secret: secret, grant_type: "client_credentials", scope: "https://graph.microsoft.com/.default" }),
+    body: new URLSearchParams({ client_id: clientId.trim(), client_secret: secret.trim().replace(/^["']|["']$/g, ""), grant_type: "client_credentials", scope: "https://graph.microsoft.com/.default" }),
   });
   if (!tok.ok) return json(502, { error: "Microsoft sign-in failed. Check the app secret.", detail: (await tok.text()).slice(0, 300) });
   const { access_token } = await tok.json();
@@ -68,7 +81,7 @@ Deno.serve(async (req) => {
     ccRecipients: cc.map((address) => ({ emailAddress: { address } })),
     attachments: [{ "@odata.type": "#microsoft.graph.fileAttachment", name: String(b.filename || `${b.invoice_id}.pdf`).slice(0, 120), contentType: "application/pdf", contentBytes: b.pdf_base64 }],
   };
-  const sent = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(from)}/sendMail`, {
+  const sent = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(from.trim())}/sendMail`, {
     method: "POST",
     headers: { Authorization: `Bearer ${access_token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ message, saveToSentItems: true }),
