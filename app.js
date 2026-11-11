@@ -3,6 +3,9 @@ const STATUSES=["To Do","In Progress","Review","Done","On Hold","Cancelled"];
 // open work = anything not Done or Cancelled
 const isOpenT=t=>t.status!=="Done"&&t.status!=="Cancelled";
 const PRIOS=["High","Medium","Low"];
+// One tag per task, from this list (agreed 12 Nov 2026). Groups work by type so the Tags filter stays useful.
+const TAGS=["website","catalogue","content","marketing","integrations","analytics","operations","planning"];
+const tagSel=(cur,ro)=>`<select id="mk_tags" ${ro||''}><option value=""></option>${(cur&&!TAGS.includes(cur)?[cur,...TAGS]:TAGS).map(x=>`<option${x===cur?' selected':''}>${esc(x)}</option>`).join('')}</select>`;
 const LIFE=["Lead","Active","Paused","Churned","Lost","Internal"];
 const STAGES=["Lead","Proposal","Won","Lost"];
 const PAY=["Paid","Partial","Unpaid","Voided","Cancelled"];
@@ -57,8 +60,9 @@ let saveStateText="waking up…",pendingHL="";
 // Releases (from 2.0.0): MAJOR.MINOR.FIX. FIX = bug fix or wording, MINOR = new feature or any migration, MAJOR = new way of working.
 // One version per day: later deploys that day raise BUILD and add notes to the same entry. BUILD rises by 1 on every deploy and matches ?v= in index.html (cache buster).
 // Newest first; team-facing wording, no client names or amounts.
-const BUILD=83;
+const BUILD=84;
 const RELEASES=[
+  {v:"2.1.0",build:84,date:"2026-11-12",notes:["Every task now has one tag from a fixed list of 8 (website, catalogue, content, marketing, integrations, analytics, operations, planning), picked from a dropdown","All task names and details were rewritten in one plain style: short names, facts separated by //, past tense for done work","Saving a task, invoice or account now sends only what you changed, so an older copy on your screen can no longer undo someone else's edit"]},
   {v:"2.0.0",build:83,date:"2026-11-01",notes:["Version numbers now read MAJOR.MINOR.FIX (for example 2.1.0 for a new feature, 2.1.1 for a fix). The build number stays under About","Settings > What's new lists every release, newest first, and the app tells you once after each update","Invoice emails now send from info@thepivotstrategy.com, with a copy in its Sent Items","Clearer messages when an email cannot be sent, naming the setting to fix","Releases group a day's work under one version; a later update the same day shows the notice again"]},
   {v:"1.x",build:78,label:"Builds 77 to 81",date:"2026-11-01",notes:["Invoice emails: Email invoice in the row menu, with first-send and reminder templates that follow the invoice type (retainer, project, installment, one-time, receipt)","Sent and reminder dates show under the invoice title","Download PDF saves the invoice straight to Downloads, named by invoice number and brand"]},
   {v:"1.x",build:76,label:"Builds 68 to 76",date:"2026-10-27",notes:["Runway uses the higher of the 3-month and latest month team pay","Business health shows recurring revenue against team pay","Accounts show totals per billing account; expand one to see each brand's own numbers","Brands billed through a parent account no longer show as losses","Choosing a retainer program keeps an agreed fee","Tables fit the window: only the table scrolls, the mouse wheel works from anywhere on the page","Salaries are charged to the brands each person worked on, with percent splits per month","Estimated profit by brand (collected minus expenses minus a salary share)","Business health panel on Money overview","Invoice payment details in Settings","Home: My work and Leads panels; accounts carry a retainer program and next step","Deletes go to Settings > Trash and can be restored; Paid money cannot be deleted","Task status Cancelled","Database rules block invalid values; the Activity Log shows who changed what","Sticky table headers","All Tasks shows 100 rows at a time with Show more","Phone: table rows show as labelled cards","Dates read as 28 Oct 2026","Paid always carries a paid date","Two people adding at once no longer fails","Safer CSV exports","Today follows the Kuwait date, also after midnight","A failed save shows a message and puts the old value back","Forgot password on the login screen","Fairer period comparisons","A Done task with no due date takes its done date as due","Every table opens sorted by ID, newest first"]},
@@ -220,10 +224,18 @@ const isDup=e=>!!e&&(e.code==='23505'||/duplicate key/i.test(e.message||''));
 function renumber(coll,rows){const next={};rows.forEach(r=>{const mm=String(r.id).match(/^(.*?)(\d+)$/);if(!mm)return;const pre=mm[1],w=mm[2].length;
   if(next[pre]==null){let mx=0;(store[coll]||[]).forEach(d=>{const x=String(d.id).match(/^(.*?)(\d+)$/);if(x&&x[1]===pre)mx=Math.max(mx,+x[2]);});next[pre]=mx;}
   const old=r.id;next[pre]+=1;r.id=pre+String(next[pre]).padStart(w,'0');if(r.inv_no===old)r.inv_no=r.id;});return rows;}
-async function write(coll,id,patch){
+// Saves send only the fields that changed. A popup filled from an older copy of the row (before a refresh, or while
+// someone else edited it) must not write back fields the user did not touch. base = the row as the popup first showed it.
+const norm=v=>v==null?'':(typeof v==='object'?JSON.stringify(v):String(v));
+const same=(a,b)=>norm(a)===norm(b);
+async function write(coll,id,patch,base){
   if(!canWrite){toast("Read-only access");return;}
-  if(coll==='tasks')taskDueRule((store.tasks||[]).find(x=>x.id===id),patch);
-  if(coll==='money')moneyRule((store.money||[]).find(x=>x.id===id),patch);
+  const cur=(store[coll]||[]).find(x=>x.id===id);
+  if(coll==='tasks')taskDueRule(cur,patch);
+  if(coll==='money')moneyRule(cur,patch);
+  const ref=base||cur;
+  if(ref){for(const k of Object.keys(patch))if(k!=='id'&&k in ref&&same(patch[k],ref[k]))delete patch[k];
+    if(!Object.keys(patch).length){toast("No changes");return;}}
   const o=toDB(coll,patch); delete o.id;              // never try to update the primary key
   const {error}=await sb.from(coll).update(o).eq('id',id);
   if(error){ toast("Save failed, change not kept"+errMsg(error)+". Click to dismiss",-1); console.error(error); render(); } else { toast("Saved"); applyLocal(coll,id,patch); }
@@ -1600,7 +1612,7 @@ function renderNavContext(TITLES){
 function autoDone(){const st=$('mk_status'),dn=$('mk_done');if(st&&dn)st.addEventListener('change',()=>{if(st.value==='Done'&&!dn.value)dn.value=todayISO;});}
 function fld(label,inner){return `<label class="fld"><span>${label}</span>${inner}</label>`;}
 function openTask(id){
-  const t=store.tasks.find(x=>x.id===id);if(!t)return;const ro=canWrite?"":"disabled";
+  const t=store.tasks.find(x=>x.id===id);if(!t)return;const ro=canWrite?"":"disabled";const base={...t};
   $('modal').innerHTML=`<div class="sheet">
     <div class="sheethead"><div><div class="id">${esc(t.id)}</div><h3>${esc(t.name||'Task')} <span class="muted" style="font-weight:500">· ${esc(brandOf(t.acct))}</span></h3></div><button class="del" id="mkClose" title="Close">✕</button></div>
     <div class="formgrid">
@@ -1613,7 +1625,7 @@ function openTask(id){
       ${fld("Logged",`<input type="date" id="mk_logged" value="${esc(t.logged||'')}" ${ro}>`)}
       ${fld("Due",`<input type="date" id="mk_due" value="${esc(t.due||'')}" ${ro}>`)}
       ${fld("Done",`<input type="date" id="mk_done" value="${esc(t.done||'')}" ${ro}>`)}
-      ${fld("Tags (comma-separated)",`<input id="mk_tags" value="${esc(t.tags||'')}" placeholder="e.g. dev, waiting-on-client" ${ro}>`)}
+      ${fld("Tag",tagSel(t.tags||'',ro))}
     </div>
     <div class="formfull">
       ${fld("Description (the brief)",`<textarea id="mk_details" rows="4" ${ro}>${esc(t.details||'')}</textarea>`)}
@@ -1633,7 +1645,7 @@ function openTask(id){
   $('modal').onclick=e=>{if(e.target===$('modal'))close();};
   if($('mkSave'))$('mkSave').onclick=async()=>{const g=f=>{const el=$('mk_'+f);return el?el.value:"";};
     const st=g('status');let dn=g('done');if(st==='Done'&&!dn)dn=todayISO;
-    await write("tasks",id,{name:g('name'),acct:g('acct'),owner:g('owner'),priority:g('priority'),status:st,reqby:g('reqby'),logged:g('logged'),due:g('due'),done:dn,details:g('details'),output:g('output'),notes:g('notes'),tags:g('tags')});logAct("edited","tasks",id,g('name'));close();};
+    await write("tasks",id,{name:g('name'),acct:g('acct'),owner:g('owner'),priority:g('priority'),status:st,reqby:g('reqby'),logged:g('logged'),due:g('due'),done:dn,details:g('details'),output:g('output'),notes:g('notes'),tags:g('tags')},base);logAct("edited","tasks",id,g('name'));close();};
   if($('mkDelete'))$('mkDelete').onclick=()=>{close();remove("tasks",id);};
 }
 function openTaskNew(preset){
@@ -1651,7 +1663,7 @@ function openTaskNew(preset){
       ${fld("Logged",`<input type="date" id="mk_logged" value="${todayISO}">`)}
       ${fld("Due",`<input type="date" id="mk_due">`)}
       ${fld("Done",`<input type="date" id="mk_done">`)}
-      ${fld("Tags (comma-separated)",`<input id="mk_tags" placeholder="e.g. dev, waiting-on-client">`)}
+      ${fld("Tag",tagSel(''))}
     </div>
     <div class="formfull">${fld("Description",`<textarea id="mk_details" rows="3"></textarea>`)}</div>
     <div class="sheetfoot"><span style="flex:1"></span><button class="ghost" id="mkCancel">Cancel</button><button class="btn" id="mkSave">Add task</button></div>
@@ -2420,7 +2432,7 @@ async function generateMonthly(){
     const due=ym+"-"+dd;
     if(store.tasks.some(x=>x.acct===t.acct&&(x.name||"")===(t.name||"")&&(x.due||"")===due)){skip++;continue;}
     const id="TSK-"+String(++base).padStart(4,"0");
-    await create("tasks",id,{acct:t.acct,eng:"",name:t.name,details:t.details||"",owner:t.owner||"",priority:t.priority||"Medium",reqby:"PIVOT",logged:todayISO,due,done:"",status:"To Do",output:"",notes:"",tags:"retainer"});
+    await create("tasks",id,{acct:t.acct,eng:"",name:t.name,details:t.details||"",owner:t.owner||"",priority:t.priority||"Medium",reqby:"PIVOT",logged:todayISO,due,done:"",status:"To Do",output:"",notes:"",tags:t.tags||""});
     made++;
   }
   toast("Generated "+made+", skipped "+skip+" already there");

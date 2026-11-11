@@ -62,6 +62,8 @@ def main(seed_path):
         vi = pg.evaluate("({b:BUILD,r:RELEASES[0].build,v:APPV,a:APPVER})")
         if vs != {str(vi["b"])} or vi["r"] != vi["b"]: fails.append(f"build not in lockstep: index {vs}, BUILD {vi['b']}, newest release {vi['r']}")
         if not _re.fullmatch(r"\d+\.\d+\.\d+", vi["v"]) or vi["a"] != f"v{vi['v']} · build {vi['b']}": fails.append(f"bad version label {vi}")
+        # a returning user who saw an older version gets the notice (first-time visitors are not told)
+        pg.evaluate("localStorage.setItem('pivot_seen_v','1.0.0#1')"); pg.reload(); pg.wait_for_function("booted && ready()")
         if "Updated to v" not in pg.evaluate("document.getElementById('toast').textContent"): fails.append("no update notice after a new version")
         pg.evaluate("document.getElementById('toast').click()"); pg.wait_for_timeout(200)
         if pg.evaluate("state.view") != "setup" or not pg.evaluate("!!document.getElementById('whatsnew')&&document.querySelectorAll('#whatsnew details').length>=2"): fails.append("What's new panel missing")
@@ -95,6 +97,18 @@ def main(seed_path):
             pg.evaluate(f"""(async()=>{{await write('tasks','{d['id']}',{{notes:'x'}});}})()""")
             w = pg.evaluate("window.__writes.slice(-1)[0].row")
             if "due" in w: fails.append(f"existing due overwritten ({w})")
+        # 2.1.0: a popup save sends only changed fields, so a stale copy cannot undo someone else's edit; one tag from a fixed list
+        tt = pg.evaluate("store.tasks.find(t=>t.status!=='Done'&&t.status!=='Cancelled')")
+        if tt:
+            pg.evaluate(f"openTask('{tt['id']}')")
+            opts = pg.evaluate("[...document.querySelectorAll('#mk_tags option')].map(o=>o.value).filter(Boolean)")
+            if opts[-8:] != ["website","catalogue","content","marketing","integrations","analytics","operations","planning"]: fails.append(f"tag picker options wrong: {opts}")
+            # someone else changes the details after the popup opened (poll refresh)
+            pg.evaluate(f"store.tasks.find(t=>t.id==='{tt['id']}').details='EDITED ELSEWHERE'")
+            pg.evaluate("window.__writes.length=0"); pg.select_option("#mk_priority", "Low" if tt.get("priority")!="Low" else "High"); pg.click("#mkSave"); pg.wait_for_timeout(200)
+            w = pg.evaluate("(window.__writes.find(x=>x&&x.table==='tasks'&&x.op==='update')||{}).row||{}")
+            extra = [k for k in w if k not in ("priority","updated_at")]
+            if "priority" not in w or extra: fails.append(f"popup save sent untouched fields: {sorted(w)}")
         # new task popup
         pg.evaluate("openTaskNew()"); pg.fill("#mk_name", "Rule check"); pg.select_option("#mk_status", "Done")
         pg.click("#mkSave"); pg.wait_for_timeout(200)
@@ -134,7 +148,7 @@ def main(seed_path):
         if not pg.evaluate("document.querySelectorAll('#view tbody tr').length"): fails.append("picking Lifecycle = Lost shows nothing")
         pg.evaluate("F.status='';render()")
         # v70: Paid gets a paid date
-        inv = pg.evaluate("store.money.find(m=>m.dir==='Income'&&m.status==='Unpaid').id")
+        inv = pg.evaluate("store.money.find(m=>m.dir==='Income'&&m.status==='Unpaid'&&!m.paid).id")
         pg.evaluate(f"(async()=>{{window.__writes.length=0;await write('money','{inv}',{{status:'Paid'}});}})()"); pg.wait_for_timeout(200)
         w = pg.evaluate("window.__writes.slice(-1)[0].row")
         if not w.get("paid"): fails.append(f"Paid without a paid date ({w})")
@@ -304,8 +318,12 @@ def main(seed_path):
         lab = pg.evaluate(f"[...document.querySelectorAll('.slrow')].find(r=>r.dataset.id==='{amr}').querySelector('.sl_b').textContent")
         if "Moda Body Shop" not in lab: fails.append(f"month editor does not show Amr's brand ({lab})")
         pg.evaluate("window.__writes.length=0"); pg.click("#mkSave"); pg.wait_for_timeout(400)
-        w = pg.evaluate(f"window.__writes.filter(x=>x.table==='money'&&x.row&&x.row.partner==='Amr').slice(-1)[0]")
-        if not w or w["row"].get("acct") != pg.evaluate("store.accounts.find(a=>a.brand==='Moda Body Shop').id"): fails.append(f"editing the month dropped Amr's brand ({w})")
+        # 2.1.0: unchanged fields are not sent, so the brand must either be absent from the write or equal to MBS
+        w = pg.evaluate(f"window.__writes.filter(x=>x.table==='money'&&x.op==='update'&&x.__where&&JSON.stringify(x.__where).includes('{amr}')).slice(-1)[0]") if False else None
+        mbs = pg.evaluate("store.accounts.find(a=>a.brand==='Moda Body Shop').id")
+        ws = pg.evaluate("window.__writes.filter(x=>x.table==='money'&&x.row&&'acct' in x.row)")
+        if any(x["row"].get("acct") in (None, "") for x in ws if x["row"].get("partner") in (None,"Amr")): fails.append(f"editing the month cleared a brand ({ws})")
+        if pg.evaluate(f"store.money.find(m=>m.id==='{amr}').acct") != mbs: fails.append("editing the month dropped Amr's brand")
         # v75: client groups
         g = pg.evaluate("""(()=>{let byBrand=0,byGroup=0;store.accounts.forEach(a=>byBrand+=collectedOn([a.id])-estCost(a.id,'0000-01','9999-12'));
           store.accounts.filter(a=>groupOf(a.id)===a.id).forEach(a=>byGroup+=collectedOn(groupIds(a.id))-groupCost(a.id,'0000-01','9999-12'));
